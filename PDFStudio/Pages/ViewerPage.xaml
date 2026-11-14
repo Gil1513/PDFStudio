@@ -39,6 +39,19 @@
                     <KeyboardAccelerator Key="O" Modifiers="Control" />
                 </AppBarButton.KeyboardAccelerators>
             </AppBarButton>
+            <AppBarButton
+                x:Name="PropertiesButton"
+                Click="Properties_Click"
+                IsEnabled="False"
+                Label="Propriedades"
+                ToolTipService.ToolTip="Propriedades do documento (Ctrl+D)">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE946;" />
+                </AppBarButton.Icon>
+                <AppBarButton.KeyboardAccelerators>
+                    <KeyboardAccelerator Key="D" Modifiers="Control" />
+                </AppBarButton.KeyboardAccelerators>
+            </AppBarButton>
             <AppBarSeparator />
             <AppBarButton
                 x:Name="ZoomOutButton"

@@ -92,9 +92,9 @@
                 </RadioButtons>
                 <StackPanel
                     x:Name="VisibleOptions"
-                    Orientation="Horizontal"
                     Spacing="12"
                     Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" Spacing="12">
                     <NumberBox
                         x:Name="PageBox"
                         MinWidth="120"
@@ -113,14 +113,50 @@
                         <x:String>Canto superior esquerdo</x:String>
                     </ComboBox>
                 </StackPanel>
+                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Texto do carimbo" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Muda só o que aparece desenhado na página. Quem assinou de verdade sempre vem do certificado, e é isso que os leitores de PDF mostram."
+                    TextWrapping="Wrap" />
+                <TextBox
+                    x:Name="StampTitleBox"
+                    Header="Primeira linha"
+                    PlaceholderText="Assinado digitalmente por:"
+                    TextChanged="StampText_Changed" />
+                <TextBox
+                    x:Name="StampNameBox"
+                    Header="Nome exibido"
+                    PlaceholderText="Nome do certificado"
+                    TextChanged="StampText_Changed" />
+                <StackPanel Orientation="Horizontal" Spacing="24">
+                    <CheckBox x:Name="StampDateCheck" Content="Mostrar data e hora" IsChecked="True" Click="StampOption_Click" />
+                    <CheckBox x:Name="StampDetailsCheck" Content="Mostrar motivo, local e contato" IsChecked="True" Click="StampOption_Click" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Prévia" />
+                    <Border
+                        Width="345"
+                        Height="108"
+                        HorizontalAlignment="Left"
+                        Background="#F5F9FF"
+                        BorderBrush="#005FB8"
+                        BorderThickness="1.5">
+                        <StackPanel Padding="12,8" Spacing="1">
+                            <TextBlock x:Name="PreviewTitle" FontSize="11" Foreground="#005FB8" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="PreviewName" FontSize="13" FontWeight="Bold" Foreground="Black" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="PreviewLines" FontSize="11" Foreground="Black" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+                </StackPanel>
             </StackPanel>
 
             <!--  4. Detalhes  -->
             <StackPanel Spacing="8">
                 <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="4. Detalhes (opcional)" />
-                <TextBox x:Name="ReasonBox" Header="Motivo" PlaceholderText="Ex.: Aprovação do documento" />
-                <TextBox x:Name="LocationBox" Header="Local" PlaceholderText="Ex.: São Paulo, SP" />
-                <TextBox x:Name="ContactBox" Header="Contato" PlaceholderText="Ex.: e-mail ou telefone" />
+                <TextBox x:Name="ReasonBox" TextChanged="StampText_Changed" Header="Motivo" PlaceholderText="Ex.: Aprovação do documento" />
+                <TextBox x:Name="LocationBox" TextChanged="StampText_Changed" Header="Local" PlaceholderText="Ex.: São Paulo, SP" />
+                <TextBox x:Name="ContactBox" TextChanged="StampText_Changed" Header="Contato" PlaceholderText="Ex.: e-mail ou telefone (aparece só no carimbo visível)" />
                 <Expander
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"

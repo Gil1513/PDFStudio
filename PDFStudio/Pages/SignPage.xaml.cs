@@ -99,6 +99,7 @@ public sealed partial class SignPage : Page
         }
         CertBar.IsOpen = true;
         UpdateState();
+        UpdatePreview();
         return _cert is { HasPrivateKey: true };
     }
 
@@ -108,6 +109,29 @@ public sealed partial class SignPage : Page
     {
         if (VisibleOptions is null) return; // durante InitializeComponent
         VisibleOptions.Visibility = KindRadios.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        UpdatePreview();
+    }
+
+    private void StampText_Changed(object sender, TextChangedEventArgs e) => UpdatePreview();
+    private void StampOption_Click(object sender, RoutedEventArgs e) => UpdatePreview();
+
+    /// <summary>Atualiza a prévia do carimbo com o mesmo texto que será desenhado no PDF.</summary>
+    private void UpdatePreview()
+    {
+        if (PreviewTitle is null || ContactBox is null) return; // durante InitializeComponent
+        PreviewTitle.Text = string.IsNullOrWhiteSpace(StampTitleBox.Text) ? PdfSigning.DefaultStampTitle : StampTitleBox.Text.Trim();
+        PreviewName.Text = !string.IsNullOrWhiteSpace(StampNameBox.Text) ? StampNameBox.Text.Trim()
+            : _cert?.Name ?? "(nome do certificado)";
+
+        var lines = new List<string>();
+        if (StampDateCheck.IsChecked == true) lines.Add($"Data: {DateTime.Now:dd/MM/yyyy HH:mm:ss zzz}");
+        if (StampDetailsCheck.IsChecked == true)
+        {
+            if (NullIfEmpty(ReasonBox.Text) is { } r) lines.Add($"Motivo: {r}");
+            if (NullIfEmpty(LocationBox.Text) is { } l) lines.Add($"Local: {l}");
+            if (NullIfEmpty(ContactBox.Text) is { } c) lines.Add($"Contato: {c}");
+        }
+        PreviewLines.Text = string.Join("\n", lines);
     }
 
     private void UpdateState()
@@ -147,6 +171,10 @@ public sealed partial class SignPage : Page
             Location = NullIfEmpty(LocationBox.Text),
             ContactInfo = NullIfEmpty(ContactBox.Text),
             TimestampUrl = NullIfEmpty(tsa),
+            StampTitle = NullIfEmpty(StampTitleBox.Text),
+            StampSignerName = NullIfEmpty(StampNameBox.Text),
+            StampShowDate = StampDateCheck.IsChecked == true,
+            StampShowDetails = StampDetailsCheck.IsChecked == true,
         };
 
         SignProgress.IsActive = true;

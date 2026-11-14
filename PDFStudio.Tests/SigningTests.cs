@@ -184,6 +184,54 @@ public class SigningTests
     }
 
     [Fact]
+    public async Task Sign_Visible_UsesCustomStampTexts()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string output = Path.Combine(dir, "assinado.pdf");
+
+        await PdfSigning.SignAsync(new SignatureRequest
+        {
+            InputPath = input, OutputPath = output, PfxPath = CreatePfx(dir), PfxPassword = Password,
+            Visible = true, Reason = "Contrato", Location = "Recife",
+            StampTitle = "Aprovado por:", StampSignerName = "Dr. Fulano", StampShowDate = false,
+        });
+
+        VerifySignature(output);
+        string appearance = AppearanceStream(output);
+        Assert.Contains("Aprovado por:", appearance);
+        Assert.Contains("Dr. Fulano", appearance);
+        Assert.DoesNotContain("Assinado digitalmente", appearance);
+        Assert.DoesNotContain("Data:", appearance);
+        Assert.Contains("Contrato", appearance);
+
+        // O certificado continua sendo o verdadeiro: o nome do carimbo não muda quem assinou.
+        var sig = Assert.Single(DocumentPropertiesService.Read(output).Signatures);
+        Assert.Equal("Fulano de Tal", sig.Signer);
+        Assert.Equal("Contrato", sig.Reason);
+        Assert.Equal("Recife", sig.Location);
+    }
+
+    [Fact]
+    public async Task Sign_Visible_CanHideReasonAndLocation()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string output = Path.Combine(dir, "assinado.pdf");
+
+        await PdfSigning.SignAsync(new SignatureRequest
+        {
+            InputPath = input, OutputPath = output, PfxPath = CreatePfx(dir), PfxPassword = Password,
+            Visible = true, Reason = "Contrato", Location = "Recife", StampShowDetails = false,
+        });
+
+        string appearance = AppearanceStream(output);
+        Assert.Contains("Fulano de Tal", appearance);
+        Assert.DoesNotContain("Contrato", appearance);
+        Assert.DoesNotContain("Recife", appearance);
+    }
+
+    [Fact]
     public async Task Sign_CanOverwriteInput()
     {
         string dir = TestPdfs.TempDir();

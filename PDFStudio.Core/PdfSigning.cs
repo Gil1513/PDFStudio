@@ -27,7 +27,22 @@ public sealed class SignatureRequest
 
     public string? Reason { get; init; }
     public string? Location { get; init; }
+    /// <summary>
+    /// Contato. O PDFsharp 6.2.4 não grava /ContactInfo nos dados da assinatura,
+    /// então ele só aparece no carimbo visível.
+    /// </summary>
     public string? ContactInfo { get; init; }
+
+    // ---- Texto do carimbo visível (não altera o certificado) ----
+
+    /// <summary>Nome mostrado no carimbo. Vazio = nome do certificado.</summary>
+    public string? StampSignerName { get; init; }
+    /// <summary>Primeira linha do carimbo. Vazio = "Assinado digitalmente por:".</summary>
+    public string? StampTitle { get; init; }
+    /// <summary>Mostra a data e a hora no carimbo.</summary>
+    public bool StampShowDate { get; init; } = true;
+    /// <summary>Mostra o motivo e o local no carimbo.</summary>
+    public bool StampShowDetails { get; init; } = true;
     /// <summary>Servidor de carimbo de tempo (RFC 3161), opcional. Requer internet.</summary>
     public string? TimestampUrl { get; init; }
 }
@@ -43,6 +58,8 @@ public static class PdfSigning
 {
     /// <summary>Tamanho do carimbo visível, em pontos (1/72 pol.).</summary>
     public const double StampWidth = 230, StampHeight = 72, StampMargin = 36;
+
+    public const string DefaultStampTitle = "Assinado digitalmente por:";
 
     static PdfSigning()
     {
@@ -117,7 +134,13 @@ public static class PdfSigning
                 pageIndex = request.PageNumber - 1;
                 var page = doc.Pages[pageIndex];
                 rectangle = StampRectangle(page.Width.Point, page.Height.Point, request.Position);
-                appearance = new StampAppearance(summary.Name, request.Reason, request.Location, DateTime.Now);
+                appearance = new StampAppearance(
+                    string.IsNullOrWhiteSpace(request.StampTitle) ? DefaultStampTitle : request.StampTitle.Trim(),
+                    string.IsNullOrWhiteSpace(request.StampSignerName) ? summary.Name : request.StampSignerName.Trim(),
+                    request.StampShowDetails ? request.Reason : null,
+                    request.StampShowDetails ? request.Location : null,
+                    request.StampShowDetails ? request.ContactInfo : null,
+                    request.StampShowDate ? DateTime.Now : null);
             }
 
             var options = new DigitalSignatureOptions
@@ -164,7 +187,7 @@ public static class PdfSigning
     }
 
     /// <summary>Desenha o carimbo visível: borda, nome do signatário, data, motivo e local.</summary>
-    private sealed class StampAppearance(string signer, string? reason, string? location, DateTime when) : IAnnotationAppearanceHandler
+    private sealed class StampAppearance(string title, string signer, string? reason, string? location, string? contact, DateTime? when) : IAnnotationAppearanceHandler
     {
         public void DrawAppearance(XGraphics gfx, XRect rect)
         {
@@ -178,11 +201,14 @@ public static class PdfSigning
                 new XRect(0.5, 0.5, rect.Width - 1, rect.Height - 1));
 
             double x = 8, y = 14;
-            gfx.DrawString("Assinado digitalmente por:", bodyFont, new XSolidBrush(accent), x, y);
+            gfx.DrawString(Fit(gfx, title, bodyFont, rect.Width - 16), bodyFont, new XSolidBrush(accent), x, y);
             y += 12;
             gfx.DrawString(Fit(gfx, signer, titleFont, rect.Width - 16), titleFont, XBrushes.Black, x, y);
-            y += 12;
-            gfx.DrawString($"Data: {when:dd/MM/yyyy HH:mm:ss zzz}", bodyFont, XBrushes.Black, x, y);
+            if (when is { } date)
+            {
+                y += 12;
+                gfx.DrawString($"Data: {date:dd/MM/yyyy HH:mm:ss zzz}", bodyFont, XBrushes.Black, x, y);
+            }
             if (!string.IsNullOrWhiteSpace(reason))
             {
                 y += 10;
@@ -192,6 +218,11 @@ public static class PdfSigning
             {
                 y += 10;
                 gfx.DrawString(Fit(gfx, $"Local: {location}", bodyFont, rect.Width - 16), bodyFont, XBrushes.Black, x, y);
+            }
+            if (!string.IsNullOrWhiteSpace(contact))
+            {
+                y += 10;
+                gfx.DrawString(Fit(gfx, $"Contato: {contact}", bodyFont, rect.Width - 16), bodyFont, XBrushes.Black, x, y);
             }
         }
 

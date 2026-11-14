@@ -1,6 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using PDFStudio.Core;
+using PDFStudio.Dialogs;
 using PDFStudio.Services;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
@@ -17,6 +19,7 @@ public sealed partial class ViewerPage : Page
     private const int WrongPasswordHResult = unchecked((int)0x8007052B);
 
     private WinPdfDocument? _document;
+    private string? _path;
     private List<PageSlot> _slots = [];
     private bool _updatingPageBox;
 
@@ -53,6 +56,7 @@ public sealed partial class ViewerPage : Page
             }
 
             _document = doc;
+            _path = path;
             _slots = PdfRenderer.CreateSlots(doc);
             PagesRepeater.ItemsSource = _slots;
 
@@ -65,6 +69,7 @@ public sealed partial class ViewerPage : Page
             EmptyState.Visibility = Visibility.Collapsed;
             Scroller.Visibility = Visibility.Visible;
             ZoomInButton.IsEnabled = ZoomOutButton.IsEnabled = FitWidthButton.IsEnabled = PageNumberBox.IsEnabled = true;
+            PropertiesButton.IsEnabled = true;
 
             // Ajusta à largura depois que o layout estiver pronto (o ScrollViewer acabou de ficar visível).
             Scroller.ChangeView(0, 0, null, true);
@@ -137,6 +142,23 @@ public sealed partial class ViewerPage : Page
     {
         string? path = await FilePickers.PickPdfAsync();
         if (path is not null) await OpenAsync(path);
+    }
+
+    private async void Properties_Click(object sender, RoutedEventArgs e)
+    {
+        if (_path is null) return;
+        string path = _path;
+        try
+        {
+            var props = await Task.Run(() => DocumentPropertiesService.Read(path));
+            var dialog = new DocumentPropertiesDialog(props) { XamlRoot = XamlRoot };
+            await dialog.ShowAsync();
+            if (dialog.Saved) await OpenAsync(path); // recarrega com as novas informações
+        }
+        catch (Exception ex)
+        {
+            ShowError("Não foi possível ler as propriedades", ex.Message);
+        }
     }
 
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => SetZoom(Scroller.ZoomFactor * 1.25f);
