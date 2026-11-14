@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="PDFStudio.Core/PDFStudio.Core.csproj" />
+  <Project Path="PDFStudio.Tests/PDFStudio.Tests.csproj" />
+  <Project Path="PDFStudio/PDFStudio.csproj" />
+</Solution>
