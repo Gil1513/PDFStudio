@@ -27,6 +27,19 @@ public sealed partial class PageSlot : INotifyPropertyChanged
         set { _image = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Image))); }
     }
 
+    // ---- Miniatura do painel lateral ----
+    private BitmapImage? _thumbnail;
+    public const double ThumbMaxWidth = 120;
+    public double ThumbWidth => Width >= Height ? ThumbMaxWidth : ThumbMaxWidth * Width / Height;
+    public double ThumbHeight => Width >= Height ? ThumbMaxWidth * Height / Width : ThumbMaxWidth;
+    internal bool ThumbnailRequested { get; set; }
+
+    public BitmapImage? Thumbnail
+    {
+        get => _thumbnail;
+        set { _thumbnail = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Thumbnail))); }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 

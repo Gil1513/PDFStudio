@@ -1,4 +1,6 @@
 ﻿using Microsoft.UI.Xaml;
+using PDFStudio.Core;
+using PDFStudio.Services;
 
 namespace PDFStudio;
 
@@ -8,6 +10,12 @@ public partial class App : Application
 
     /// <summary>Janela principal, usada pelos seletores de arquivo (precisam do WindowId).</summary>
     public static MainWindow? MainWindow { get; private set; }
+
+    /// <summary>Arquivos recentes e com estrela.</summary>
+    public static RecentFilesStore Recent { get; } = new(RecentFilesStore.DefaultPath);
+
+    /// <summary>Preferências (tema, modo de exibição).</summary>
+    public static AppSettings Settings { get; } = AppSettings.Load();
 
     public App()
     {

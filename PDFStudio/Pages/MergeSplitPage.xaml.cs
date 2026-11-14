@@ -38,6 +38,14 @@ public sealed partial class MergeSplitPage : Page
     // Alternância Juntar / Dividir
     // =====================================================================
 
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        // A tela inicial abre direto na aba certa ("Combinar PDFs" ou "Dividir PDF").
+        if (e.Parameter is "split") ModeSelector.SelectedItem = SplitTab;
+        else if (e.Parameter is "merge") ModeSelector.SelectedItem = MergeTab;
+    }
+
     private void ModeSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         bool merge = sender.SelectedItem == MergeTab;

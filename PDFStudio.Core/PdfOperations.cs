@@ -12,6 +12,33 @@ public static class PdfOperations
         return doc.PageCount;
     }
 
+    // ---------------- Criar ----------------
+
+    /// <summary>Tamanhos de página oferecidos para um PDF em branco.</summary>
+    public static readonly IReadOnlyList<(string Name, PdfSharp.PageSize Size)> BlankPageSizes =
+    [
+        ("A4 (21 x 29,7 cm)", PdfSharp.PageSize.A4),
+        ("Carta (21,6 x 27,9 cm)", PdfSharp.PageSize.Letter),
+        ("Ofício (21,6 x 35,6 cm)", PdfSharp.PageSize.Legal),
+        ("A3 (29,7 x 42 cm)", PdfSharp.PageSize.A3),
+        ("A5 (14,8 x 21 cm)", PdfSharp.PageSize.A5),
+    ];
+
+    /// <summary>Cria um PDF com páginas em branco.</summary>
+    public static void CreateBlank(string output, int pages, PdfSharp.PageSize size, bool landscape = false)
+    {
+        if (pages is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(pages), "Escolha de 1 a 1000 páginas.");
+        using var doc = new PdfDocument();
+        doc.Info.Creator = "PDF Studio";
+        for (int i = 0; i < pages; i++)
+        {
+            var page = doc.AddPage();
+            page.Size = size;
+            page.Orientation = landscape ? PdfSharp.PageOrientation.Landscape : PdfSharp.PageOrientation.Portrait;
+        }
+        SaveSafely(doc, output);
+    }
+
     // ---------------- Juntar ----------------
 
     /// <summary>Junta os PDFs na ordem dada em um único arquivo.</summary>

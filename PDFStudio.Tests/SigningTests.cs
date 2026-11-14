@@ -193,7 +193,7 @@ public class SigningTests
         await PdfSigning.SignAsync(new SignatureRequest
         {
             InputPath = input, OutputPath = output, PfxPath = CreatePfx(dir), PfxPassword = Password,
-            Visible = true, Reason = "Contrato", Location = "Recife",
+            Visible = true, Reason = "Contrato", Location = "Recife", ContactInfo = "fulano@exemplo.com",
             StampTitle = "Aprovado por:", StampSignerName = "Dr. Fulano", StampShowDate = false,
         });
 
@@ -204,6 +204,7 @@ public class SigningTests
         Assert.DoesNotContain("Assinado digitalmente", appearance);
         Assert.DoesNotContain("Data:", appearance);
         Assert.Contains("Contrato", appearance);
+        Assert.Contains("fulano@exemplo.com", appearance);
 
         // O certificado continua sendo o verdadeiro: o nome do carimbo não muda quem assinou.
         var sig = Assert.Single(DocumentPropertiesService.Read(output).Signatures);

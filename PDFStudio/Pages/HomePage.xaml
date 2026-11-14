@@ -1,0 +1,624 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="PDFStudio.Pages.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:svc="using:PDFStudio.Services"
+    AllowDrop="True"
+    DragOver="Page_DragOver"
+    Drop="Page_Drop"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <!--  Botões do menu lateral  -->
+        <Style x:Key="SidebarButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <!--  Cabeçalhos clicáveis da lista (ordenar)  -->
+        <Style x:Key="ColumnHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,4" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+
+        <DataTemplate x:Key="ToolCardTemplate" x:DataType="svc:ToolInfo">
+            <Button
+                MinHeight="112"
+                Padding="16,14"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Top"
+                AutomationProperties.Name="{x:Bind Title}"
+                Background="{ThemeResource ToolCardBrush}"
+                BorderBrush="{ThemeResource ToolCardBorderBrush}"
+                BorderThickness="1"
+                Click="ToolCard_Click"
+                CornerRadius="{StaticResource ToolCardCornerRadius}"
+                Tag="{x:Bind}"
+                ToolTipService.ToolTip="{x:Bind ToolTip}">
+                <Grid Opacity="{x:Bind ContentOpacity}" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Width="30"
+                            Height="30"
+                            Background="{x:Bind IconBrush}"
+                            CornerRadius="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="White"
+                                Glyph="{x:Bind Glyph}" />
+                        </Border>
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            FontSize="14"
+                            FontWeight="SemiBold"
+                            Text="{x:Bind Title}"
+                            TextTrimming="CharacterEllipsis" />
+                        <Border
+                            Grid.Column="1"
+                            Margin="0,-13,-11,0"
+                            Padding="5,0,5,1"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}"
+                            CornerRadius="6"
+                            Visibility="{x:Bind SoonVisibility}">
+                            <TextBlock FontSize="10" Text="Em breve" />
+                        </Border>
+                    </Grid>
+                    <TextBlock
+                        Grid.Row="1"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        MaxLines="2"
+                        Text="{x:Bind Description}"
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="Wrap" />
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+        <!--  Uma linha da lista (arquivo ou pasta)  -->
+        <DataTemplate x:Key="RecentRowTemplate" x:DataType="svc:RecentItem">
+            <Grid
+                Height="48"
+                Background="Transparent"
+                ContextFlyout="{StaticResource RecentContextMenu}"
+                ColumnSpacing="12"
+                Opacity="{x:Bind RowOpacity}"
+                ToolTipService.ToolTip="{x:Bind Path}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="28" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="200" />
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="44" />
+                </Grid.ColumnDefinitions>
+                <FontIcon
+                    FontSize="20"
+                    Foreground="#5B8DEF"
+                    Glyph="{x:Bind Glyph}" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock
+                        FontSize="11"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        Text="{x:Bind Folder}"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <TextBlock
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind ModifiedText}" />
+                <TextBlock
+                    Grid.Column="3"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind SizeText}" />
+                <Button
+                    Grid.Column="4"
+                    Width="36"
+                    Height="32"
+                    Padding="0"
+                    AutomationProperties.Name="{x:Bind StarToolTip, Mode=OneWay}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="Star_Click"
+                    Tag="{x:Bind}"
+                    ToolTipService.ToolTip="{x:Bind StarToolTip, Mode=OneWay}"
+                    Visibility="{x:Bind StarVisibility}">
+                    <FontIcon
+                        FontSize="16"
+                        Foreground="{ThemeResource StarBrush}"
+                        Glyph="{x:Bind StarGlyph, Mode=OneWay}" />
+                </Button>
+            </Grid>
+        </DataTemplate>
+
+        <!--  Um bloco do modo grade  -->
+        <DataTemplate x:Key="RecentTileTemplate" x:DataType="svc:RecentItem">
+            <Grid
+                Width="168"
+                Padding="8"
+                Background="Transparent"
+                ContextFlyout="{StaticResource RecentContextMenu}"
+                Opacity="{x:Bind RowOpacity}"
+                RowSpacing="6"
+                ToolTipService.ToolTip="{x:Bind Path}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="200" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Border
+                    Background="{ThemeResource ToolCardBrush}"
+                    BorderBrush="{ThemeResource ToolCardBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6">
+                    <Grid>
+                        <FontIcon
+                            FontSize="48"
+                            Foreground="#5B8DEF"
+                            Glyph="{x:Bind Glyph}"
+                            Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" />
+                        <Image
+                            Margin="6"
+                            Source="{x:Bind Thumbnail, Mode=OneWay}"
+                            Stretch="Uniform" />
+                    </Grid>
+                </Border>
+                <Grid Grid.Row="1" ColumnSpacing="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Text="{x:Bind Name}"
+                        TextTrimming="CharacterEllipsis" />
+                    <Button
+                        Grid.Column="1"
+                        Width="28"
+                        Height="28"
+                        Padding="0"
+                        AutomationProperties.Name="{x:Bind StarToolTip, Mode=OneWay}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Click="Star_Click"
+                        Tag="{x:Bind}"
+                        Visibility="{x:Bind StarVisibility}">
+                        <FontIcon
+                            FontSize="14"
+                            Foreground="{ThemeResource StarBrush}"
+                            Glyph="{x:Bind StarGlyph, Mode=OneWay}" />
+                    </Button>
+                </Grid>
+                <TextBlock
+                    Grid.Row="2"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind ModifiedText}" />
+            </Grid>
+        </DataTemplate>
+
+        <MenuFlyout x:Key="RecentContextMenu" Opening="RecentContextMenu_Opening">
+            <MenuFlyoutItem Click="MenuOpen_Click" Text="Abrir">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8E5;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Click="MenuShowInFolder_Click" Text="Mostrar na pasta">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE838;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutItem Click="MenuCopyPath_Click" Text="Copiar caminho">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8C8;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+            <MenuFlyoutSeparator />
+            <MenuFlyoutItem Click="MenuRemove_Click" Text="Remover da lista">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE711;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+        </MenuFlyout>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="264" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!--  ================= BARRA LATERAL =================  -->
+        <Grid Padding="20,8,20,20" Background="{ThemeResource SidebarBackgroundBrush}" RowSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!--  Logo  -->
+            <StackPanel Margin="4,0,0,16" Orientation="Horizontal" Spacing="10">
+                <Border Width="38" Height="38" CornerRadius="10">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Offset="0" Color="#4F8BFF" />
+                            <GradientStop Offset="1" Color="#8A5CF6" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        FontSize="15"
+                        FontWeight="Bold"
+                        Foreground="White"
+                        Text="PS" />
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="20" FontWeight="SemiBold" Text="PDF Studio" />
+                    <TextBlock
+                        FontSize="11"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Seu editor de PDF" />
+                </StackPanel>
+            </StackPanel>
+
+            <Button
+                Grid.Row="1"
+                Click="OpenPdf_Click"
+                Content="Abrir PDF"
+                Style="{StaticResource SidebarButtonStyle}"
+                ToolTipService.ToolTip="Abrir PDF (Ctrl+O)">
+                <Button.Resources>
+                    <ResourceDictionary>
+                        <ResourceDictionary.ThemeDictionaries>
+                            <ResourceDictionary x:Key="Dark">
+                                <SolidColorBrush x:Key="ButtonBackground" Color="#F2F4F8" />
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FFFFFF" />
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#DDE1EA" />
+                                <SolidColorBrush x:Key="ButtonForeground" Color="#14161F" />
+                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#14161F" />
+                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#14161F" />
+                                <SolidColorBrush x:Key="ButtonBorderBrush" Color="Transparent" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                            </ResourceDictionary>
+                            <ResourceDictionary x:Key="Light">
+                                <SolidColorBrush x:Key="ButtonBackground" Color="#2F5BEA" />
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#3D68F2" />
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#2850D2" />
+                                <SolidColorBrush x:Key="ButtonForeground" Color="White" />
+                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White" />
+                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White" />
+                                <SolidColorBrush x:Key="ButtonBorderBrush" Color="Transparent" />
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                            </ResourceDictionary>
+                        </ResourceDictionary.ThemeDictionaries>
+                    </ResourceDictionary>
+                </Button.Resources>
+            </Button>
+
+            <Button
+                Grid.Row="2"
+                Background="Transparent"
+                BorderBrush="{ThemeResource TextFillColorPrimaryBrush}"
+                BorderThickness="1.5"
+                Content="Criar PDF"
+                Style="{StaticResource SidebarButtonStyle}">
+                <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                        <MenuFlyoutItem Click="CreateBlank_Click" Text="PDF em branco…">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8A5;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Click="CreateFromMerge_Click" Text="Combinando vários PDFs…">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8C8;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem IsEnabled="False" Text="A partir de imagens (em breve)">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xEB9F;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+
+            <ListView
+                x:Name="SectionList"
+                Grid.Row="3"
+                Margin="-4,12,-4,0"
+                SelectionChanged="SectionList_SelectionChanged"
+                SelectionMode="Single">
+                <ListViewItem Height="44" AutomationProperties.Name="Arquivos recentes" Tag="recent">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon FontSize="16" Glyph="&#xE81C;" />
+                        <TextBlock FontSize="15" Text="Arquivos recentes" />
+                    </StackPanel>
+                </ListViewItem>
+                <ListViewItem Height="44" AutomationProperties.Name="Arquivos com estrela" Tag="starred">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon FontSize="16" Glyph="&#xE734;" />
+                        <TextBlock FontSize="15" Text="Arquivos com estrela" />
+                    </StackPanel>
+                </ListViewItem>
+                <ListViewItem Height="44" AutomationProperties.Name="Pastas recentes" Tag="folders">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon FontSize="16" Glyph="&#xE8B7;" />
+                        <TextBlock FontSize="15" Text="Pastas recentes" />
+                    </StackPanel>
+                </ListViewItem>
+            </ListView>
+
+            <StackPanel Grid.Row="5" Spacing="8">
+                <Rectangle Height="1" Fill="{ThemeResource SeparatorBrush}" />
+                <Button
+                    Height="44"
+                    Padding="12,0"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="Settings_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon FontSize="16" Glyph="&#xE713;" />
+                        <TextBlock FontSize="15" Text="Configurações" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!--  ================= ÁREA PRINCIPAL =================  -->
+        <ScrollViewer Grid.Column="1">
+            <StackPanel Padding="28,16,28,28" Spacing="16">
+
+                <InfoBar
+                    x:Name="NoticeBar"
+                    IsOpen="False"
+                    Severity="Informational" />
+
+                <!--  Ferramentas  -->
+                <Grid>
+                    <TextBlock
+                        x:Name="ToolsTitle"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Ferramentas rápidas" />
+                    <HyperlinkButton
+                        x:Name="AllToolsLink"
+                        AutomationProperties.Name="Todas as ferramentas"
+                        HorizontalAlignment="Right"
+                        Click="AllTools_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xF0E2;" />
+                            <TextBlock x:Name="AllToolsText" Text="Todas as ferramentas" />
+                        </StackPanel>
+                    </HyperlinkButton>
+                </Grid>
+
+                <StackPanel>
+                    <StackPanel.Resources>
+                        <!--  Cores de hover/pressionado dos cartões  -->
+                        <ResourceDictionary>
+                            <ResourceDictionary.ThemeDictionaries>
+                                <ResourceDictionary x:Key="Dark">
+                                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#343A51" />
+                                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#262A3B" />
+                                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#4A5270" />
+                                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#363C52" />
+                                </ResourceDictionary>
+                                <ResourceDictionary x:Key="Light">
+                                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#F0F3FA" />
+                                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#E6EAF3" />
+                                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#C5CCDB" />
+                                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#DDE2EC" />
+                                </ResourceDictionary>
+                            </ResourceDictionary.ThemeDictionaries>
+                        </ResourceDictionary>
+                    </StackPanel.Resources>
+                    <ItemsRepeater x:Name="ToolGroupsRepeater">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="20" />
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="svc:ToolGroup">
+                                <StackPanel Spacing="10">
+                                    <TextBlock
+                                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                                        Text="{x:Bind Name}"
+                                        Visibility="{x:Bind HeaderVisibility}" />
+                                    <ItemsRepeater ItemTemplate="{StaticResource ToolCardTemplate}" ItemsSource="{x:Bind Tools}">
+                                        <ItemsRepeater.Layout>
+                                            <UniformGridLayout
+                                                ItemsStretch="Fill"
+                                                MaximumRowsOrColumns="5"
+                                                MinColumnSpacing="12"
+                                                MinItemHeight="112"
+                                                MinItemWidth="186"
+                                                MinRowSpacing="12" />
+                                        </ItemsRepeater.Layout>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </StackPanel>
+
+                <!--  Arquivos recentes  -->
+                <Grid Margin="0,16,0,0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        x:Name="RecentTitle"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Arquivos recentes" />
+                    <TextBox
+                        x:Name="SearchBox"
+                        Grid.Column="1"
+                        Width="240"
+                        VerticalAlignment="Center"
+                        PlaceholderText="Buscar arquivos"
+                        TextChanged="SearchBox_TextChanged" />
+                    <StackPanel
+                        x:Name="ViewModeButtons"
+                        Grid.Column="2"
+                        Padding="2"
+                        Background="{ThemeResource ToolCardBrush}"
+                        CornerRadius="6"
+                        Orientation="Horizontal">
+                        <ToggleButton
+                            x:Name="ListModeButton"
+                            Width="40"
+                            Height="32"
+                            Padding="0"
+                            AutomationProperties.Name="Exibir em lista"
+                            BorderThickness="0"
+                            Click="ListMode_Click"
+                            IsChecked="True"
+                            ToolTipService.ToolTip="Lista">
+                            <FontIcon FontSize="14" Glyph="&#xE8FD;" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="GridModeButton"
+                            Width="40"
+                            Height="32"
+                            Padding="0"
+                            AutomationProperties.Name="Exibir em grade"
+                            BorderThickness="0"
+                            Click="GridMode_Click"
+                            ToolTipService.ToolTip="Grade">
+                            <FontIcon FontSize="14" Glyph="&#xF0E2;" />
+                        </ToggleButton>
+                    </StackPanel>
+                    <Button
+                        Grid.Column="3"
+                        Width="40"
+                        Height="36"
+                        Padding="0"
+                        AutomationProperties.Name="Mais opções"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        ToolTipService.ToolTip="Mais opções">
+                        <FontIcon FontSize="14" Glyph="&#xE712;" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuFlyoutItem Click="RemoveMissing_Click" Text="Remover arquivos que não existem mais" />
+                                <MenuFlyoutItem Click="ClearRecent_Click" Text="Limpar recentes (mantém os com estrela)" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </Grid>
+
+                <!--  Cabeçalho das colunas (modo lista)  -->
+                <Grid
+                    x:Name="ColumnHeaders"
+                    Padding="16,0,16,0"
+                    ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="200" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="44" />
+                    </Grid.ColumnDefinitions>
+                    <Button
+                        Grid.Column="1"
+                        Margin="-4,0,0,0"
+                        Click="SortByName_Click"
+                        Style="{StaticResource ColumnHeaderButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Nome" />
+                            <FontIcon x:Name="NameSortIcon" FontSize="10" Glyph="&#xE8CB;" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        x:Name="DateHeader"
+                        Grid.Column="2"
+                        Margin="-4,0,0,0"
+                        Click="SortByDate_Click"
+                        Style="{StaticResource ColumnHeaderButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock x:Name="DateHeaderText" Text="Data de modificação" />
+                            <FontIcon x:Name="DateSortIcon" FontSize="10" Glyph="&#xE8CB;" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Grid.Column="3"
+                        Margin="-4,0,0,0"
+                        Click="SortBySize_Click"
+                        Style="{StaticResource ColumnHeaderButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Tamanho" />
+                            <FontIcon x:Name="SizeSortIcon" FontSize="10" Glyph="&#xE8CB;" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <ListView
+                    x:Name="RecentList"
+                    IsItemClickEnabled="True"
+                    ItemClick="Recent_ItemClick"
+                    ItemTemplate="{StaticResource RecentRowTemplate}"
+                    SelectionMode="None" />
+
+                <GridView
+                    x:Name="RecentGrid"
+                    ContainerContentChanging="RecentGrid_ContainerContentChanging"
+                    IsItemClickEnabled="True"
+                    ItemClick="Recent_ItemClick"
+                    ItemTemplate="{StaticResource RecentTileTemplate}"
+                    SelectionMode="None"
+                    Visibility="Collapsed" />
+
+                <StackPanel
+                    x:Name="EmptyState"
+                    Margin="0,32"
+                    HorizontalAlignment="Center"
+                    Spacing="8"
+                    Visibility="Collapsed">
+                    <FontIcon
+                        FontSize="40"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        Glyph="&#xE8A5;" />
+                    <TextBlock
+                        x:Name="EmptyText"
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Nenhum arquivo recente. Abra um PDF ou arraste um arquivo para esta janela."
+                        TextAlignment="Center"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

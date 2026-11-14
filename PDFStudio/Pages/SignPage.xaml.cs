@@ -22,10 +22,22 @@ public sealed partial class SignPage : Page
 
     // ---------- Documento ----------
 
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        // Aberto pelo visualizador: já seleciona o arquivo que estava aberto.
+        if (e.Parameter is string path && path.Length > 0 && !string.Equals(path, _pdf, StringComparison.OrdinalIgnoreCase))
+            await LoadPdfAsync(path);
+    }
+
     private async void PickPdf_Click(object sender, RoutedEventArgs e)
     {
         string? path = await FilePickers.PickPdfAsync();
-        if (path is null) return;
+        if (path is not null) await LoadPdfAsync(path);
+    }
+
+    private async Task LoadPdfAsync(string path)
+    {
         try
         {
             var (count, signed) = await Task.Run(() => (PdfOperations.GetPageCount(path), PdfSigning.HasSignatures(path)));

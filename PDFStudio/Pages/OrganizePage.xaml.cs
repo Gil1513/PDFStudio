@@ -50,6 +50,14 @@ public sealed partial class OrganizePage : Page
         Pages.CollectionChanged += (_, _) => { Renumber(); UpdateState(); };
     }
 
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        // Aberto pelo visualizador: já carrega o arquivo que estava aberto.
+        if (e.Parameter is string path && path.Length > 0 && !string.Equals(path, _file, StringComparison.OrdinalIgnoreCase))
+            await LoadAsync(path);
+    }
+
     private async void Open_Click(object sender, RoutedEventArgs e)
     {
         string? path = await FilePickers.PickPdfAsync();

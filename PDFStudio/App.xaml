@@ -8,9 +8,36 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
-            <!-- Other app resources here -->
+
+            <!--  Cores do PDF Studio (tema escuro cinza-azulado e uma versão clara)  -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#232737" />
+                    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#1A1D29" />
+                    <SolidColorBrush x:Key="SidebarItemSelectedBrush" Color="#2C3144" />
+                    <SolidColorBrush x:Key="ToolCardBrush" Color="#2B3043" />
+                    <SolidColorBrush x:Key="ToolCardHoverBrush" Color="#343A51" />
+                    <SolidColorBrush x:Key="ToolCardPressedBrush" Color="#262A3B" />
+                    <SolidColorBrush x:Key="ToolCardBorderBrush" Color="#363C52" />
+                    <SolidColorBrush x:Key="SeparatorBrush" Color="#2E3346" />
+                    <SolidColorBrush x:Key="StarBrush" Color="#F5B83D" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#F4F6FA" />
+                    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#E8EBF2" />
+                    <SolidColorBrush x:Key="SidebarItemSelectedBrush" Color="#D9DEEA" />
+                    <SolidColorBrush x:Key="ToolCardBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToolCardHoverBrush" Color="#F0F3FA" />
+                    <SolidColorBrush x:Key="ToolCardPressedBrush" Color="#E6EAF3" />
+                    <SolidColorBrush x:Key="ToolCardBorderBrush" Color="#DDE2EC" />
+                    <SolidColorBrush x:Key="SeparatorBrush" Color="#D5DAE5" />
+                    <SolidColorBrush x:Key="StarBrush" Color="#E0A11B" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <x:Double x:Key="ToolCardCornerRadiusValue">10</x:Double>
+            <CornerRadius x:Key="ToolCardCornerRadius">10</CornerRadius>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
