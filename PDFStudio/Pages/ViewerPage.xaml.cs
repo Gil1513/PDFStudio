@@ -26,61 +26,88 @@ public sealed partial class ViewerPage : Page
     private WinPdfDocument? _document;
     private string? _path;
     private List<PageSlot> _slots = [];
-    private bool _updatingPageBox, _updatingZoomSlider, _updatingThumbSelection;
+    private bool _updatingPageBox, _updatingThumbSelection;
     private Action? _statusAction;
 
-    /// <summary>Um botão da faixa de ferramentas. Key nulo = ainda não disponível.</summary>
-    private sealed record RibbonCommand(string Glyph, string Label, string? Key = null, bool NeedsFile = false);
+    /// <summary>Um botão da barra de ferramentas. Key nulo = ainda não disponível.</summary>
+    private sealed record ToolCommand(string Glyph, string Label, string? Key = null, bool NeedsFile = false);
 
-    private static readonly Dictionary<string, RibbonCommand[]> RibbonTabsContent = new()
+    private static readonly ToolCommand Sep = new("|", "");
+
+    /// <summary>Categorias do trilho esquerdo e as ferramentas de cada uma, agrupadas por separadores.</summary>
+    public static IReadOnlyList<ViewerCategory> Categories { get; } =
+    [
+        new("inicio", "\uE80F", "Início"),
+        new("comentario", "\uE90A", "Comentário"),
+        new("editar", "\uE70F", "Editar"),
+        new("converter", "\uE8AB", "Converter"),
+        new("ver", "\uE7B3", "Ver"),
+        new("organizar", "\uF0E2", "Organizar"),
+        new("ferramentas", "\uE90F", "Ferramentas"),
+        new("formulario", "\uE8A5", "Formulário"),
+        new("proteger", "\uE72E", "Proteger"),
+        new("ia", "\uE945", "IA"),
+    ];
+
+    private static readonly Dictionary<string, ToolCommand[]> CategoryTools = new()
     {
         ["inicio"] =
         [
-            new("", "Abrir", "abrir"),
-            new("", "Salvar cópia", "salvarcopia", NeedsFile: true),
-            new("", "Imprimir"),
-            new("|", ""),
-            new("", "Diminuir", "zoomout", NeedsFile: true),
-            new("", "Aumentar", "zoomin", NeedsFile: true),
-            new("", "Largura", "fitwidth", NeedsFile: true),
-            new("", "Página inteira", "fitpage", NeedsFile: true),
-            new("", "Tamanho real", "actualsize", NeedsFile: true),
-            new("|", ""),
-            new("", "Miniaturas", "miniaturas", NeedsFile: true),
-            new("", "Localizar"),
-            new("", "Propriedades", "propriedades", NeedsFile: true),
+            new("\uE8E5", "Abrir", "abrir"), new("\uE792", "Salvar cópia", "salvarcopia", NeedsFile: true), Sep,
+            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto"), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar"), Sep,
+            new("\uE8C8", "Combinar arquivos", "combinar"), new("\uE73F", "Comprimir PDF"), Sep,
+            new("\uEE56", "Assinar", "assinar", NeedsFile: true),
         ],
         ["comentario"] =
         [
-            new("", "Realçar"), new("", "Sublinhar"), new("", "Riscar"), new("|", ""),
-            new("", "Linha"), new("", "Retângulo"), new("", "Oval"), new("", "Tinta"), new("|", ""),
-            new("", "Caixa de texto"), new("", "Nota"), new("", "Carimbo"),
+            new("\uE7E6", "Realçar"), new("\uE8DC", "Sublinhar"), new("\uEDE0", "Riscar"), Sep,
+            new("\uE8D2", "Caixa de texto"), new("\uE70B", "Nota"), Sep,
+            new("\uE7AD", "Linha"), new("\uE739", "Retângulo"), new("\uEA3A", "Oval"), new("\uEE56", "Desenho livre"), Sep,
+            new("\uE8EC", "Carimbo"),
         ],
         ["editar"] =
         [
-            new("", "Editar texto"), new("", "Editar objeto"), new("", "Imagem"), new("", "Link"),
-            new("", "Anexo"), new("|", ""), new("", "Marca d'água"), new("", "Nº de página"), new("", "Cabeçalho e rodapé"),
+            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto"), new("\uEB9F", "Imagem"), new("\uE71B", "Link"), Sep,
+            new("\uE790", "Marca d'água"), new("\uE8EF", "Número de página"), new("\uE8A5", "Cabeçalho e rodapé"), new("\uE771", "Fundo"),
         ],
-        ["preencher"] =
+        ["converter"] =
         [
-            new("", "Máquina de escrever"), new("", "Marcar ✓"), new("", "Marcar ✗"), new("|", ""),
-            new("", "Assinatura digital", "assinar", NeedsFile: true), new("", "Achatar"),
+            new("\uE8A5", "Para Word"), new("\uEB9F", "Para imagem"), new("\uE8C4", "Para texto"), Sep,
+            new("\uE91B", "Imagem para PDF"), new("\uE8E9", "OCR"),
         ],
-        ["pagina"] =
+        ["ver"] =
         [
-            new("", "Organizar páginas", "organizar", NeedsFile: true), new("", "Dividir", "dividir"), new("", "Combinar", "combinar"),
-            new("|", ""), new("", "Inserir"), new("", "Extrair"), new("", "Excluir"), new("", "Recortar"), new("", "Redimensionar"),
+            new("\uE9A6", "Ajustar à largura", "fitwidth", NeedsFile: true), new("\uE7F4", "Página inteira", "fitpage", NeedsFile: true),
+            new("\uE8B3", "Tamanho real", "actualsize", NeedsFile: true), Sep,
+            new("\uE8A9", "Miniaturas", "miniaturas", NeedsFile: true), new("\uE740", "Tela cheia", "telacheia"),
         ],
-        ["proteger"] =
+        ["organizar"] =
         [
-            new("", "Senha"), new("", "Remover senha"), new("|", ""),
-            new("", "Assinar", "assinar", NeedsFile: true), new("", "Redigir"), new("", "Achatar"),
+            new("\uF0E2", "Organizar páginas", "organizar", NeedsFile: true), Sep,
+            new("\uE710", "Inserir"), new("\uE7A8", "Extrair"), new("\uE74D", "Excluir"), new("\uE7A8", "Recortar"), new("\uE740", "Redimensionar"), Sep,
+            new("\uE8C6", "Dividir", "dividir"), new("\uE8C8", "Combinar", "combinar"),
         ],
         ["ferramentas"] =
         [
-            new("", "Converter"), new("", "OCR"), new("", "Comprimir"), new("|", ""),
-            new("", "Combinar", "combinar"), new("", "Dividir", "dividir"), new("", "Impressão em lote"), new("|", ""),
-            new("", "Ler em voz alta"), new("", "Traduzir"),
+            new("\uE8E9", "OCR"), new("\uE73F", "Comprimir"), Sep,
+            new("\uE8C8", "Combinar", "combinar"), new("\uE8C6", "Dividir", "dividir"), Sep,
+            new("\uE8B9", "PDFs em lote"), new("\uE749", "Impressão em lote"), new("\uE767", "Ler em voz alta"),
+        ],
+        ["formulario"] =
+        [
+            new("\uE70B", "Preencher"), Sep,
+            new("\uE8D2", "Campo de texto"), new("\uE73A", "Caixa de seleção"), new("\uECCB", "Botão de opção"), new("\uE8EF", "Lista"), Sep,
+            new("\uE81E", "Achatar"),
+        ],
+        ["proteger"] =
+        [
+            new("\uEE56", "Assinar digitalmente", "assinar", NeedsFile: true), Sep,
+            new("\uE72E", "Colocar senha"), new("\uE785", "Remover senha"), Sep,
+            new("\uE7B3", "Redigir"), new("\uE81E", "Achatar"),
+        ],
+        ["ia"] =
+        [
+            new("\uE8C1", "Traduzir PDF"), new("\uE8BD", "Resumir"), new("\uE9D5", "Revisar contrato"),
         ],
     };
 
@@ -88,7 +115,8 @@ public sealed partial class ViewerPage : Page
     {
         InitializeComponent();
         NavigationCacheMode = NavigationCacheMode.Required; // mantém o PDF aberto ao ir para outra tela
-        BuildRibbon("inicio");
+        CategoryList.ItemsSource = Categories;
+        CategoryList.SelectedIndex = 0;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -128,11 +156,9 @@ public sealed partial class ViewerPage : Page
             PagesRepeater.ItemsSource = _slots;
             ThumbnailList.ItemsSource = _slots;
 
-            FileNameText.Text = Path.GetFileName(path);
-            ToolTipService.SetToolTip(FileNameText, path);
-            PageCountText.Text = $"/ {_slots.Count}";
+            PageCountText.Text = $"de {_slots.Count}";
             PageNumberBox.Maximum = Math.Max(1, _slots.Count);
-            DocInfoText.Text = $"{_slots.Count} {(_slots.Count == 1 ? "página" : "páginas")} · {DocumentPropertiesService.FormatSize(new FileInfo(path).Length)}";
+            App.MainWindow!.SetSubtitle(Path.GetFileName(path));
             SetPageBox(1);
             SetDocumentState(true);
 
@@ -150,22 +176,24 @@ public sealed partial class ViewerPage : Page
         }
     }
 
+    /// <summary>Nome do arquivo aberto (para a barra de título).</summary>
+    public string? FileName => _path is null ? null : Path.GetFileName(_path);
+
     private void SetDocumentState(bool open)
     {
         EmptyState.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
         Scroller.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        QuickSaveCopyButton.IsEnabled = QuickPropertiesButton.IsEnabled = open;
-        PageNav.IsHitTestVisible = ZoomBar.IsHitTestVisible = open;
-        PageNav.Opacity = ZoomBar.Opacity = open ? 1 : 0.5;
+        QuickSaveCopyButton.IsEnabled = QuickPropertiesButton.IsEnabled = QuickFolderButton.IsEnabled = SignaturesButton.IsEnabled = open;
+        PageNav.IsHitTestVisible = open;
+        PageNav.Opacity = open ? 1 : 0.5;
         if (!open)
         {
-            FileNameText.Text = "Nenhum arquivo aberto";
-            DocInfoText.Text = "";
-            PageCountText.Text = "/ 0";
+            PageCountText.Text = "0";
             ThumbnailsToggle.IsChecked = false;
             SidePanelColumn.Width = new GridLength(0);
+            App.MainWindow!.SetSubtitle("Visualizar");
         }
-        BuildRibbon(SelectedTab);
+        BuildToolbar(SelectedCategory);
     }
 
     private async Task<string?> AskPasswordAsync(string fileName)
@@ -192,54 +220,55 @@ public sealed partial class ViewerPage : Page
     // Faixa de ferramentas (abas)
     // =====================================================================
 
-    private string SelectedTab => (RibbonTabs.SelectedItem?.Tag as string) ?? "inicio";
+    private string SelectedCategory => (CategoryList.SelectedItem as ViewerCategory)?.Key ?? "inicio";
 
-    private void RibbonTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args) => BuildRibbon(SelectedTab);
+    private void CategoryList_SelectionChanged(object sender, SelectionChangedEventArgs e) => BuildToolbar(SelectedCategory);
 
-    private void BuildRibbon(string tab)
+    private void BuildToolbar(string category)
     {
-        RibbonPanel.Children.Clear();
-        foreach (var cmd in RibbonTabsContent[tab])
+        ToolbarPanel.Children.Clear();
+        foreach (var cmd in CategoryTools[category])
         {
-            if (cmd.Glyph == "|")
+            if (ReferenceEquals(cmd, Sep))
             {
-                RibbonPanel.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+                ToolbarPanel.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
                 {
                     Width = 1,
-                    Margin = new Thickness(8, 10, 8, 10),
+                    Height = 20,
+                    Margin = new Thickness(6, 0, 6, 0),
                     Fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(70, 128, 128, 128)),
                 });
                 continue;
             }
 
             bool available = cmd.Key is not null;
-            bool enabled = !cmd.NeedsFile || _path is not null;
             var button = new Button
             {
-                Style = (Style)Resources["RibbonButtonStyle"],
+                Style = (Style)Resources["ToolbarButtonStyle"],
                 Tag = cmd,
-                IsEnabled = enabled,
+                IsEnabled = !cmd.NeedsFile || _path is not null,
                 Content = new StackPanel
                 {
-                    Spacing = 4,
-                    Opacity = available ? 1 : 0.5,
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Opacity = available ? 1 : 0.45,
                     Children =
                     {
-                        new FontIcon { Glyph = cmd.Glyph, FontSize = 20 },
-                        new TextBlock { Text = cmd.Label, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center },
+                        new FontIcon { Glyph = cmd.Glyph, FontSize = 16 },
+                        new TextBlock { Text = cmd.Label, VerticalAlignment = VerticalAlignment.Center },
                     },
                 },
             };
             ToolTipService.SetToolTip(button, available ? cmd.Label : $"{cmd.Label} (em breve)");
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, cmd.Label);
-            button.Click += RibbonButton_Click;
-            RibbonPanel.Children.Add(button);
+            button.Click += ToolButton_Click;
+            ToolbarPanel.Children.Add(button);
         }
     }
 
-    private async void RibbonButton_Click(object sender, RoutedEventArgs e)
+    private async void ToolButton_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is not RibbonCommand cmd) return;
+        if ((sender as FrameworkElement)?.Tag is not ToolCommand cmd) return;
         if (cmd.Key is null)
         {
             ShowStatus(InfoBarSeverity.Informational, $"{cmd.Label}: em breve", "Esta ferramenta chega nas próximas etapas do PDF Studio.");
@@ -264,6 +293,7 @@ public sealed partial class ViewerPage : Page
                 UpdateSidePanel();
                 break;
             case "propriedades": await ShowPropertiesAsync(); break;
+            case "telacheia": ToggleFullScreen(); break;
             // Ferramentas que trabalham com o arquivo aberto recebem o caminho dele.
             case "organizar" or "assinar": App.MainWindow!.OpenTool(key, _path); break;
             default: App.MainWindow!.OpenTool(key); break;
@@ -372,6 +402,8 @@ public sealed partial class ViewerPage : Page
         App.MainWindow!.GoHome();
     }
 
+    private void GoHome_Click(object sender, RoutedEventArgs e) => App.MainWindow!.GoHome();
+
     private void Soon_Click(object sender, RoutedEventArgs e)
     {
         string name = (sender as FrameworkElement)?.Tag as string ?? "Esta função";
@@ -427,11 +459,17 @@ public sealed partial class ViewerPage : Page
 
     private void ThumbnailsToggle_Click(object sender, RoutedEventArgs e) => UpdateSidePanel();
 
+    private void ClosePanel_Click(object sender, RoutedEventArgs e)
+    {
+        ThumbnailsToggle.IsChecked = false;
+        UpdateSidePanel();
+    }
+
     private void UpdateSidePanel()
     {
         bool show = ThumbnailsToggle.IsChecked == true && _path is not null;
         if (ThumbnailsToggle.IsChecked == true && _path is null) ThumbnailsToggle.IsChecked = false;
-        SidePanelColumn.Width = new GridLength(show ? 180 : 0);
+        SidePanelColumn.Width = new GridLength(show ? 196 : 0);
         if (show) SyncThumbnailSelection((int)Math.Max(1, PageNumberBox.Value) - 1);
     }
 
@@ -502,18 +540,35 @@ public sealed partial class ViewerPage : Page
         UpdateZoomDisplay(zoom);
     }
 
-    private void UpdateZoomDisplay(float zoom)
+    private void UpdateZoomDisplay(float zoom) => ZoomText.Text = $"{Math.Round(zoom * 100)}%";
+
+    private void ZoomPreset_Click(object sender, RoutedEventArgs e)
     {
-        ZoomText.Text = $"{Math.Round(zoom * 100)}%";
-        _updatingZoomSlider = true;
-        ZoomSlider.Value = Math.Clamp(zoom * 100, ZoomSlider.Minimum, ZoomSlider.Maximum);
-        _updatingZoomSlider = false;
+        if ((sender as FrameworkElement)?.Tag is string tag && int.TryParse(tag, out int percent)) SetZoom(percent / 100f);
     }
 
-    private void ZoomSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    // =====================================================================
+    // Tela cheia
+    // =====================================================================
+
+    private void ToggleFullScreen_Click(object sender, RoutedEventArgs e) => ToggleFullScreen();
+
+    private static void ToggleFullScreen()
     {
-        if (_updatingZoomSlider || _slots.Count == 0 || Scroller is null) return;
-        SetZoom((float)(e.NewValue / 100), disableAnimation: true);
+        var window = App.MainWindow!.AppWindow;
+        window.SetPresenter(window.Presenter.Kind == Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
+            ? Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped
+            : Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+    }
+
+    private void Accel_FullScreen(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; ToggleFullScreen(); }
+
+    private void Accel_ExitFullScreen(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a)
+    {
+        var window = App.MainWindow!.AppWindow;
+        if (window.Presenter.Kind != Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen) return;
+        a.Handled = true;
+        window.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
     }
 
     // =====================================================================
@@ -572,10 +627,8 @@ public sealed partial class ViewerPage : Page
     }
 
     private int CurrentIndex => Math.Clamp((int)PageNumberBox.Value - 1, 0, Math.Max(0, _slots.Count - 1));
-    private void FirstPage_Click(object sender, RoutedEventArgs e) => GoToPage(0);
     private void PrevPage_Click(object sender, RoutedEventArgs e) => GoToPage(CurrentIndex - 1);
     private void NextPage_Click(object sender, RoutedEventArgs e) => GoToPage(CurrentIndex + 1);
-    private void LastPage_Click(object sender, RoutedEventArgs e) => GoToPage(_slots.Count - 1);
 
     // =====================================================================
     // Arrastar e soltar / mensagens
@@ -611,4 +664,13 @@ public sealed partial class ViewerPage : Page
     }
 
     private void StatusAction_Click(object sender, RoutedEventArgs e) => _statusAction?.Invoke();
+}
+
+/// <summary>Uma categoria do trilho esquerdo do visualizador.</summary>
+public sealed class ViewerCategory(string key, string glyph, string label)
+{
+    public string Key { get; } = key;
+    public string Glyph { get; } = glyph;
+    public string Label { get; } = label;
+    public override string ToString() => Label;
 }

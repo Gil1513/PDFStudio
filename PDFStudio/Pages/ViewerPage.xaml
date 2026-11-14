@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:pages="using:PDFStudio.Pages"
     xmlns:svc="using:PDFStudio.Services"
     AllowDrop="True"
     DragOver="Page_DragOver"
@@ -18,60 +19,92 @@
         <KeyboardAccelerator Key="Add" Invoked="Accel_ZoomIn" Modifiers="Control" />
         <KeyboardAccelerator Key="Subtract" Invoked="Accel_ZoomOut" Modifiers="Control" />
         <KeyboardAccelerator Key="Number0" Invoked="Accel_FitWidth" Modifiers="Control" />
+        <KeyboardAccelerator Key="F11" Invoked="Accel_FullScreen" />
+        <KeyboardAccelerator Key="Escape" Invoked="Accel_ExitFullScreen" />
     </Page.KeyboardAccelerators>
 
     <Page.Resources>
-        <!--  Botão da faixa de ferramentas: ícone em cima, nome embaixo  -->
-        <Style x:Key="RibbonButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <!--  Botão da barra superior: ícone + nome ao lado  -->
+        <Style x:Key="ToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="10,6" />
-            <Setter Property="MinWidth" Value="64" />
-            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="CornerRadius" Value="6" />
         </Style>
-        <Style x:Key="BarIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <!--  Botões só com ícone (trilho direito, desfazer etc.)  -->
+        <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Width" Value="34" />
-            <Setter Property="Height" Value="32" />
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
             <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style x:Key="RailToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
         </Style>
     </Page.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <Grid Padding="0,0,0,8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="100" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="SidePanelColumn" Width="0" />
+            <ColumnDefinition Width="52" />
+        </Grid.ColumnDefinitions>
 
-        <!--  ============ Linha das abas ============  -->
+        <!--  ================= TRILHO ESQUERDO: categorias =================  -->
         <Grid
-            Padding="12,6,12,0"
+            Margin="8,0,0,0"
             Background="{ThemeResource SidebarBackgroundBrush}"
-            ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+            CornerRadius="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
+            <!--  Menu Arquivo  -->
             <Button
                 x:Name="FileMenuButton"
-                Height="32"
-                Padding="10,0,14,0"
-                VerticalAlignment="Center"
-                CornerRadius="6"
-                Style="{StaticResource AccentButtonStyle}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon FontSize="14" Glyph="&#xE700;" />
-                    <TextBlock Text="Arquivo" />
+                Margin="6,8,6,4"
+                Padding="0,8"
+                HorizontalAlignment="Stretch"
+                AutomationProperties.Name="Arquivo"
+                Background="Transparent"
+                BorderThickness="0"
+                CornerRadius="8"
+                ToolTipService.ToolTip="Arquivo">
+                <StackPanel Spacing="4">
+                    <Border
+                        Width="34"
+                        Height="34"
+                        HorizontalAlignment="Center"
+                        CornerRadius="9">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Offset="0" Color="#4F8BFF" />
+                                <GradientStop Offset="1" Color="#8A5CF6" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <FontIcon
+                            FontSize="16"
+                            Foreground="White"
+                            Glyph="&#xE700;" />
+                    </Border>
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        FontSize="12"
+                        Text="Arquivo" />
                 </StackPanel>
                 <Button.Flyout>
-                    <MenuFlyout x:Name="FileMenu" Opening="FileMenu_Opening" Placement="BottomEdgeAlignedLeft">
+                    <MenuFlyout x:Name="FileMenu" Opening="FileMenu_Opening" Placement="RightEdgeAlignedTop">
                         <MenuFlyoutItem Click="Open_Click" KeyboardAcceleratorTextOverride="Ctrl+O" Text="Abrir…">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE8E5;" />
@@ -92,27 +125,6 @@
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
-                        <MenuFlyoutItem Click="MenuTool_Click" Tag="combinar" Text="Combinar PDFs">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE8C8;" />
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutItem Click="MenuTool_Click" Tag="dividir" Text="Dividir PDF">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE8C6;" />
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutItem Click="MenuTool_Click" Tag="organizar" Text="Organizar páginas">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xF0E2;" />
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutItem Click="MenuTool_Click" Tag="assinar" Text="Assinar PDF">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xEE56;" />
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem
                             x:Name="PropertiesMenuItem"
                             Click="Properties_Click"
@@ -128,6 +140,11 @@
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Click="GoHome_Click" Text="Tela inicial">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE80F;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutItem Click="MenuTool_Click" Tag="configuracoes" Text="Configurações">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE713;" />
@@ -142,324 +159,406 @@
                 </Button.Flyout>
             </Button>
 
-            <StackPanel
-                Grid.Column="1"
-                VerticalAlignment="Center"
-                Orientation="Horizontal">
-                <Button
-                    AutomationProperties.Name="Abrir"
-                    Click="Open_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Abrir (Ctrl+O)">
-                    <FontIcon FontSize="15" Glyph="&#xE8E5;" />
-                </Button>
-                <Button
-                    x:Name="QuickSaveCopyButton"
-                    AutomationProperties.Name="Salvar uma cópia"
-                    Click="SaveCopy_Click"
-                    IsEnabled="False"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Salvar uma cópia (Ctrl+Shift+S)">
-                    <FontIcon FontSize="15" Glyph="&#xE792;" />
-                </Button>
-                <Button
-                    x:Name="QuickPropertiesButton"
-                    AutomationProperties.Name="Propriedades"
-                    Click="Properties_Click"
-                    IsEnabled="False"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Propriedades (Ctrl+D)">
-                    <FontIcon FontSize="15" Glyph="&#xE946;" />
-                </Button>
-            </StackPanel>
+            <ListView
+                x:Name="CategoryList"
+                Grid.Row="1"
+                Padding="2,0"
+                SelectionChanged="CategoryList_SelectionChanged"
+                SelectionMode="Single">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="MinHeight" Value="56" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Margin" Value="0,1" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="pages:ViewerCategory">
+                        <StackPanel
+                            Padding="0,6"
+                            HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="{x:Bind Label}"
+                            Spacing="4"
+                            ToolTipService.ToolTip="{x:Bind Label}">
+                            <FontIcon
+                                HorizontalAlignment="Center"
+                                FontSize="18"
+                                Glyph="{x:Bind Glyph}" />
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                FontSize="11"
+                                Text="{x:Bind Label}"
+                                TextAlignment="Center"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
 
-            <SelectorBar
-                x:Name="RibbonTabs"
-                Grid.Column="2"
-                HorizontalAlignment="Center"
-                SelectionChanged="RibbonTabs_SelectionChanged">
-                <SelectorBarItem IsSelected="True" Tag="inicio" Text="Página inicial" />
-                <SelectorBarItem Tag="comentario" Text="Comentário" />
-                <SelectorBarItem Tag="editar" Text="Editar" />
-                <SelectorBarItem Tag="preencher" Text="Preencher e assinar" />
-                <SelectorBarItem Tag="pagina" Text="Página" />
-                <SelectorBarItem Tag="proteger" Text="Proteger" />
-                <SelectorBarItem Tag="ferramentas" Text="Ferramentas" />
-            </SelectorBar>
-
-            <TextBlock
-                x:Name="FileNameText"
-                Grid.Column="3"
-                MaxWidth="280"
-                VerticalAlignment="Center"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="Nenhum arquivo aberto"
-                TextTrimming="CharacterEllipsis" />
+            <Button
+                Grid.Row="2"
+                Margin="6,4,6,8"
+                Padding="0,8"
+                HorizontalAlignment="Stretch"
+                AutomationProperties.Name="Mais opções"
+                Background="Transparent"
+                BorderThickness="0"
+                CornerRadius="8"
+                ToolTipService.ToolTip="Mais opções">
+                <FontIcon FontSize="16" Glyph="&#xE712;" />
+                <Button.Flyout>
+                    <MenuFlyout Placement="RightEdgeAlignedBottom">
+                        <MenuFlyoutItem Click="ToggleFullScreen_Click" KeyboardAcceleratorTextOverride="F11" Text="Tela cheia">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE740;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Click="GoHome_Click" Text="Tela inicial">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE80F;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Click="MenuTool_Click" Tag="configuracoes" Text="Configurações">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE713;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
         </Grid>
 
-        <!--  ============ Faixa de ferramentas da aba ============  -->
-        <Border
-            Grid.Row="1"
-            Padding="12,4,12,6"
-            Background="{ThemeResource SidebarBackgroundBrush}"
-            BorderBrush="{ThemeResource SeparatorBrush}"
-            BorderThickness="0,0,0,1">
-            <ScrollViewer
-                HorizontalScrollBarVisibility="Auto"
-                HorizontalScrollMode="Auto"
-                VerticalScrollBarVisibility="Disabled"
-                VerticalScrollMode="Disabled">
-                <StackPanel
-                    x:Name="RibbonPanel"
-                    Height="64"
-                    HorizontalAlignment="Center"
-                    Orientation="Horizontal"
-                    Spacing="2" />
-            </ScrollViewer>
-        </Border>
+        <!--  ================= CENTRO: barra de ferramentas + documento =================  -->
+        <Grid Grid.Column="1" Margin="10,0,10,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-        <InfoBar
-            x:Name="StatusBar"
-            Grid.Row="2"
-            Margin="16,8,16,0"
-            IsOpen="False">
-            <InfoBar.ActionButton>
-                <Button x:Name="StatusAction" Click="StatusAction_Click" Visibility="Collapsed" />
-            </InfoBar.ActionButton>
-        </InfoBar>
-
-        <!--  ============ Área do documento ============  -->
-        <Grid Grid.Row="3">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="48" />
-                <ColumnDefinition x:Name="SidePanelColumn" Width="0" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <!--  Trilho de ícones  -->
+            <!--  Barra de ferramentas da categoria  -->
             <Grid
-                Padding="0,8"
+                Padding="8,4"
                 Background="{ThemeResource SidebarBackgroundBrush}"
-                BorderBrush="{ThemeResource SeparatorBrush}"
-                BorderThickness="0,0,1,0">
-                <StackPanel HorizontalAlignment="Center" Spacing="4">
-                    <ToggleButton
-                        x:Name="ThumbnailsToggle"
-                        Width="36"
-                        Height="36"
-                        Padding="0"
-                        AutomationProperties.Name="Miniaturas das páginas"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Click="ThumbnailsToggle_Click"
-                        ToolTipService.ToolTip="Miniaturas das páginas">
-                        <FontIcon FontSize="16" Glyph="&#xE8A9;" />
-                    </ToggleButton>
+                ColumnSpacing="4"
+                CornerRadius="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                     <Button
-                        Width="36"
-                        Height="36"
-                        AutomationProperties.Name="Marcadores"
+                        AutomationProperties.Name="Desfazer"
                         Click="Soon_Click"
-                        Style="{StaticResource BarIconButtonStyle}"
-                        Tag="Marcadores"
-                        ToolTipService.ToolTip="Marcadores (em breve)">
-                        <FontIcon FontSize="16" Glyph="&#xE8A4;" Opacity="0.55" />
+                        Style="{StaticResource IconButtonStyle}"
+                        Tag="Desfazer"
+                        ToolTipService.ToolTip="Desfazer (em breve)">
+                        <FontIcon FontSize="15" Glyph="&#xE7A7;" Opacity="0.45" />
                     </Button>
                     <Button
-                        Width="36"
-                        Height="36"
-                        AutomationProperties.Name="Comentários"
+                        AutomationProperties.Name="Refazer"
                         Click="Soon_Click"
-                        Style="{StaticResource BarIconButtonStyle}"
-                        Tag="Lista de comentários"
-                        ToolTipService.ToolTip="Comentários (em breve)">
-                        <FontIcon FontSize="16" Glyph="&#xE90A;" Opacity="0.55" />
+                        Style="{StaticResource IconButtonStyle}"
+                        Tag="Refazer"
+                        ToolTipService.ToolTip="Refazer (em breve)">
+                        <FontIcon FontSize="15" Glyph="&#xE7A6;" Opacity="0.45" />
+                    </Button>
+                    <Rectangle
+                        Width="1"
+                        Margin="6,10"
+                        Fill="{ThemeResource SeparatorBrush}" />
+                </StackPanel>
+
+                <ScrollViewer
+                    Grid.Column="1"
+                    HorizontalScrollBarVisibility="Auto"
+                    HorizontalScrollMode="Auto"
+                    VerticalScrollBarVisibility="Disabled"
+                    VerticalScrollMode="Disabled">
+                    <StackPanel
+                        x:Name="ToolbarPanel"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="2" />
+                </ScrollViewer>
+
+                <StackPanel
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="2">
+                    <Rectangle
+                        Width="1"
+                        Margin="6,10"
+                        Fill="{ThemeResource SeparatorBrush}" />
+                    <Button
+                        x:Name="QuickSaveCopyButton"
+                        AutomationProperties.Name="Salvar uma cópia"
+                        Click="SaveCopy_Click"
+                        IsEnabled="False"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="Salvar uma cópia (Ctrl+Shift+S)">
+                        <FontIcon FontSize="16" Glyph="&#xE792;" />
                     </Button>
                     <Button
-                        Width="36"
-                        Height="36"
-                        AutomationProperties.Name="Anexos"
+                        AutomationProperties.Name="Imprimir"
                         Click="Soon_Click"
-                        Style="{StaticResource BarIconButtonStyle}"
-                        Tag="Anexos"
-                        ToolTipService.ToolTip="Anexos (em breve)">
-                        <FontIcon FontSize="16" Glyph="&#xE723;" Opacity="0.55" />
+                        Style="{StaticResource IconButtonStyle}"
+                        Tag="Imprimir"
+                        ToolTipService.ToolTip="Imprimir (em breve)">
+                        <FontIcon FontSize="16" Glyph="&#xE749;" Opacity="0.45" />
+                    </Button>
+                    <Button
+                        x:Name="QuickPropertiesButton"
+                        AutomationProperties.Name="Propriedades"
+                        Click="Properties_Click"
+                        IsEnabled="False"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="Propriedades do documento (Ctrl+D)">
+                        <FontIcon FontSize="16" Glyph="&#xE946;" />
+                    </Button>
+                    <Button
+                        x:Name="QuickFolderButton"
+                        AutomationProperties.Name="Mostrar na pasta"
+                        Click="ShowInFolder_Click"
+                        IsEnabled="False"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="Mostrar na pasta">
+                        <FontIcon FontSize="16" Glyph="&#xE838;" />
                     </Button>
                 </StackPanel>
             </Grid>
 
-            <!--  Painel de miniaturas  -->
+            <InfoBar
+                x:Name="StatusBar"
+                Grid.Row="1"
+                Margin="0,8,0,0"
+                IsOpen="False">
+                <InfoBar.ActionButton>
+                    <Button x:Name="StatusAction" Click="StatusAction_Click" Visibility="Collapsed" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <!--  Documento  -->
             <Grid
-                Grid.Column="1"
+                x:Name="DocumentArea"
+                Grid.Row="2"
+                Margin="0,8,0,0"
                 Background="{ThemeResource SidebarBackgroundBrush}"
-                BorderBrush="{ThemeResource SeparatorBrush}"
-                BorderThickness="0,0,1,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <TextBlock
-                    Margin="16,12,0,8"
-                    Style="{StaticResource BodyStrongTextBlockStyle}"
-                    Text="Páginas" />
-                <ListView
-                    x:Name="ThumbnailList"
-                    Grid.Row="1"
-                    ContainerContentChanging="ThumbnailList_ContainerContentChanging"
-                    IsItemClickEnabled="True"
-                    ItemClick="ThumbnailList_ItemClick"
-                    SelectionMode="Single">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="svc:PageSlot">
-                            <StackPanel
-                                Padding="0,8"
-                                HorizontalAlignment="Center"
-                                Spacing="4">
+                CornerRadius="10">
+
+                <StackPanel
+                    x:Name="EmptyState"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="12">
+                    <FontIcon
+                        HorizontalAlignment="Center"
+                        FontSize="56"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        Glyph="&#xEA90;" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        Text="Abra um PDF para começar" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Use o botão abaixo ou arraste um arquivo para esta janela." />
+                    <Button
+                        HorizontalAlignment="Center"
+                        Click="Open_Click"
+                        Content="Abrir PDF"
+                        Style="{StaticResource AccentButtonStyle}" />
+                </StackPanel>
+
+                <ProgressBar
+                    x:Name="LoadingBar"
+                    VerticalAlignment="Top"
+                    IsIndeterminate="True"
+                    Visibility="Collapsed" />
+
+                <ScrollViewer
+                    x:Name="Scroller"
+                    HorizontalScrollBarVisibility="Auto"
+                    HorizontalScrollMode="Auto"
+                    MaxZoomFactor="5"
+                    MinZoomFactor="0.2"
+                    ViewChanged="Scroller_ViewChanged"
+                    Visibility="Collapsed"
+                    ZoomMode="Enabled">
+                    <ItemsRepeater
+                        x:Name="PagesRepeater"
+                        Margin="24"
+                        HorizontalAlignment="Center"
+                        ElementClearing="PagesRepeater_ElementClearing"
+                        ElementPrepared="PagesRepeater_ElementPrepared">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="16" />
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="svc:PageSlot">
                                 <Border
                                     HorizontalAlignment="Center"
                                     Background="White"
-                                    BorderBrush="{ThemeResource ToolCardBorderBrush}"
-                                    BorderThickness="1">
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2">
                                     <Image
-                                        Width="{x:Bind ThumbWidth}"
-                                        Height="{x:Bind ThumbHeight}"
-                                        Source="{x:Bind Thumbnail, Mode=OneWay}"
+                                        Width="{x:Bind Width}"
+                                        Height="{x:Bind Height}"
+                                        AutomationProperties.Name="{x:Bind Label}"
+                                        Source="{x:Bind Image, Mode=OneWay}"
                                         Stretch="Uniform" />
                                 </Border>
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    FontSize="12"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="{x:Bind Number}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </ScrollViewer>
             </Grid>
+        </Grid>
 
-            <!--  Estado vazio  -->
-            <StackPanel
-                x:Name="EmptyState"
-                Grid.Column="2"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Spacing="12">
-                <FontIcon
-                    HorizontalAlignment="Center"
-                    FontSize="56"
-                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                    Glyph="&#xEA90;" />
+        <!--  ================= PAINEL LATERAL (miniaturas) =================  -->
+        <Grid
+            Grid.Column="2"
+            Margin="0,0,6,0"
+            Background="{ThemeResource SidebarBackgroundBrush}"
+            CornerRadius="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid Padding="16,10,8,6">
                 <TextBlock
-                    HorizontalAlignment="Center"
-                    Style="{StaticResource SubtitleTextBlockStyle}"
-                    Text="Abra um PDF para começar" />
-                <TextBlock
-                    HorizontalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Use o botão abaixo ou arraste um arquivo para esta janela." />
+                    VerticalAlignment="Center"
+                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                    Text="Páginas" />
                 <Button
-                    HorizontalAlignment="Center"
-                    Click="Open_Click"
-                    Content="Abrir PDF"
-                    Style="{StaticResource AccentButtonStyle}" />
-            </StackPanel>
-
-            <ProgressBar
-                x:Name="LoadingBar"
-                Grid.Column="2"
-                VerticalAlignment="Top"
-                IsIndeterminate="True"
-                Visibility="Collapsed" />
-
-            <ScrollViewer
-                x:Name="Scroller"
-                Grid.Column="2"
-                HorizontalScrollBarVisibility="Auto"
-                HorizontalScrollMode="Auto"
-                MaxZoomFactor="5"
-                MinZoomFactor="0.2"
-                ViewChanged="Scroller_ViewChanged"
-                Visibility="Collapsed"
-                ZoomMode="Enabled">
-                <ItemsRepeater
-                    x:Name="PagesRepeater"
-                    Margin="24"
-                    HorizontalAlignment="Center"
-                    ElementClearing="PagesRepeater_ElementClearing"
-                    ElementPrepared="PagesRepeater_ElementPrepared">
-                    <ItemsRepeater.Layout>
-                        <StackLayout Spacing="16" />
-                    </ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate x:DataType="svc:PageSlot">
+                    HorizontalAlignment="Right"
+                    AutomationProperties.Name="Fechar painel"
+                    Click="ClosePanel_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    ToolTipService.ToolTip="Fechar painel">
+                    <FontIcon FontSize="12" Glyph="&#xE711;" />
+                </Button>
+            </Grid>
+            <ListView
+                x:Name="ThumbnailList"
+                Grid.Row="1"
+                ContainerContentChanging="ThumbnailList_ContainerContentChanging"
+                IsItemClickEnabled="True"
+                ItemClick="ThumbnailList_ItemClick"
+                SelectionMode="Single">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="svc:PageSlot">
+                        <StackPanel
+                            Padding="0,8"
+                            HorizontalAlignment="Center"
+                            Spacing="4">
                             <Border
                                 HorizontalAlignment="Center"
                                 Background="White"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                CornerRadius="2">
+                                BorderBrush="{ThemeResource ToolCardBorderBrush}"
+                                BorderThickness="1">
                                 <Image
-                                    Width="{x:Bind Width}"
-                                    Height="{x:Bind Height}"
-                                    AutomationProperties.Name="{x:Bind Label}"
-                                    Source="{x:Bind Image, Mode=OneWay}"
+                                    Width="{x:Bind ThumbWidth}"
+                                    Height="{x:Bind ThumbHeight}"
+                                    Source="{x:Bind Thumbnail, Mode=OneWay}"
                                     Stretch="Uniform" />
                             </Border>
-                        </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
-            </ScrollViewer>
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind Number}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
         </Grid>
 
-        <!--  ============ Barra inferior ============  -->
+        <!--  ================= TRILHO DIREITO: painéis, páginas e zoom =================  -->
         <Grid
-            Grid.Row="4"
-            Height="40"
-            Padding="12,0"
+            Grid.Column="3"
+            Margin="0,0,8,0"
+            Padding="0,6"
             Background="{ThemeResource SidebarBackgroundBrush}"
-            BorderBrush="{ThemeResource SeparatorBrush}"
-            BorderThickness="0,1,0,0"
-            ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+            CornerRadius="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-            <TextBlock
-                x:Name="DocInfoText"
-                VerticalAlignment="Center"
-                FontSize="12"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                TextTrimming="CharacterEllipsis" />
+            <StackPanel HorizontalAlignment="Center" Spacing="2">
+                <ToggleButton
+                    x:Name="ThumbnailsToggle"
+                    AutomationProperties.Name="Miniaturas"
+                    Click="ThumbnailsToggle_Click"
+                    Style="{StaticResource RailToggleStyle}"
+                    ToolTipService.ToolTip="Miniaturas das páginas">
+                    <FontIcon FontSize="16" Glyph="&#xE8A9;" />
+                </ToggleButton>
+                <Button
+                    AutomationProperties.Name="Marcadores"
+                    Click="Soon_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    Tag="Marcadores"
+                    ToolTipService.ToolTip="Marcadores (em breve)">
+                    <FontIcon FontSize="16" Glyph="&#xE8A4;" Opacity="0.45" />
+                </Button>
+                <Button
+                    AutomationProperties.Name="Comentários"
+                    Click="Soon_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    Tag="Lista de comentários"
+                    ToolTipService.ToolTip="Comentários (em breve)">
+                    <FontIcon FontSize="16" Glyph="&#xE90A;" Opacity="0.45" />
+                </Button>
+                <Button
+                    AutomationProperties.Name="Anexos"
+                    Click="Soon_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    Tag="Anexos"
+                    ToolTipService.ToolTip="Anexos (em breve)">
+                    <FontIcon FontSize="16" Glyph="&#xE723;" Opacity="0.45" />
+                </Button>
+                <Button
+                    AutomationProperties.Name="Pesquisar"
+                    Click="Soon_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    Tag="Pesquisar no documento"
+                    ToolTipService.ToolTip="Pesquisar no documento (em breve)">
+                    <FontIcon FontSize="16" Glyph="&#xE721;" Opacity="0.45" />
+                </Button>
+                <Button
+                    x:Name="SignaturesButton"
+                    AutomationProperties.Name="Assinaturas"
+                    Click="Properties_Click"
+                    IsEnabled="False"
+                    Style="{StaticResource IconButtonStyle}"
+                    ToolTipService.ToolTip="Assinaturas do documento">
+                    <FontIcon FontSize="16" Glyph="&#xEE56;" />
+                </Button>
+            </StackPanel>
 
+            <!--  Páginas  -->
             <StackPanel
                 x:Name="PageNav"
-                Grid.Column="1"
-                VerticalAlignment="Center"
-                IsHitTestVisible="False"
+                Grid.Row="2"
+                HorizontalAlignment="Center"
                 Opacity="0.5"
-                Orientation="Horizontal"
+                IsHitTestVisible="False"
                 Spacing="2">
-                <Button
-                    AutomationProperties.Name="Primeira página"
-                    Click="FirstPage_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Primeira página">
-                    <FontIcon FontSize="12" Glyph="&#xE892;" />
-                </Button>
-                <Button
-                    AutomationProperties.Name="Página anterior"
-                    Click="PrevPage_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Página anterior">
-                    <FontIcon FontSize="12" Glyph="&#xE76B;" />
-                </Button>
                 <NumberBox
                     x:Name="PageNumberBox"
-                    Width="72"
-                    Margin="4,0"
-                    VerticalAlignment="Center"
+                    Width="40"
+                    MinWidth="40"
+                    Padding="0"
+                    HorizontalAlignment="Center"
                     AutomationProperties.Name="Página atual"
                     Minimum="1"
                     SpinButtonPlacementMode="Hidden"
@@ -467,79 +566,88 @@
                     Value="1" />
                 <TextBlock
                     x:Name="PageCountText"
-                    MinWidth="40"
-                    VerticalAlignment="Center"
-                    Text="/ 0" />
+                    Margin="0,2,0,4"
+                    HorizontalAlignment="Center"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="0" />
+                <Button
+                    AutomationProperties.Name="Página anterior"
+                    Click="PrevPage_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    ToolTipService.ToolTip="Página anterior">
+                    <FontIcon FontSize="12" Glyph="&#xE70E;" />
+                </Button>
                 <Button
                     AutomationProperties.Name="Próxima página"
                     Click="NextPage_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
+                    Style="{StaticResource IconButtonStyle}"
                     ToolTipService.ToolTip="Próxima página">
-                    <FontIcon FontSize="12" Glyph="&#xE76C;" />
+                    <FontIcon FontSize="12" Glyph="&#xE70D;" />
                 </Button>
-                <Button
-                    AutomationProperties.Name="Última página"
-                    Click="LastPage_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Última página">
-                    <FontIcon FontSize="12" Glyph="&#xE893;" />
-                </Button>
-            </StackPanel>
 
-            <StackPanel
-                x:Name="ZoomBar"
-                Grid.Column="2"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Center"
-                IsHitTestVisible="False"
-                Opacity="0.5"
-                Orientation="Horizontal"
-                Spacing="2">
+                <Rectangle
+                    Height="1"
+                    Margin="8,6"
+                    Fill="{ThemeResource SeparatorBrush}" />
+
                 <Button
                     AutomationProperties.Name="Ajustar à largura"
                     Click="FitWidth_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
+                    Style="{StaticResource IconButtonStyle}"
                     ToolTipService.ToolTip="Ajustar à largura (Ctrl+0)">
-                    <FontIcon FontSize="14" Glyph="&#xE9A6;" />
+                    <FontIcon FontSize="15" Glyph="&#xE9A6;" />
                 </Button>
                 <Button
                     AutomationProperties.Name="Página inteira"
                     Click="FitPage_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
+                    Style="{StaticResource IconButtonStyle}"
                     ToolTipService.ToolTip="Página inteira">
-                    <FontIcon FontSize="14" Glyph="&#xE7F4;" />
+                    <FontIcon FontSize="15" Glyph="&#xE7F4;" />
+                </Button>
+                <Button
+                    x:Name="ZoomMenuButton"
+                    Height="30"
+                    Padding="0"
+                    HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="Nível de zoom"
+                    Background="{ThemeResource ToolCardBrush}"
+                    BorderThickness="0"
+                    CornerRadius="6"
+                    ToolTipService.ToolTip="Escolher o zoom">
+                    <TextBlock
+                        x:Name="ZoomText"
+                        FontSize="12"
+                        Text="100%" />
+                    <Button.Flyout>
+                        <MenuFlyout Placement="LeftEdgeAlignedBottom">
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="50" Text="50%" />
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="75" Text="75%" />
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="100" Text="100%" />
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="125" Text="125%" />
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="150" Text="150%" />
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="200" Text="200%" />
+                            <MenuFlyoutItem Click="ZoomPreset_Click" Tag="300" Text="300%" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Click="FitWidth_Click" Text="Ajustar à largura" />
+                            <MenuFlyoutItem Click="FitPage_Click" Text="Página inteira" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <Button
+                    AutomationProperties.Name="Aumentar zoom"
+                    Click="ZoomIn_Click"
+                    Style="{StaticResource IconButtonStyle}"
+                    ToolTipService.ToolTip="Aumentar zoom (Ctrl +)">
+                    <FontIcon FontSize="15" Glyph="&#xE8A3;" />
                 </Button>
                 <Button
                     AutomationProperties.Name="Diminuir zoom"
                     Click="ZoomOut_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
+                    Style="{StaticResource IconButtonStyle}"
                     ToolTipService.ToolTip="Diminuir zoom (Ctrl -)">
-                    <FontIcon FontSize="14" Glyph="&#xE71F;" />
+                    <FontIcon FontSize="15" Glyph="&#xE71F;" />
                 </Button>
-                <Slider
-                    x:Name="ZoomSlider"
-                    Width="140"
-                    VerticalAlignment="Center"
-                    AutomationProperties.Name="Zoom"
-                    IsThumbToolTipEnabled="False"
-                    Maximum="500"
-                    Minimum="20"
-                    StepFrequency="5"
-                    ValueChanged="ZoomSlider_ValueChanged"
-                    Value="100" />
-                <Button
-                    AutomationProperties.Name="Aumentar zoom"
-                    Click="ZoomIn_Click"
-                    Style="{StaticResource BarIconButtonStyle}"
-                    ToolTipService.ToolTip="Aumentar zoom (Ctrl +)">
-                    <FontIcon FontSize="14" Glyph="&#xE8A3;" />
-                </Button>
-                <TextBlock
-                    x:Name="ZoomText"
-                    MinWidth="48"
-                    VerticalAlignment="Center"
-                    Text="100%"
-                    TextAlignment="Right" />
             </StackPanel>
         </Grid>
     </Grid>

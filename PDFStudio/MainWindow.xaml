@@ -24,6 +24,9 @@
             Background="{ThemeResource SidebarBackgroundBrush}"
             BackRequested="AppTitleBar_BackRequested"
             IsBackButtonVisible="False">
+            <TitleBar.IconSource>
+                <ImageIconSource ImageSource="ms-appx:///Assets/Logo.png" />
+            </TitleBar.IconSource>
         </TitleBar>
 
         <Frame

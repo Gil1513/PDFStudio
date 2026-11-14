@@ -69,6 +69,9 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(page, parameter, new DrillInNavigationTransitionInfo());
     }
 
+    /// <summary>Texto ao lado de "PDF Studio" na barra de título (ex.: nome do arquivo aberto).</summary>
+    public void SetSubtitle(string text) => AppTitleBar.Subtitle = text;
+
     /// <summary>Volta para a tela inicial.</summary>
     public void GoHome()
     {
@@ -94,7 +97,7 @@ public sealed partial class MainWindow : Window
         AppTitleBar.IsBackButtonVisible = !home && ContentFrame.CanGoBack;
         AppTitleBar.Subtitle = e.SourcePageType.Name switch
         {
-            nameof(ViewerPage) => "Visualizar",
+            nameof(ViewerPage) => (ContentFrame.Content as ViewerPage)?.FileName ?? "Visualizar",
             nameof(MergeSplitPage) => "Juntar e dividir",
             nameof(OrganizePage) => "Organizar páginas",
             nameof(SignPage) => "Assinar",
