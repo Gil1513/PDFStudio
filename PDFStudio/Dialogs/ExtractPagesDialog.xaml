@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="PDFStudio.Dialogs.ExtractPagesDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Extrair páginas"
+    CloseButtonText="Cancelar"
+    DefaultButton="Primary"
+    PrimaryButtonClick="Primary_Click"
+    PrimaryButtonText="Extrair"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Width="420" Spacing="16">
+        <TextBox
+            x:Name="RangesBox"
+            Header="Páginas a extrair"
+            PlaceholderText="Ex.: 1-3, 8" />
+        <TextBlock
+            x:Name="HintText"
+            Margin="0,-8,0,0"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Style="{StaticResource CaptionTextBlockStyle}"
+            TextWrapping="Wrap" />
+
+        <RadioButtons x:Name="ModeChoice" Header="Resultado" SelectedIndex="0">
+            <x:String>Um único PDF com essas páginas</x:String>
+            <x:String>Um PDF para cada página (escolher pasta)</x:String>
+        </RadioButtons>
+
+        <CheckBox x:Name="DeleteCheck" Content="Depois, excluir essas páginas do arquivo aberto" />
+        <InfoBar
+            x:Name="SignedWarning"
+            Title="Este PDF tem assinatura digital"
+            IsClosable="False"
+            Message="Extrair não altera o arquivo, mas excluir as páginas dele invalida as assinaturas."
+            Severity="Warning" />
+
+        <TextBlock
+            x:Name="ErrorText"
+            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+            TextWrapping="Wrap"
+            Visibility="Collapsed" />
+    </StackPanel>
+</ContentDialog>

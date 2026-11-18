@@ -23,6 +23,28 @@ public static partial class PdfOperations
         return keep.Count;
     }
 
+    // ---------------- Extrair ----------------
+
+    /// <summary>
+    /// Copia as páginas indicadas (na ordem digitada, sem repetir) para um novo PDF.
+    /// O arquivo de entrada não é alterado. Retorna quantas páginas o novo arquivo tem.
+    /// </summary>
+    public static int ExtractPages(string input, string ranges, string output)
+    {
+        var pages = DistinctIndices(ranges, GetPageCount(input)).Select(i => new PageEdit(i)).ToList();
+        Reorganize(input, pages, output);
+        return pages.Count;
+    }
+
+    /// <summary>Grava cada página indicada como um PDF separado na pasta. Retorna os arquivos criados.</summary>
+    public static List<string> ExtractPagesSeparately(string input, string ranges, string outputFolder)
+    {
+        using var source = OpenForImport(input);
+        var groups = DistinctIndices(ranges, source.PageCount).Select(i => new[] { i }).ToList();
+        int digits = source.PageCount.ToString().Length;
+        return WriteGroups(source, input, outputFolder, groups, g => $"pagina_{(g[0] + 1).ToString().PadLeft(digits, '0')}");
+    }
+
     // ---------------- Utilitários ----------------
 
     /// <summary>Índices (0..n-1) citados nos intervalos, na ordem digitada e sem repetição.</summary>

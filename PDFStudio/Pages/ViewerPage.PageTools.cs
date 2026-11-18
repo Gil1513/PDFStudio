@@ -35,7 +35,60 @@ public sealed partial class ViewerPage
             (input, output) => PdfOperations.DeletePages(input, ranges, output));
     }
 
+    // ---------------- 3.2 Extrair ----------------
+
+    private async Task ExtractPagesAsync()
+    {
+        if (_path is null) return;
+        string input = _path;
+        var dialog = Prepare(new ExtractPagesDialog(_slots.Count, CurrentIndex + 1, await IsSignedAsync(input)));
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        string ranges = dialog.Ranges;
+
+        string? target = dialog.Separately
+            ? await FilePickers.PickFolderAsync()
+            : await FilePickers.SavePdfAsync(Path.GetFileNameWithoutExtension(input) + "-extraido");
+        if (target is null) return;
+        if (!dialog.Separately && SamePath(target, input))
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Escolha outro nome", "O arquivo extraído não pode substituir o arquivo aberto.");
+            return;
+        }
+
+        int page = CurrentIndex;
+        bool separately = dialog.Separately, delete = dialog.DeleteFromOriginal;
+        LoadingBar.Visibility = Visibility.Visible;
+        try
+        {
+            string message = await Task.Run(() =>
+            {
+                string result = separately
+                    ? $"{PdfOperations.ExtractPagesSeparately(input, ranges, target).Count} arquivos criados em {target}."
+                    : $"{PdfOperations.ExtractPages(input, ranges, target)} página(s) salvas em {target}.";
+                if (delete) PdfOperations.DeletePages(input, ranges, input);
+                return result;
+            });
+
+            if (delete) await ReopenAsync(input, page);
+            else LoadingBar.Visibility = Visibility.Collapsed;
+
+            if (separately)
+                ShowStatus(InfoBarSeverity.Success, "Páginas extraídas", message, "Abrir pasta",
+                    () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{target}\"") { UseShellExecute = true }));
+            else
+                ShowStatus(InfoBarSeverity.Success, "Páginas extraídas", message, "Abrir o arquivo extraído", async () => await OpenAsync(target));
+        }
+        catch (Exception ex)
+        {
+            LoadingBar.Visibility = Visibility.Collapsed;
+            ShowStatus(InfoBarSeverity.Error, "Não foi possível extrair", ex.Message);
+        }
+    }
+
     // ---------------- Fluxo comum ----------------
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Executa uma operação que gera um novo PDF a partir do arquivo aberto: pergunta onde salvar
@@ -64,7 +117,7 @@ public sealed partial class ViewerPage
         }
 
         await ReopenAsync(output, page);
-        bool replaced = string.Equals(Path.GetFullPath(output), Path.GetFullPath(input), StringComparison.OrdinalIgnoreCase);
+        bool replaced = SamePath(output, input);
         ShowStatus(InfoBarSeverity.Success, successTitle,
             replaced ? "O arquivo aberto foi atualizado." : $"Novo arquivo salvo e aberto: {output}");
     }
