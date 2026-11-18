@@ -46,6 +46,20 @@ public static class FilePickers
         return result?.Path;
     }
 
+    /// <summary>Escolhe onde salvar um arquivo qualquer (o tipo vem da extensão do nome sugerido).</summary>
+    public static async Task<string?> SaveFileAsync(string suggestedName)
+    {
+        string ext = Path.GetExtension(suggestedName);
+        var picker = new FileSavePicker(WindowId)
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = Path.GetFileNameWithoutExtension(suggestedName),
+        };
+        picker.FileTypeChoices.Add(ext.Length > 1 ? $"Arquivo {ext.ToUpperInvariant().TrimStart('.')}" : "Arquivo", [ext.Length > 1 ? ext : ".bin"]);
+        var result = await picker.PickSaveFileAsync();
+        return result?.Path;
+    }
+
     public static async Task<string?> PickFolderAsync()
     {
         var picker = new FolderPicker(WindowId) { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };

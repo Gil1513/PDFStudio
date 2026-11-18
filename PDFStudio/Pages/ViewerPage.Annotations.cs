@@ -99,6 +99,7 @@ public sealed partial class ViewerPage
         QuickSaveButton.IsEnabled = HasUnsavedChanges;
         if (_path is not null) App.MainWindow!.SetSubtitle(FileName!);
         _ = RefreshCommentListAsync();
+        _ = RefreshAttachmentListAsync();
     }
 
     /// <summary>Grava as alterações no arquivo original. Retorna false se não conseguiu.</summary>

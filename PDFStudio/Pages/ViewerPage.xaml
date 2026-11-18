@@ -801,6 +801,106 @@
                     </Button>
                 </StackPanel>
             </Grid>
+
+            <!--  Anexos: arquivos guardados dentro do PDF  -->
+            <Grid
+                x:Name="AttachmentsPanel"
+                Grid.Row="1"
+                Padding="8,0,8,8"
+                RowSpacing="6"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock
+                    x:Name="AttachmentCountText"
+                    Margin="4,0"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextWrapping="Wrap" />
+                <ListView
+                    x:Name="AttachmentList"
+                    Grid.Row="1"
+                    DoubleTapped="AttachmentList_DoubleTapped"
+                    SelectionChanged="AttachmentList_SelectionChanged"
+                    SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style BasedOn="{StaticResource DefaultListViewItemStyle}" TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="8,6" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="svc:AttachmentItem">
+                            <Grid AutomationProperties.Name="{x:Bind AutomationName}" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon
+                                    Margin="0,2,0,0"
+                                    VerticalAlignment="Top"
+                                    FontSize="18"
+                                    Glyph="{x:Bind Glyph}" />
+                                <StackPanel Grid.Column="1" Spacing="1">
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind Meta}" />
+                                    <TextBlock
+                                        MaxLines="3"
+                                        Text="{x:Bind Description}"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="Wrap"
+                                        Visibility="{x:Bind DescriptionVisibility}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel
+                    Grid.Row="2"
+                    HorizontalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <Button
+                        AutomationProperties.Name="Anexar arquivo"
+                        Click="AddAttachment_Click"
+                        ToolTipService.ToolTip="Anexar um arquivo ao documento">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE710;" />
+                            <TextBlock Text="Anexar" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        x:Name="OpenAttachmentButton"
+                        AutomationProperties.Name="Abrir anexo"
+                        Click="OpenAttachment_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Abrir o anexo no programa padrão do Windows">
+                        <FontIcon FontSize="14" Glyph="&#xE8E5;" />
+                    </Button>
+                    <Button
+                        x:Name="SaveAttachmentButton"
+                        AutomationProperties.Name="Salvar anexo como"
+                        Click="SaveAttachment_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Salvar o anexo numa pasta">
+                        <FontIcon FontSize="14" Glyph="&#xE74E;" />
+                    </Button>
+                    <Button
+                        x:Name="DeleteAttachmentButton"
+                        AutomationProperties.Name="Excluir anexo"
+                        Click="DeleteAttachment_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Excluir o anexo (Desfazer traz de volta)">
+                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <!--  ================= TRILHO DIREITO: painéis, páginas e zoom =================  -->
@@ -842,14 +942,15 @@
                     ToolTipService.ToolTip="Comentários do documento">
                     <FontIcon FontSize="16" Glyph="&#xE90A;" />
                 </ToggleButton>
-                <Button
+                <ToggleButton
+                    x:Name="AttachmentsToggle"
                     AutomationProperties.Name="Anexos"
-                    Click="Soon_Click"
-                    Style="{StaticResource IconButtonStyle}"
-                    Tag="Anexos"
-                    ToolTipService.ToolTip="Anexos (em breve)">
-                    <FontIcon FontSize="16" Glyph="&#xE723;" Opacity="0.45" />
-                </Button>
+                    Checked="AttachmentsToggle_Changed"
+                    Unchecked="AttachmentsToggle_Changed"
+                    Style="{StaticResource RailToggleStyle}"
+                    ToolTipService.ToolTip="Arquivos anexados ao documento">
+                    <FontIcon FontSize="16" Glyph="&#xE723;" />
+                </ToggleButton>
                 <Button
                     AutomationProperties.Name="Pesquisar"
                     Click="Soon_Click"

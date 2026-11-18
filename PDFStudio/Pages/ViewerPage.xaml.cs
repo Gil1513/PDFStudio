@@ -199,6 +199,7 @@ public sealed partial class ViewerPage : Page
             PageCountText.Text = "0";
             ThumbnailsToggle.IsChecked = false;
             CommentsToggle.IsChecked = false;
+            AttachmentsToggle.IsChecked = false;
             SidePanelColumn.Width = new GridLength(0);
             App.MainWindow!.SetSubtitle("Visualizar");
         }
@@ -495,7 +496,7 @@ public sealed partial class ViewerPage : Page
 
     private void ThumbnailsToggle_Click(object sender, RoutedEventArgs e)
     {
-        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = false; // um painel por vez
+        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = false; // um painel por vez
         UpdateSidePanel();
     }
 
@@ -503,18 +504,22 @@ public sealed partial class ViewerPage : Page
     {
         ThumbnailsToggle.IsChecked = false;
         CommentsToggle.IsChecked = false;
+        AttachmentsToggle.IsChecked = false;
         UpdateSidePanel();
     }
 
     /// <summary>Mostra o painel lateral escolhido no trilho (miniaturas ou comentários), ou o esconde.</summary>
     private void UpdateSidePanel()
     {
-        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; }
+        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; AttachmentsToggle.IsChecked = false; }
         bool thumbs = ThumbnailsToggle.IsChecked == true, comments = CommentsToggle.IsChecked == true;
-        SidePanelColumn.Width = new GridLength(comments ? 300 : thumbs ? 196 : 0);
-        SidePanelTitle.Text = comments ? "Comentários" : "Páginas";
-        ThumbnailList.Visibility = comments ? Visibility.Collapsed : Visibility.Visible;
+        bool attachments = AttachmentsToggle.IsChecked == true && !comments;
+        SidePanelColumn.Width = new GridLength(comments || attachments ? 300 : thumbs ? 196 : 0);
+        SidePanelTitle.Text = comments ? "Comentários" : attachments ? "Anexos" : "Páginas";
+        ThumbnailList.Visibility = comments || attachments ? Visibility.Collapsed : Visibility.Visible;
         CommentsPanel.Visibility = comments ? Visibility.Visible : Visibility.Collapsed;
+        AttachmentsPanel.Visibility = attachments ? Visibility.Visible : Visibility.Collapsed;
+        if (attachments) _ = RefreshAttachmentListAsync();
         if (thumbs) SyncThumbnailSelection((int)Math.Max(1, PageNumberBox.Value) - 1);
         if (comments) _ = RefreshCommentListAsync();
     }

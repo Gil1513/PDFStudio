@@ -51,7 +51,7 @@ public sealed partial class ViewerPage
     private void CommentsToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (!_commentPanelReady) return;
-        if (CommentsToggle.IsChecked == true) ThumbnailsToggle.IsChecked = false; // um painel por vez
+        if (CommentsToggle.IsChecked == true) ThumbnailsToggle.IsChecked = AttachmentsToggle.IsChecked = false; // um painel por vez
         UpdateSidePanel();
     }
 
