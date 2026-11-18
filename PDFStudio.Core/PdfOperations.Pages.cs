@@ -118,6 +118,72 @@ public static partial class PdfOperations
             throw new ArgumentOutOfRangeException(nameof(position), $"Posição inválida: o documento tem {pageCount} páginas.");
     }
 
+    // ---------------- Recortar ----------------
+
+    /// <summary>Menor lado (em pontos, ~1,3 cm) que uma página pode ter depois do recorte.</summary>
+    public const double MinCroppedSide = 36;
+
+    /// <summary>
+    /// Recorta as páginas (todas, ou só as de <paramref name="ranges"/>) tirando as margens indicadas,
+    /// medidas como a página aparece na tela. Só a área visível (/CropBox) muda: o conteúdo cortado
+    /// continua no arquivo e volta com <see cref="RemoveCrop"/>.
+    /// </summary>
+    public static void CropPages(string input, string? ranges, PageMargins margins, string output)
+    {
+        if (margins.Top < 0 || margins.Right < 0 || margins.Bottom < 0 || margins.Left < 0)
+            throw new ArgumentException("As margens não podem ser negativas.", nameof(margins));
+
+        EditPages(input, ranges, output, (page, number) =>
+        {
+            var box = page.Elements.ContainsKey("/CropBox") ? page.CropBox : page.MediaBox;
+            double x1 = Math.Min(box.X1, box.X2), x2 = Math.Max(box.X1, box.X2);
+            double y1 = Math.Min(box.Y1, box.Y2), y2 = Math.Max(box.Y1, box.Y2);
+
+            // Converte as margens "da tela" para as bordas da página sem rotação.
+            var (top, right, bottom, left) = Normalize(page.Rotate) switch
+            {
+                90 => (margins.Right, margins.Bottom, margins.Left, margins.Top),
+                180 => (margins.Bottom, margins.Left, margins.Top, margins.Right),
+                270 => (margins.Left, margins.Top, margins.Right, margins.Bottom),
+                _ => (margins.Top, margins.Right, margins.Bottom, margins.Left),
+            };
+
+            x1 += left; x2 -= right; y1 += bottom; y2 -= top;
+            if (x2 - x1 < MinCroppedSide || y2 - y1 < MinCroppedSide)
+                throw new InvalidOperationException($"As margens são grandes demais para a página {number}: sobraria quase nada dela.");
+
+            page.CropBox = new PdfRectangle(new PdfSharp.Drawing.XPoint(x1, y1), new PdfSharp.Drawing.XPoint(x2, y2));
+        });
+    }
+
+    /// <summary>Desfaz qualquer recorte: a página volta a mostrar toda a área original (/MediaBox).</summary>
+    public static void RemoveCrop(string input, string? ranges, string output) =>
+        EditPages(input, ranges, output, (page, _) =>
+        {
+            foreach (var key in new[] { "/CropBox", "/BleedBox", "/TrimBox", "/ArtBox" }) page.Elements.Remove(key);
+        });
+
+    /// <summary>
+    /// Copia todas as páginas e aplica <paramref name="edit"/> nas escolhidas (todas quando
+    /// <paramref name="ranges"/> está vazio). O segundo argumento de <paramref name="edit"/> é o número da página.
+    /// </summary>
+    private static void EditPages(string input, string? ranges, string output, Action<PdfPage, int> edit)
+    {
+        using var source = OpenForImport(input);
+        var chosen = string.IsNullOrWhiteSpace(ranges)
+            ? Enumerable.Range(0, source.PageCount).ToHashSet()
+            : DistinctIndices(ranges, source.PageCount).ToHashSet();
+
+        using var result = new PdfDocument();
+        CopyInfo(source, result);
+        for (int i = 0; i < source.PageCount; i++)
+        {
+            var page = result.AddPage(source.Pages[i]);
+            if (chosen.Contains(i)) edit(page, i + 1);
+        }
+        SaveSafely(result, output);
+    }
+
     // ---------------- Utilitários ----------------
 
     /// <summary>Largura e altura (em pontos) da página como ela aparece na tela, considerando a rotação.</summary>

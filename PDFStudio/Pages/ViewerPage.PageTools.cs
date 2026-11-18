@@ -111,6 +111,31 @@ public sealed partial class ViewerPage
         await ApplyPageToolAsync("Páginas inseridas", "-com-paginas", d.ReplaceOriginal, operation, goToPage: position);
     }
 
+    // ---------------- 3.4 Recortar ----------------
+
+    private async Task CropPagesAsync()
+    {
+        if (_path is null || _document is null) return;
+        var slot = _slots[CurrentIndex];
+        Microsoft.UI.Xaml.Media.ImageSource? preview = null;
+        try { preview = await PdfRenderer.RenderAsync(_document, slot.Index, 300 / Math.Max(slot.Width, slot.Height)); }
+        catch { /* sem prévia, a janela continua funcionando */ }
+
+        const double PointsPerDip = 72.0 / 96;
+        var d = Prepare(new CropPagesDialog(_slots.Count, slot.Number, await IsSignedAsync(_path),
+            preview, slot.Width * PointsPerDip, slot.Height * PointsPerDip));
+        if (await d.ShowAsync() != ContentDialogResult.Primary) return;
+
+        string? ranges = d.Ranges;
+        var margins = d.Margins;
+        if (d.RemoveCrop)
+            await ApplyPageToolAsync("Recortes desfeitos", "-sem-recorte", d.ReplaceOriginal,
+                (input, output) => PdfOperations.RemoveCrop(input, ranges, output));
+        else
+            await ApplyPageToolAsync("Páginas recortadas", "-recortado", d.ReplaceOriginal,
+                (input, output) => PdfOperations.CropPages(input, ranges, margins, output));
+    }
+
     // ---------------- Fluxo comum ----------------
 
     private static bool SamePath(string a, string b) =>

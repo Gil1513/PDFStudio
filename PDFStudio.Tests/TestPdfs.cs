@@ -75,6 +75,17 @@ public static class TestPdfs
         return doc.Pages.Cast<PdfPage>().Select(PDFStudio.Core.PdfOperations.VisualSize).ToList();
     }
 
+    /// <summary>/CropBox de cada página (x1, y1, x2, y2), ou null quando a página não tem recorte.</summary>
+    public static List<(double, double, double, double)?> CropBoxes(string path)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        return doc.Pages.Cast<PdfPage>()
+            .Select(p => p.Elements.ContainsKey("/CropBox")
+                ? ((double, double, double, double)?)(Math.Round(p.CropBox.X1, 3), Math.Round(p.CropBox.Y1, 3), Math.Round(p.CropBox.X2, 3), Math.Round(p.CropBox.Y2, 3))
+                : null)
+            .ToList();
+    }
+
     /// <summary>Rotação (/Rotate) de cada página, normalizada para 0..359.</summary>
     public static List<int> Rotations(string path)
     {

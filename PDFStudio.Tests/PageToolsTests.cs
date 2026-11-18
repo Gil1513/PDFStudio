@@ -143,4 +143,69 @@ public class PageToolsTests
         Assert.Equal(["Página 1", "Página 2", "Página 1", "Página 2"], TestPdfs.Labels(output));
         Assert.Throws<ArgumentOutOfRangeException>(() => PdfOperations.InsertPagesFromPdf(input, input, null, 3, output));
     }
+
+    // ---------------- Recortar ----------------
+
+    [Fact]
+    public void CropPages_SetsCropBoxOnlyOnChosenPages()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 3);
+        string output = Path.Combine(dir, "out.pdf");
+        var original = TestPdfs.VisualSizes(input)[0];
+
+        PdfOperations.CropPages(input, "2", new PageMargins(Top: 100, Right: 20, Bottom: 50, Left: 10), output);
+
+        var boxes = TestPdfs.CropBoxes(output);
+        Assert.Null(boxes[0]);
+        Assert.Equal((10, 50, original.Width - 20, original.Height - 100), boxes[1]);
+        Assert.Null(boxes[2]);
+        Assert.Equal(["Página 1", "Página 2", "Página 3"], TestPdfs.Labels(output)); // o conteúdo continua lá
+    }
+
+    [Theory]
+    [InlineData(90)]
+    [InlineData(180)]
+    [InlineData(270)]
+    public void CropPages_MarginsFollowWhatTheUserSees_OnRotatedPages(int rotation)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        PdfOperations.Reorganize(input, [new(0, rotation)], input);
+        var before = TestPdfs.VisualSizes(input)[0];
+
+        // Corta só o topo visível: a página fica 100 pt mais baixa na tela e a largura não muda.
+        PdfOperations.CropPages(input, null, new PageMargins(100, 0, 0, 0), input);
+
+        var after = TestPdfs.VisualSizes(input)[0];
+        Assert.Equal(before.Width, after.Width, 3);
+        Assert.Equal(before.Height - 100, after.Height, 3);
+    }
+
+    [Fact]
+    public void CropPages_AddsToExistingCrop_AndRemoveCropRestores()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var original = TestPdfs.VisualSizes(input)[0];
+
+        PdfOperations.CropPages(input, null, new PageMargins(0, 0, 0, 30), input);
+        PdfOperations.CropPages(input, null, new PageMargins(0, 0, 0, 30), input);
+        Assert.Equal(original.Width - 60, TestPdfs.VisualSizes(input)[0].Width, 3);
+
+        PdfOperations.RemoveCrop(input, null, input);
+        Assert.Null(TestPdfs.CropBoxes(input)[0]);
+        Assert.Equal(original, TestPdfs.VisualSizes(input)[0]);
+    }
+
+    [Fact]
+    public void CropPages_RejectsMarginsThatLeaveNothing()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string output = Path.Combine(dir, "out.pdf");
+
+        Assert.Throws<InvalidOperationException>(() => PdfOperations.CropPages(input, null, new PageMargins(410, 0, 410, 0), output)); // A4 tem 842 pt: sobrariam 22 pt
+        Assert.Throws<ArgumentException>(() => PdfOperations.CropPages(input, null, new PageMargins(-1, 0, 0, 0), output));
+    }
 }

@@ -54,7 +54,7 @@ public sealed partial class ViewerPage : Page
         ["inicio"] =
         [
             new("\uE8E5", "Abrir", "abrir"), new("\uE792", "Salvar cópia", "salvarcopia", NeedsFile: true), Sep,
-            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto"), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar"), Sep,
+            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto"), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar arquivos", "combinar"), new("\uE73F", "Comprimir PDF"), Sep,
             new("\uEE56", "Assinar", "assinar", NeedsFile: true),
         ],
@@ -84,7 +84,7 @@ public sealed partial class ViewerPage : Page
         ["organizar"] =
         [
             new("\uF0E2", "Organizar páginas", "organizar", NeedsFile: true), Sep,
-            new("\uE710", "Inserir", "inserir", NeedsFile: true),new("\uE7A8", "Extrair", "extrair", NeedsFile: true),new("\uE74D", "Excluir", "excluir", NeedsFile: true), new("\uE7A8", "Recortar"), new("\uE740", "Redimensionar"), Sep,
+            new("\uE710", "Inserir", "inserir", NeedsFile: true), new("\uEDE1", "Extrair", "extrair", NeedsFile: true), new("\uE74D", "Excluir", "excluir", NeedsFile: true), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), new("\uE740", "Redimensionar"), Sep,
             new("\uE8C6", "Dividir", "dividir"), new("\uE8C8", "Combinar", "combinar"),
         ],
         ["ferramentas"] =
@@ -297,6 +297,7 @@ public sealed partial class ViewerPage : Page
             case "excluir": await DeletePagesAsync(); break;
             case "extrair": await ExtractPagesAsync(); break;
             case "inserir": await InsertPagesAsync(); break;
+            case "recortar": await CropPagesAsync(); break;
             // Ferramentas que trabalham com o arquivo aberto recebem o caminho dele.
             case "organizar" or "assinar": App.MainWindow!.OpenTool(key, _path); break;
             default: App.MainWindow!.OpenTool(key); break;

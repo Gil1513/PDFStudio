@@ -48,12 +48,15 @@ public sealed partial class InsertPagesDialog : ContentDialog
 
     private void SourceChoice_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (BlankPanel is null || PdfPanel is null) return; // pode disparar antes de a janela terminar de montar
         BlankPanel.Visibility = FromPdf ? Visibility.Collapsed : Visibility.Visible;
         PdfPanel.Visibility = FromPdf ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void SizeBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        OrientationBox.IsEnabled = SizeBox.SelectedIndex > 0;
+    private void SizeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (OrientationBox is not null) OrientationBox.IsEnabled = SizeBox.SelectedIndex > 0;
+    }
 
     private async void PickPdf_Click(object sender, RoutedEventArgs e)
     {

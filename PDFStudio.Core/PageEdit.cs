@@ -5,3 +5,12 @@ namespace PDFStudio.Core;
 /// e quantos graus girar a mais (0, 90, 180, 270; sentido horário).
 /// </summary>
 public readonly record struct PageEdit(int SourceIndex, int Rotation = 0);
+
+/// <summary>Margens em pontos (1/72 pol.), medidas como a página aparece na tela.</summary>
+public readonly record struct PageMargins(double Top, double Right, double Bottom, double Left)
+{
+    public const double PointsPerCm = 72 / 2.54;
+
+    public static PageMargins FromCentimeters(double top, double right, double bottom, double left) =>
+        new(top * PointsPerCm, right * PointsPerCm, bottom * PointsPerCm, left * PointsPerCm);
+}
