@@ -260,6 +260,8 @@ public sealed partial class ViewerPage
         PageText,
         /// <summary>Etapa 5.2: clicar (tamanho automático) ou arrastar (tamanho escolhido) para colocar uma imagem.</summary>
         Image,
+        /// <summary>Etapa 5.3: arrastar sobre a área que vira link; clicar num link existente edita ou exclui.</summary>
+        Link,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -291,6 +293,9 @@ public sealed partial class ViewerPage
             UsesWidth: false, UsesFontSize: true),
         new CommentTool("imagem", "Imagem", AnnotationKind.Other, DrawMode.Image,
             "Clique para colocar a imagem ou arraste para escolher o tamanho (a proporção é mantida).",
+            UsesColor: false, UsesWidth: false),
+        new CommentTool("link", "Link", AnnotationKind.Other, DrawMode.Link,
+            "Arraste sobre a área que vai virar link (ex.: um texto). Clique num link existente (contorno azul) para editar ou excluir.",
             UsesColor: false, UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
@@ -468,6 +473,7 @@ public sealed partial class ViewerPage
     {
         if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
         RemoveStampGhost();
+        RemoveLinkOutlines();
         CancelImageDrag();
         RemoveImageGhost();
         CancelDrawing();
@@ -517,9 +523,16 @@ public sealed partial class ViewerPage
     /// <summary>O visualizador mede em DIPs (1/96 pol.); o PDF, em pontos (1/72 pol.).</summary>
     private const double DipsPerPoint = 96.0 / 72;
 
-    private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e) =>
-        ((DrawingSurface)sender).SetCursor(_tool is null ? null
+    private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        var surface = (DrawingSurface)sender;
+        _overLink = false;
+        surface.SetCursor(_tool is null ? null
             : _tool.Mode is DrawMode.TextSelect or DrawMode.PageText ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
+        if (_tool?.Mode == DrawMode.Link) _ = ShowLinkOutlinesAsync(surface);
+        // Já lê os links da página, para a "mãozinha" aparecer sem atraso.
+        else if (_tool is null && DisplayPath is not null && SlotOf(surface) is { } slot) _ = LinksOfPage(slot.Index);
+    }
 
     private SolidColorBrush ToolBrush()
     {
@@ -529,9 +542,15 @@ public sealed partial class ViewerPage
 
     private async void Surface_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (_tool is null || sender is not DrawingSurface surface || SlotOf(surface) is not { } slot) return;
+        if (sender is not DrawingSurface surface || SlotOf(surface) is not { } slot) return;
         var point = e.GetCurrentPoint(surface);
         if (!point.Properties.IsLeftButtonPressed) return;
+        if (_tool is null)
+        {
+            // Sem ferramenta: clicar num link segue o link.
+            if (LinkAt(slot, point.Position) is not null) { e.Handled = true; await FollowLinkAsync(slot, point.Position); }
+            return;
+        }
         e.Handled = true;
 
         // Com um texto sendo digitado, clicar fora dele só conclui o texto.
@@ -549,6 +568,12 @@ public sealed partial class ViewerPage
         {
             CancelDrawing();
             StartImageDrag(surface, slot, e);
+            return;
+        }
+        if (_tool.Mode == DrawMode.Link && LinkAt(slot, point.Position) is { } existing)
+        {
+            CancelDrawing();
+            await EditLinkAsync(surface, existing);
             return;
         }
         if (_tool.Mode == DrawMode.Stamp)
@@ -587,7 +612,7 @@ public sealed partial class ViewerPage
                 _preview = _tool.Kind == AnnotationKind.Oval ? new Shapes.Ellipse() : new Shapes.Rectangle();
                 PlaceBox(_drawStart);
                 break;
-            case DrawMode.Text:
+            case DrawMode.Text or DrawMode.Link:
                 _preview = new Shapes.Rectangle { StrokeDashArray = [4, 3] };
                 thickness = 1;
                 PlaceBox(_drawStart);
@@ -612,7 +637,8 @@ public sealed partial class ViewerPage
                 _preview = line;
                 break;
         }
-        _preview!.Stroke = ToolBrush();
+        _preview!.Stroke = _tool.Mode == DrawMode.Link
+            ? (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"] : ToolBrush();
         _preview.StrokeThickness = thickness;
         surface.Children.Add(_preview);
     }
@@ -622,6 +648,11 @@ public sealed partial class ViewerPage
         if (_tool?.Mode == DrawMode.Image && sender is DrawingSurface imageSurface)
         {
             MoveImageGhost(imageSurface, e);
+            return;
+        }
+        if (_tool is null && sender is DrawingSurface plain)
+        {
+            UpdateLinkCursor(plain, e.GetCurrentPoint(plain).Position);
             return;
         }
         if (_tool?.Mode == DrawMode.Stamp && sender is DrawingSurface hovered)
@@ -640,7 +671,7 @@ public sealed partial class ViewerPage
         var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
         switch (_tool.Mode)
         {
-            case DrawMode.Box or DrawMode.Text:
+            case DrawMode.Box or DrawMode.Text or DrawMode.Link:
                 PlaceBox(current);
                 break;
             case DrawMode.Segment when _preview is Shapes.Line line:
@@ -697,6 +728,17 @@ public sealed partial class ViewerPage
             CancelDrawing();
             if (w < 30 || h < 10) (x, y, w, h) = (_drawStart.X, _drawStart.Y, 0, 0); // só um clique: tamanho padrão
             OpenTextEditor(surface, slot, x, y, w, h);
+            return;
+        }
+
+        if (tool.Mode == DrawMode.Link)
+        {
+            var (x, y, w, h) = BoxBetween(_drawStart, current);
+            var surface = _drawSurface;
+            var slot = _drawSlot;
+            CancelDrawing();
+            if (w < 6 || h < 6) return; // clique sem arrastar (fora de um link)
+            await CreateLinkAsync(surface, slot, new Rect(x, y, w, h));
             return;
         }
 

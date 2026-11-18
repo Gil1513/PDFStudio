@@ -67,7 +67,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["editar"] =
         [
-            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link"), Sep,
+            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link", "link", NeedsFile: true), Sep,
             new("\uE790", "Marca d'água"), new("\uE8EF", "Número de página"), new("\uE8A5", "Cabeçalho e rodapé"), new("\uE771", "Fundo"),
         ],
         ["converter"] =
