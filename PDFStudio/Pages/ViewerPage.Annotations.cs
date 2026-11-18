@@ -323,9 +323,10 @@ public sealed partial class ViewerPage
     private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e) =>
         ((DrawingSurface)sender).SetCursor(_tool is null ? null : InputSystemCursorShape.Cross);
 
+
     private void Surface_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (_tool is null || sender is not DrawingSurface surface || surface.DataContext is not PageSlot slot) return;
+        if (_tool is null || sender is not DrawingSurface surface || SlotOf(surface) is not { } slot) return;
         var point = e.GetCurrentPoint(surface);
         if (!point.Properties.IsLeftButtonPressed) return;
 
@@ -373,6 +374,23 @@ public sealed partial class ViewerPage
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
         if (ReferenceEquals(sender, _drawSurface)) CancelDrawing();
+    }
+
+    /// <summary>
+    /// Página à qual um elemento do modelo pertence. O ItemsRepeater com x:Bind não preenche o DataContext,
+    /// então sobe na árvore visual até o filho direto do repetidor e pergunta o índice dele.
+    /// </summary>
+    private PageSlot? SlotOf(DependencyObject element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is UIElement ui && VisualTreeHelper.GetParent(current) == PagesRepeater)
+            {
+                int index = PagesRepeater.GetElementIndex(ui);
+                return index >= 0 && index < _slots.Count ? _slots[index] : null;
+            }
+        }
+        return null;
     }
 
     /// <summary>Retângulo entre o ponto inicial e <paramref name="current"/>, limitado à página.</summary>
