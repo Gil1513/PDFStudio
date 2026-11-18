@@ -428,6 +428,32 @@
                             AutomationProperties.Name="Tamanho da letra"
                             SelectionChanged="FontSizeBox_SelectionChanged" />
                     </StackPanel>
+                    <StackPanel
+                        x:Name="StampOption"
+                        Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Visibility="Collapsed">
+                        <TextBlock VerticalAlignment="Center" Text="Modelo" />
+                        <ComboBox
+                            x:Name="StampBox"
+                            MinWidth="150"
+                            AutomationProperties.Name="Modelo do carimbo"
+                            SelectionChanged="StampBox_SelectionChanged" />
+                        <TextBox
+                            x:Name="StampTextBox"
+                            Width="170"
+                            AutomationProperties.Name="Texto do carimbo"
+                            MaxLength="40"
+                            PlaceholderText="Texto do carimbo"
+                            TextChanged="StampTextBox_TextChanged"
+                            Visibility="Collapsed" />
+                        <CheckBox
+                            x:Name="StampDetailCheck"
+                            MinWidth="0"
+                            Click="StampDetailCheck_Click"
+                            Content="Data e autor" />
+                    </StackPanel>
                     <TextBlock
                         x:Name="ToolHintText"
                         Grid.Column="3"
@@ -530,6 +556,7 @@
                                             PointerCanceled="Surface_PointerReleased"
                                             PointerCaptureLost="Surface_PointerCaptureLost"
                                             PointerEntered="Surface_PointerEntered"
+                                            PointerExited="Surface_PointerExited"
                                             PointerMoved="Surface_PointerMoved"
                                             PointerPressed="Surface_PointerPressed"
                                             PointerReleased="Surface_PointerReleased" />

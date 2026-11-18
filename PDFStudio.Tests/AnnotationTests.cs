@@ -372,4 +372,46 @@ public class AnnotationTests
         if (kind == AnnotationKind.Highlight) Assert.Contains("/GSm gs", content);
         else Assert.EndsWith(" S", content);
     }
+
+    // ---------------- Carimbo ----------------
+
+    [Fact]
+    public void AddStamp_IsCenteredOnTheClick_WithTextAndDetail()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var design = new StampDesign("Aprovado", new AnnotationColor(46, 125, 50), "Ana · 18/11/2026", "Approved");
+        var (w, h) = PdfAnnotations.StampSize(design);
+
+        PdfAnnotations.AddStamp(input, 0, 300, 400, design, "Ana", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal(AnnotationKind.Stamp, info.Kind);
+        Assert.Equal("Aprovado — Ana · 18/11/2026", info.Contents);
+        Assert.Equal(300, info.X + info.Width / 2, 3);
+        Assert.Equal(400, info.Y + info.Height / 2, 3);
+        Assert.Equal(w, info.Width, 2);
+        Assert.Equal(h, info.Height, 2);
+        Assert.True(h > 30 && w >= 90);
+        Assert.Equal("/Approved", TestPdfs.AnnotationName(input, 0, "/Name"));
+        string content = TestPdfs.Appearance(input, 0).Content;
+        Assert.Contains("(APROVADO) Tj", content);
+        Assert.Contains(@"(Ana \267 18/11/2026) Tj", content); // "·" em WinAnsi
+    }
+
+    [Fact]
+    public void AddStamp_StaysInsideThePage_AndUprightWhenRotated()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        PdfOperations.Reorganize(input, [new(0, 270)], input);
+
+        PdfAnnotations.AddStamp(input, 0, 0, 0, new StampDesign("Rascunho", new AnnotationColor(30, 136, 229)), "", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal((0, 0), (Math.Round(info.X, 3), Math.Round(info.Y, 3))); // clicou no canto: o carimbo não sai da página
+        Assert.NotNull(TestPdfs.Appearance(input, 0).Matrix);
+        Assert.Throws<ArgumentException>(() =>
+            PdfAnnotations.AddStamp(input, 0, 100, 100, new StampDesign("  ", new AnnotationColor(0, 0, 0)), "", input));
+    }
 }

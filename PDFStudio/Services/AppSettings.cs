@@ -25,6 +25,11 @@ public sealed class AppSettings
     /// <summary>Cor do realce (separada das outras ferramentas: o padrão é o amarelo de marca-texto).</summary>
     public string HighlightColor { get; set; } = "#FDD835";
 
+    /// <summary>Carimbo: último modelo escolhido, texto do personalizado e se inclui data e autor.</summary>
+    public int StampPreset { get; set; }
+    public string StampCustomText { get; set; } = "";
+    public bool StampWithDetail { get; set; }
+
     /// <summary>Último tamanho de letra usado na caixa de texto, em pontos.</summary>
     public double CommentFontSize { get; set; } = 12;
 

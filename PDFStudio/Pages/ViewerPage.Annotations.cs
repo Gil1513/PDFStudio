@@ -250,6 +250,8 @@ public sealed partial class ViewerPage
         Note,
         /// <summary>Arrastar sobre o texto da página, como numa seleção (realçar, sublinhar, riscar).</summary>
         TextSelect,
+        /// <summary>Clicar onde o carimbo deve ficar (a prévia acompanha o mouse).</summary>
+        Stamp,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -274,6 +276,8 @@ public sealed partial class ViewerPage
             "Clique (ou arraste uma caixa) e digite. Clique fora ou Esc para concluir.", UsesWidth: false, UsesFontSize: true),
         new CommentTool("nota", "Nota", AnnotationKind.Note, DrawMode.Note,
             "Clique onde a nota deve ficar e digite o texto. Clique fora ou Esc para concluir.", UsesWidth: false),
+        new CommentTool("carimbo", "Carimbo", AnnotationKind.Stamp, DrawMode.Stamp,
+            "Clique na página onde o carimbo deve ficar.", UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
     private static readonly (string Name, string Hex)[] Palette =
@@ -284,6 +288,19 @@ public sealed partial class ViewerPage
 
     private static readonly double[] LineWidths = [1, 2, 3, 5, 8];
     private static readonly double[] FontSizes = [8, 10, 12, 14, 16, 18, 24, 32];
+
+    /// <summary>Modelos de carimbo (desenho próprio do PDF Studio). O último é o personalizado (texto e cor livres).</summary>
+    private static readonly (string Label, string Text, string Hex, string Name, bool AlwaysDetail)[] StampPresets =
+    [
+        ("Aprovado", "Aprovado", "#2E7D32", "Approved", false),
+        ("Rejeitado", "Rejeitado", "#C62828", "NotApproved", false),
+        ("Confidencial", "Confidencial", "#C62828", "Confidential", false),
+        ("Rascunho", "Rascunho", "#546E7A", "Draft", false),
+        ("Recebido (com data)", "Recebido", "#1565C0", "Received", true),
+        ("Personalizado…", "", "", "Custom", false),
+    ];
+
+    private bool IsCustomStamp => App.Settings.StampPreset == StampPresets.Length - 1;
 
     private CommentTool? _tool;
 
@@ -330,6 +347,11 @@ public sealed partial class ViewerPage
         int index = Array.IndexOf(LineWidths, App.Settings.CommentLineWidth);
         WidthBox.SelectedIndex = index >= 0 ? index : 1;
 
+        foreach (var preset in StampPresets) StampBox.Items.Add(preset.Label);
+        StampBox.SelectedIndex = Math.Clamp(App.Settings.StampPreset, 0, StampPresets.Length - 1);
+        StampTextBox.Text = App.Settings.StampCustomText;
+        StampDetailCheck.IsChecked = App.Settings.StampWithDetail;
+
         foreach (double size in FontSizes) FontSizeBox.Items.Add($"{size:0} pt");
         int sizeIndex = Array.IndexOf(FontSizes, App.Settings.CommentFontSize);
         FontSizeBox.SelectedIndex = sizeIndex >= 0 ? sizeIndex : 2;
@@ -348,6 +370,52 @@ public sealed partial class ViewerPage
         App.Settings.Save();
     }
 
+    private void StampBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (StampBox is null || StampBox.SelectedIndex < 0) return;
+        App.Settings.StampPreset = StampBox.SelectedIndex;
+        App.Settings.Save();
+        UpdateStampOptions();
+    }
+
+    private void StampTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (StampTextBox is null) return;
+        App.Settings.StampCustomText = StampTextBox.Text;
+        App.Settings.Save();
+    }
+
+    private void StampDetailCheck_Click(object sender, RoutedEventArgs e)
+    {
+        App.Settings.StampWithDetail = StampDetailCheck.IsChecked == true;
+        App.Settings.Save();
+    }
+
+    /// <summary>No carimbo personalizado aparecem o campo de texto e a cor; nos modelos, a cor é a do modelo.</summary>
+    private void UpdateStampOptions()
+    {
+        if (StampTextBox is null || _tool?.Mode != DrawMode.Stamp) return;
+        StampTextBox.Visibility = IsCustomStamp ? Visibility.Visible : Visibility.Collapsed;
+        ColorOption.Visibility = IsCustomStamp ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>O carimbo escolhido, com a linha de data e autor quando pedida (ou sempre, no "Recebido").</summary>
+    private StampDesign? CurrentStamp()
+    {
+        var preset = StampPresets[Math.Clamp(App.Settings.StampPreset, 0, StampPresets.Length - 1)];
+        string text = IsCustomStamp ? App.Settings.StampCustomText : preset.Text;
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var color = IsCustomStamp ? AnnotationColor.FromHex(App.Settings.CommentColor) : AnnotationColor.FromHex(preset.Hex);
+        string? detail = null;
+        if (preset.AlwaysDetail || App.Settings.StampWithDetail)
+        {
+            string author = App.Settings.CommentAuthor.Trim();
+            string date = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+            detail = author.Length > 0 ? $"{author} · {date}" : date;
+        }
+        return new StampDesign(text, color, detail, preset.Name);
+    }
+
     private void FontSizeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (FontSizeBox is null || FontSizeBox.SelectedIndex < 0) return;
@@ -362,6 +430,7 @@ public sealed partial class ViewerPage
     private void SetTool(string? key, bool keepPendingInk = true)
     {
         if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
+        RemoveStampGhost();
         CancelDrawing();
         if (_inkStrokes.Count > 0)
         {
@@ -378,6 +447,8 @@ public sealed partial class ViewerPage
             WidthOption.Visibility = _tool.UsesWidth ? Visibility.Visible : Visibility.Collapsed;
             FontSizeOption.Visibility = _tool.UsesFontSize ? Visibility.Visible : Visibility.Collapsed;
             ColorSwatch.Background = Brush(ToolColorHex);
+            StampOption.Visibility = _tool.Mode == DrawMode.Stamp ? Visibility.Visible : Visibility.Collapsed;
+            UpdateStampOptions();
             // Seleção de texto: já lê as palavras das páginas na tela, para a primeira seleção ser imediata.
             if (_tool.Mode == DrawMode.TextSelect && DisplayPath is not null)
                 foreach (var slot in _slots.Where(s => s.Image is not null)) _ = WordsOfPage(slot.Index);
@@ -429,6 +500,12 @@ public sealed partial class ViewerPage
         if (_tool.Mode == DrawMode.TextSelect)
         {
             await StartTextSelectionAsync(surface, slot, e);
+            return;
+        }
+        if (_tool.Mode == DrawMode.Stamp)
+        {
+            CancelDrawing();
+            await PlaceStampAsync(slot, point.Position);
             return;
         }
         if (_tool.Mode == DrawMode.Note)
@@ -487,6 +564,11 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.Stamp && sender is DrawingSurface hovered)
+        {
+            MoveStampGhost(hovered, e.GetCurrentPoint(hovered).Position);
+            return;
+        }
         if (_tool?.Mode == DrawMode.TextSelect && _selLayer is not null && ReferenceEquals(sender, _drawSurface))
         {
             e.Handled = true;
@@ -682,6 +764,75 @@ public sealed partial class ViewerPage
                 PdfAnnotations.AddTextBox(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, box.Width / DipsPerPoint,
                     box.Height / DipsPerPoint, text, fontSize, style, author, output));
         }
+    }
+
+    // ---------------- Carimbo ----------------
+
+    private Border? _stampGhost;
+    private DrawingSurface? _stampGhostSurface;
+
+    private void Surface_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (ReferenceEquals(sender, _stampGhostSurface)) RemoveStampGhost();
+    }
+
+    /// <summary>Mostra (ou move) a prévia do carimbo centralizada no mouse.</summary>
+    private void MoveStampGhost(DrawingSurface surface, Point p)
+    {
+        if (CurrentStamp() is not { } design) { RemoveStampGhost(); return; }
+        if (!ReferenceEquals(surface, _stampGhostSurface)) RemoveStampGhost();
+        var (w, h) = PdfAnnotations.StampSize(design);
+        var color = Windows.UI.Color.FromArgb(255, design.Color.R, design.Color.G, design.Color.B);
+        if (_stampGhost is null)
+        {
+            _stampGhost = new Border
+            {
+                BorderThickness = new Thickness(2.2 * DipsPerPoint),
+                CornerRadius = new CornerRadius(6 * DipsPerPoint),
+                Opacity = 0.55,
+                IsHitTestVisible = false,
+                Child = new TextBlock
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontFamily = new FontFamily("Arial"),
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                    FontSize = 18 * DipsPerPoint,
+                },
+            };
+            _stampGhostSurface = surface;
+            surface.Children.Add(_stampGhost);
+        }
+        _stampGhost.Width = w * DipsPerPoint;
+        _stampGhost.Height = h * DipsPerPoint;
+        _stampGhost.BorderBrush = new SolidColorBrush(color);
+        var label = (TextBlock)_stampGhost.Child;
+        label.Text = design.Text.Trim().ToUpper(System.Globalization.CultureInfo.GetCultureInfo("pt-BR"));
+        label.Foreground = new SolidColorBrush(color);
+        Canvas.SetLeft(_stampGhost, p.X - _stampGhost.Width / 2);
+        Canvas.SetTop(_stampGhost, p.Y - _stampGhost.Height / 2);
+    }
+
+    private void RemoveStampGhost()
+    {
+        if (_stampGhost is not null) _stampGhostSurface?.Children.Remove(_stampGhost);
+        _stampGhost = null;
+        _stampGhostSurface = null;
+    }
+
+    private async Task PlaceStampAsync(PageSlot slot, Point p)
+    {
+        if (CurrentStamp() is not { } design)
+        {
+            ShowStatus(InfoBarSeverity.Informational, "Digite o texto do carimbo", "Escreva o texto no campo ao lado de \"Modelo\" e clique na página.");
+            StampTextBox.Focus(FocusState.Programmatic);
+            return;
+        }
+        RemoveStampGhost();
+        int page = slot.Index;
+        string author = App.Settings.CommentAuthor;
+        await ApplyEditAsync((input, output) =>
+            PdfAnnotations.AddStamp(input, page, p.X / DipsPerPoint, p.Y / DipsPerPoint, design, author, output));
     }
 
     // ---------------- Realçar / sublinhar / riscar: selecionar o texto ----------------

@@ -162,6 +162,13 @@ public static class TestPdfs
             m is null ? null : Enumerable.Range(0, m.Elements.Count).Select(i => m.Elements.GetReal(i)).ToArray());
     }
 
+    /// <summary>Nome (/Name) de uma chave da anotação.</summary>
+    public static string AnnotationName(string path, int index, string key)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        return Annotation(doc, index).Elements.GetName(key);
+    }
+
     /// <summary>Texto de uma chave da anotação (ex.: /DA).</summary>
     public static string AnnotationString(string path, int index, string key)
     {
