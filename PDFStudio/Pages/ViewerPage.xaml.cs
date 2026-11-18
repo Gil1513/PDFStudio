@@ -84,7 +84,7 @@ public sealed partial class ViewerPage : Page
         ["organizar"] =
         [
             new("\uF0E2", "Organizar páginas", "organizar", NeedsFile: true), Sep,
-            new("\uE710", "Inserir"), new("\uE7A8", "Extrair"), new("\uE74D", "Excluir"), new("\uE7A8", "Recortar"), new("\uE740", "Redimensionar"), Sep,
+            new("\uE710", "Inserir"), new("\uE7A8", "Extrair"), new("\uE74D", "Excluir", "excluir", NeedsFile: true), new("\uE7A8", "Recortar"), new("\uE740", "Redimensionar"), Sep,
             new("\uE8C6", "Dividir", "dividir"), new("\uE8C8", "Combinar", "combinar"),
         ],
         ["ferramentas"] =
@@ -294,6 +294,7 @@ public sealed partial class ViewerPage : Page
                 break;
             case "propriedades": await ShowPropertiesAsync(); break;
             case "telacheia": ToggleFullScreen(); break;
+            case "excluir": await DeletePagesAsync(); break;
             // Ferramentas que trabalham com o arquivo aberto recebem o caminho dele.
             case "organizar" or "assinar": App.MainWindow!.OpenTool(key, _path); break;
             default: App.MainWindow!.OpenTool(key); break;

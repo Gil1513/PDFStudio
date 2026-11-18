@@ -4,7 +4,7 @@ using PdfSharp.Pdf.IO;
 namespace PDFStudio.Core;
 
 /// <summary>Operações de manipulação de PDF (PDFsharp 6.2.4, licença MIT).</summary>
-public static class PdfOperations
+public static partial class PdfOperations
 {
     public static int GetPageCount(string path)
     {
@@ -78,7 +78,7 @@ public static class PdfOperations
             g => g.Length == 1 ? $"pagina_{g[0] + 1}" : $"paginas_{g[0] + 1}-{g[^1] + 1}");
     }
 
-    private static List<string> WriteGroups(PdfDocument source, string input, string outputFolder,
+    internal static List<string> WriteGroups(PdfDocument source, string input, string outputFolder,
         List<int[]> groups, Func<int[], string> suffix)
     {
         Directory.CreateDirectory(outputFolder);
@@ -142,7 +142,7 @@ public static class PdfOperations
         }
     }
 
-    private static void CopyInfo(PdfDocument from, PdfDocument to)
+    internal static void CopyInfo(PdfDocument from, PdfDocument to)
     {
         to.Info.Title = from.Info.Title;
         to.Info.Author = from.Info.Author;

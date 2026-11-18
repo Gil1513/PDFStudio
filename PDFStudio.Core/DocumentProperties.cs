@@ -132,6 +132,18 @@ public static class DocumentPropertiesService
 
     // ---------------- Assinaturas existentes ----------------
 
+    /// <summary>
+    /// Verificação rápida: o PDF tem alguma assinatura preenchida? Usada para avisar o usuário
+    /// antes de uma alteração que vai invalidá-la (não confere o certificado).
+    /// </summary>
+    public static bool HasSignatures(string path)
+    {
+        using var doc = PdfOperations.OpenForImport(path);
+        var fields = doc.Internals.Catalog.Elements.GetDictionary("/AcroForm")?.Elements.GetArray("/Fields");
+        return fields is not null && Flatten(fields).Any(f =>
+            f.Elements.GetName("/FT") == "/Sig" && f.Elements.GetDictionary("/V") is not null);
+    }
+
     private static List<SignatureDetails> ReadSignatures(PdfDocument doc, string path)
     {
         var result = new List<SignatureDetails>();

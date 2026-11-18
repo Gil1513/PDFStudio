@@ -68,6 +68,9 @@ public class DocumentPropertiesTests
             Visible = true, PageNumber = 2, Reason = "Aprovação", Location = "São Paulo", ContactInfo = "a@b.com",
         });
 
+        Assert.False(DocumentPropertiesService.HasSignatures(input));
+        Assert.True(DocumentPropertiesService.HasSignatures(signed));
+
         var sig = Assert.Single(DocumentPropertiesService.Read(signed).Signatures);
         Assert.Equal("Fulano de Tal", sig.Signer);
         Assert.Equal("Aprovação", sig.Reason);

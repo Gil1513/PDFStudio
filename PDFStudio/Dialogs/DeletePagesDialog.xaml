@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="PDFStudio.Dialogs.DeletePagesDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Excluir páginas"
+    CloseButtonText="Cancelar"
+    DefaultButton="Primary"
+    PrimaryButtonClick="Primary_Click"
+    PrimaryButtonText="Excluir"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Width="420" Spacing="16">
+        <InfoBar
+            x:Name="SignedWarning"
+            Title="Este PDF tem assinatura digital"
+            IsClosable="False"
+            Message="Excluir páginas invalida as assinaturas existentes."
+            Severity="Warning" />
+
+        <TextBox
+            x:Name="RangesBox"
+            Header="Páginas a excluir"
+            PlaceholderText="Ex.: 2, 5-7" />
+        <TextBlock
+            x:Name="HintText"
+            Margin="0,-8,0,0"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Style="{StaticResource CaptionTextBlockStyle}"
+            TextWrapping="Wrap" />
+
+        <RadioButtons x:Name="TargetChoice" Header="Onde salvar" SelectedIndex="0">
+            <x:String>Criar um novo arquivo (o original fica intacto)</x:String>
+            <x:String>Substituir o arquivo aberto</x:String>
+        </RadioButtons>
+
+        <TextBlock
+            x:Name="ErrorText"
+            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+            TextWrapping="Wrap"
+            Visibility="Collapsed" />
+    </StackPanel>
+</ContentDialog>
