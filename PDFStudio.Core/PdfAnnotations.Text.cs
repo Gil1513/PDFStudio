@@ -117,8 +117,7 @@ public static partial class PdfAnnotations
 
     private static Func<string, double> Measurer(double fontSize)
     {
-        if (OperatingSystem.IsWindows() && GlobalFontSettings.FontResolver is null)
-            GlobalFontSettings.UseWindowsFontsUnderWindows = true;
+        PdfFonts.Ensure();
         // Arial tem as mesmas larguras de letra que a Helvetica usada na aparência.
         var font = new XFont("Arial", fontSize);
         var gfx = XGraphics.CreateMeasureContext(new XSize(2000, 2000), XGraphicsUnit.Point, XPageDirection.Downwards);

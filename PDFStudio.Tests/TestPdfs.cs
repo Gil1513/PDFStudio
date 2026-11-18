@@ -12,7 +12,7 @@ public static class TestPdfs
 {
     static TestPdfs()
     {
-        if (OperatingSystem.IsWindows()) GlobalFontSettings.UseWindowsFontsUnderWindows = true;
+        PDFStudio.Core.PdfFonts.Ensure();
     }
 
     public static string TempDir()

@@ -427,6 +427,37 @@
                             MinWidth="90"
                             AutomationProperties.Name="Tamanho da letra"
                             SelectionChanged="FontSizeBox_SelectionChanged" />
+                        <!--  Só no "Adicionar texto" (texto escrito na página)  -->
+                        <StackPanel
+                            x:Name="PageFontOption"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Visibility="Collapsed">
+                            <TextBlock VerticalAlignment="Center" Text="Fonte" />
+                            <ComboBox
+                                x:Name="PageFontBox"
+                                Width="190"
+                                AutomationProperties.Name="Fonte"
+                                SelectionChanged="PageFontBox_SelectionChanged" />
+                            <ToggleButton
+                                x:Name="PageBoldToggle"
+                                Padding="8,4"
+                                AutomationProperties.Name="Negrito"
+                                Checked="PageStyleToggle_Changed"
+                                ToolTipService.ToolTip="Negrito"
+                                Unchecked="PageStyleToggle_Changed">
+                                <FontIcon FontSize="14" Glyph="&#xE8DD;" />
+                            </ToggleButton>
+                            <ToggleButton
+                                x:Name="PageItalicToggle"
+                                Padding="8,4"
+                                AutomationProperties.Name="Itálico"
+                                Checked="PageStyleToggle_Changed"
+                                ToolTipService.ToolTip="Itálico"
+                                Unchecked="PageStyleToggle_Changed">
+                                <FontIcon FontSize="14" Glyph="&#xE8DB;" />
+                            </ToggleButton>
+                        </StackPanel>
                     </StackPanel>
                     <StackPanel
                         x:Name="StampOption"

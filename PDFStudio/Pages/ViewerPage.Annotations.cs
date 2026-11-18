@@ -256,6 +256,8 @@ public sealed partial class ViewerPage
         TextSelect,
         /// <summary>Clicar onde o carimbo deve ficar (a prévia acompanha o mouse).</summary>
         Stamp,
+        /// <summary>Etapa 5.1: clicar e digitar um texto que passa a fazer parte da página (não é comentário).</summary>
+        PageText,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -282,6 +284,9 @@ public sealed partial class ViewerPage
             "Clique onde a nota deve ficar e digite o texto. Clique fora ou Esc para concluir.", UsesWidth: false),
         new CommentTool("carimbo", "Carimbo", AnnotationKind.Stamp, DrawMode.Stamp,
             "Clique na página onde o carimbo deve ficar.", UsesWidth: false),
+        new CommentTool("adicionartexto", "Adicionar texto", AnnotationKind.Other, DrawMode.PageText,
+            "Clique onde o texto deve começar e digite (Enter = nova linha). Clique fora ou Esc para concluir.",
+            UsesWidth: false, UsesFontSize: true),
     }.ToDictionary(t => t.Key);
 
     private static readonly (string Name, string Hex)[] Palette =
@@ -291,7 +296,7 @@ public sealed partial class ViewerPage
     ];
 
     private static readonly double[] LineWidths = [1, 2, 3, 5, 8];
-    private static readonly double[] FontSizes = [8, 10, 12, 14, 16, 18, 24, 32];
+    private static readonly double[] FontSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
 
     /// <summary>Modelos de carimbo (desenho próprio do PDF Studio). O último é o personalizado (texto e cor livres).</summary>
     private static readonly (string Label, string Text, string Hex, string Name, bool AlwaysDetail)[] StampPresets =
@@ -309,14 +314,28 @@ public sealed partial class ViewerPage
     private CommentTool? _tool;
 
     private bool UsesHighlightColor => _tool?.Kind == AnnotationKind.Highlight;
+    private bool IsPageTextTool => _tool?.Mode == DrawMode.PageText;
 
-    /// <summary>Cor da ferramenta ativa (o realce guarda a sua separada).</summary>
+    /// <summary>Cor da ferramenta ativa (o realce e o "Adicionar texto" guardam a sua separada).</summary>
     private string ToolColorHex
     {
-        get => UsesHighlightColor ? App.Settings.HighlightColor : App.Settings.CommentColor;
+        get => UsesHighlightColor ? App.Settings.HighlightColor : IsPageTextTool ? App.Settings.PageTextColor : App.Settings.CommentColor;
         set
         {
-            if (UsesHighlightColor) App.Settings.HighlightColor = value; else App.Settings.CommentColor = value;
+            if (UsesHighlightColor) App.Settings.HighlightColor = value;
+            else if (IsPageTextTool) App.Settings.PageTextColor = value;
+            else App.Settings.CommentColor = value;
+            App.Settings.Save();
+        }
+    }
+
+    /// <summary>Tamanho da letra da ferramenta ativa (caixa de texto ou "Adicionar texto").</summary>
+    private double ToolFontSize
+    {
+        get => IsPageTextTool ? App.Settings.PageTextFontSize : App.Settings.CommentFontSize;
+        set
+        {
+            if (IsPageTextTool) App.Settings.PageTextFontSize = value; else App.Settings.CommentFontSize = value;
             App.Settings.Save();
         }
     }
@@ -357,8 +376,18 @@ public sealed partial class ViewerPage
         StampDetailCheck.IsChecked = App.Settings.StampWithDetail;
 
         foreach (double size in FontSizes) FontSizeBox.Items.Add($"{size:0} pt");
-        int sizeIndex = Array.IndexOf(FontSizes, App.Settings.CommentFontSize);
-        FontSizeBox.SelectedIndex = sizeIndex >= 0 ? sizeIndex : 2;
+        SelectToolFontSize();
+    }
+
+    private bool _settingFontSize;
+
+    /// <summary>Mostra na lista o tamanho guardado da ferramenta ativa.</summary>
+    private void SelectToolFontSize()
+    {
+        int index = Array.IndexOf(FontSizes, ToolFontSize);
+        _settingFontSize = true;
+        FontSizeBox.SelectedIndex = index >= 0 ? index : Array.IndexOf(FontSizes, 12);
+        _settingFontSize = false;
     }
 
     private static SolidColorBrush Brush(string hex)
@@ -422,9 +451,8 @@ public sealed partial class ViewerPage
 
     private void FontSizeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (FontSizeBox is null || FontSizeBox.SelectedIndex < 0) return;
-        App.Settings.CommentFontSize = FontSizes[FontSizeBox.SelectedIndex];
-        App.Settings.Save();
+        if (FontSizeBox is null || FontSizeBox.SelectedIndex < 0 || _settingFontSize) return;
+        ToolFontSize = FontSizes[FontSizeBox.SelectedIndex];
     }
 
     /// <summary>
@@ -450,6 +478,9 @@ public sealed partial class ViewerPage
             ColorOption.Visibility = _tool.UsesColor ? Visibility.Visible : Visibility.Collapsed;
             WidthOption.Visibility = _tool.UsesWidth ? Visibility.Visible : Visibility.Collapsed;
             FontSizeOption.Visibility = _tool.UsesFontSize ? Visibility.Visible : Visibility.Collapsed;
+            if (_tool.UsesFontSize) SelectToolFontSize();
+            PageFontOption.Visibility = IsPageTextTool ? Visibility.Visible : Visibility.Collapsed;
+            if (IsPageTextTool) InitPageFontOptions();
             ColorSwatch.Background = Brush(ToolColorHex);
             StampOption.Visibility = _tool.Mode == DrawMode.Stamp ? Visibility.Visible : Visibility.Collapsed;
             UpdateStampOptions();
@@ -480,7 +511,7 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e) =>
         ((DrawingSurface)sender).SetCursor(_tool is null ? null
-            : _tool.Mode == DrawMode.TextSelect ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
+            : _tool.Mode is DrawMode.TextSelect or DrawMode.PageText ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
 
     private SolidColorBrush ToolBrush()
     {
@@ -510,6 +541,12 @@ public sealed partial class ViewerPage
         {
             CancelDrawing();
             await PlaceStampAsync(slot, point.Position);
+            return;
+        }
+        if (_tool.Mode == DrawMode.PageText)
+        {
+            CancelDrawing();
+            OpenTextEditor(surface, slot, point.Position.X, point.Position.Y, 0, 0);
             return;
         }
         if (_tool.Mode == DrawMode.Note)
@@ -674,6 +711,7 @@ public sealed partial class ViewerPage
     private DrawingSurface? _textSurface;
     private PageSlot? _textSlot;
     private Rect _textBox; // caixa de texto: posição e tamanho (DIPs); nota: posição e tamanho do ícone
+    private DrawMode _textMode;
 
     /// <summary>Largura padrão (pontos) da caixa de texto criada com um clique e da área para digitar a nota.</summary>
     private const double DefaultTextWidth = 200, NoteEditorWidth = 220;
@@ -681,9 +719,10 @@ public sealed partial class ViewerPage
     /// <summary>Mostra uma caixa para digitar na página, na posição (x, y) em DIPs.</summary>
     private void OpenTextEditor(DrawingSurface surface, PageSlot slot, double x, double y, double width, double height)
     {
-        bool note = _tool?.Mode == DrawMode.Note;
+        _textMode = _tool?.Mode ?? DrawMode.Text;
+        bool note = _textMode == DrawMode.Note;
         double fontSize = App.Settings.CommentFontSize;
-        if (!note && width <= 0)
+        if (_textMode == DrawMode.Text && width <= 0)
         {
             width = Math.Min(DefaultTextWidth * DipsPerPoint, surface.ActualWidth - x);
             height = PdfAnnotations.TextHeight(1, fontSize) * DipsPerPoint;
@@ -701,8 +740,28 @@ public sealed partial class ViewerPage
             CornerRadius = new CornerRadius(0),
             RequestedTheme = ElementTheme.Light, // está sobre a página branca
         };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(editor, note ? "Texto da nota" : "Texto da caixa");
-        if (note)
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(editor,
+            note ? "Texto da nota" : _textMode == DrawMode.PageText ? "Texto a escrever na página" : "Texto da caixa");
+        if (_textMode == DrawMode.PageText)
+        {
+            // Texto da página: cresce conforme se digita, com a fonte, o tamanho, a cor e o estilo escolhidos.
+            // O canto do texto fica no ponto clicado (a margem interna da caixa é descontada ao gravar).
+            double pad = PageTextPadding * DipsPerPoint;
+            editor.TextWrapping = TextWrapping.NoWrap;
+            editor.MinWidth = 60;
+            editor.FontFamily = new FontFamily(App.Settings.PageTextFont);
+            editor.FontSize = App.Settings.PageTextFontSize * DipsPerPoint;
+            editor.FontWeight = App.Settings.PageTextBold ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
+            editor.FontStyle = App.Settings.PageTextItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal;
+            editor.Foreground = ToolBrush();
+            editor.Padding = new Thickness(pad - 1);
+            editor.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(160, 255, 255, 255));
+            editor.PlaceholderText = "Digite aqui";
+            _textBox = new Rect(x - pad, y - pad, 0, 0);
+            Canvas.SetLeft(editor, x - pad);
+            Canvas.SetTop(editor, y - pad);
+        }
+        else if (note)
         {
             // A nota: área de digitação ao lado do ponto clicado, com fundo de "post-it".
             editor.PlaceholderText = "Texto da nota";
@@ -742,7 +801,7 @@ public sealed partial class ViewerPage
         if (_textEditor is not { } editor || _textSurface is not { } surface || _textSlot is not { } slot) return;
         _textEditor = null; // evita gravar duas vezes (perda de foco + clique)
         string text = editor.Text;
-        bool note = editor.PlaceholderText == "Texto da nota";
+        bool note = _textMode == DrawMode.Note;
         var box = _textBox;
         surface.Children.Remove(editor);
         foreach (var icon in surface.Children.OfType<FontIcon>().Where(i => (i.Tag as string) == "note-icon").ToList())
@@ -755,7 +814,14 @@ public sealed partial class ViewerPage
         int page = slot.Index;
         string author = App.Settings.CommentAuthor;
         var color = ToolColor;
-        if (note)
+        if (_textMode == DrawMode.PageText)
+        {
+            var style = CurrentPageTextStyle();
+            double pad = PageTextPadding;
+            await ApplyEditAsync((input, output) =>
+                PdfPageContent.AddText(input, page, box.X / DipsPerPoint + pad, box.Y / DipsPerPoint + pad, text, style, output));
+        }
+        else if (note)
         {
             await ApplyEditAsync((input, output) =>
                 PdfAnnotations.AddNote(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, text, color, author, output));

@@ -64,8 +64,7 @@ public static class PdfSigning
     static PdfSigning()
     {
         // Usa as fontes instaladas no Windows para desenhar o carimbo visível.
-        if (OperatingSystem.IsWindows() && GlobalFontSettings.FontResolver is null)
-            GlobalFontSettings.UseWindowsFontsUnderWindows = true;
+        PdfFonts.Ensure();
     }
 
     public static X509Certificate2 LoadCertificate(string pfxPath, string? password)

@@ -33,6 +33,13 @@ public sealed class AppSettings
     /// <summary>Último tamanho de letra usado na caixa de texto, em pontos.</summary>
     public double CommentFontSize { get; set; } = 12;
 
+    /// <summary>Etapa 5.1 — "Adicionar texto" (escrito na própria página): últimas escolhas de fonte, tamanho, cor e estilo.</summary>
+    public string PageTextFont { get; set; } = "Arial";
+    public double PageTextFontSize { get; set; } = 14;
+    public string PageTextColor { get; set; } = "#212121";
+    public bool PageTextBold { get; set; }
+    public bool PageTextItalic { get; set; }
+
     public static AppSettings Load()
     {
         try

@@ -54,7 +54,7 @@ public sealed partial class ViewerPage : Page
         ["inicio"] =
         [
             new("\uE8E5", "Abrir", "abrir"), new("\uE792", "Salvar cópia", "salvarcopia", NeedsFile: true), Sep,
-            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto"), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
+            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar arquivos", "combinar"), new("\uE73F", "Comprimir PDF"), Sep,
             new("\uEE56", "Assinar", "assinar", NeedsFile: true),
         ],
@@ -67,7 +67,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["editar"] =
         [
-            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto"), new("\uEB9F", "Imagem"), new("\uE71B", "Link"), Sep,
+            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem"), new("\uE71B", "Link"), Sep,
             new("\uE790", "Marca d'água"), new("\uE8EF", "Número de página"), new("\uE8A5", "Cabeçalho e rodapé"), new("\uE771", "Fundo"),
         ],
         ["converter"] =
