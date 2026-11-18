@@ -153,6 +153,57 @@ public class AnnotationTests
         Assert.Equal((30, 40, 300, 100), (Math.Round(info.X, 3), Math.Round(info.Y, 3), Math.Round(info.Width, 3), Math.Round(info.Height, 3)));
     }
 
+    // ---------------- Comentários: linha, seta, desenho livre ----------------
+
+    [Fact]
+    public void AddLine_StoresEndpoints_AndArrowHead()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var size = TestPdfs.VisualSizes(input)[0];
+
+        PdfAnnotations.AddLine(input, 0, 100, 100, 300, 200, arrow: true, Red, "", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal(AnnotationKind.Line, info.Kind);
+        var l = TestPdfs.AnnotationArray(input, 0, "/L");
+        Assert.Equal([100, size.Height - 100, 300, size.Height - 200], l.Select(v => Math.Round(v, 3)));
+        Assert.Equal("/OpenArrow", TestPdfs.AnnotationNames(input, 0, "/LE")[1]);
+        // O retângulo envolve a linha (com folga para a espessura e a ponta).
+        Assert.True(info.X < 100 && info.Y < 100 && info.X + info.Width > 300 && info.Y + info.Height > 200);
+    }
+
+    [Fact]
+    public void AddInk_StoresEachStroke_AndIgnoresSinglePoints()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        IReadOnlyList<(double, double)>[] strokes = [[(10, 10), (20, 30), (40, 35)], [(50, 50)], [(60, 60), (80, 90)]];
+
+        PdfAnnotations.AddInk(input, 0, strokes, Red, "", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal(AnnotationKind.Ink, info.Kind);
+        Assert.Equal([6, 4], TestPdfs.InkStrokeLengths(input)); // 3 pontos e 2 pontos (x,y cada)
+        Assert.Throws<ArgumentException>(() => PdfAnnotations.AddInk(input, 0, [[(1, 1)]], Red, "", input));
+    }
+
+    [Fact]
+    public void ResizePages_AlsoMovesLineEndpoints()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        PdfAnnotations.AddLine(input, 0, 100, 100, 300, 200, arrow: false, Red, "", input);
+        var before = TestPdfs.AnnotationArray(input, 0, "/L");
+
+        PdfOperations.ResizePages(input, null, 419.53, 595.28, PageOrientationChoice.Auto, scaleContent: true, input);
+
+        var m = TestPdfs.FirstMatrix(input, 0)!;
+        var after = TestPdfs.AnnotationArray(input, 0, "/L");
+        Assert.Equal(before[0] * m[0] + m[4], after[0], 1); // a matriz é gravada com 5 casas
+        Assert.Equal(before[1] * m[3] + m[5], after[1], 1);
+    }
+
     [Fact]
     public void Delete_RemovesOnlyTheChosenComment()
     {

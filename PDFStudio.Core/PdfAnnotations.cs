@@ -71,15 +71,92 @@ public static partial class PdfAnnotations
             var rect = PageGeometry.Of(page).ViewRectToPdf(x, y, width, height);
             var annot = NewAnnotation(doc, page, kind == AnnotationKind.Rectangle ? "/Square" : "/Circle", rect, style, author, contents);
 
-            var bs = new PdfDictionary(doc);
-            bs.Elements["/W"] = new PdfReal(style.LineWidth);
-            annot.Elements["/BS"] = bs;
+            annot.Elements["/BS"] = BorderStyle(doc, style.LineWidth);
 
             double lw = style.LineWidth, w = rect.Width, h = rect.Height;
             string path = kind == AnnotationKind.Rectangle
                 ? $"{N(lw / 2)} {N(lw / 2)} {N(w - lw)} {N(h - lw)} re"
                 : Ellipse(lw / 2, lw / 2, w - lw, h - lw);
             SetAppearance(doc, annot, w, h, $"{style.Color.Pdf} RG {N(lw)} w {path} S", style.Opacity);
+        });
+    }
+
+    /// <summary>
+    /// Linha reta de (x1, y1) a (x2, y2), posições da tela em pontos. Com <paramref name="arrow"/>,
+    /// desenha uma ponta de seta no fim.
+    /// </summary>
+    public static void AddLine(string input, int pageIndex, double x1, double y1, double x2, double y2, bool arrow,
+        AnnotationStyle style, string author, string output, string? contents = null)
+    {
+        Edit(input, output, doc =>
+        {
+            var page = GetPage(doc, pageIndex);
+            var geometry = PageGeometry.Of(page);
+            var a = geometry.ViewToPdf(x1, y1);
+            var b = geometry.ViewToPdf(x2, y2);
+
+            // A ponta da seta: duas "asas" de comprimento proporcional à espessura.
+            double lw = style.LineWidth, head = Math.Max(8, lw * 4);
+            var points = new List<XPoint> { a, b };
+            XPoint wing1 = default, wing2 = default;
+            if (arrow)
+            {
+                double angle = Math.Atan2(b.Y - a.Y, b.X - a.X), spread = Math.PI / 7;
+                wing1 = new XPoint(b.X - head * Math.Cos(angle - spread), b.Y - head * Math.Sin(angle - spread));
+                wing2 = new XPoint(b.X - head * Math.Cos(angle + spread), b.Y - head * Math.Sin(angle + spread));
+                points.Add(wing1);
+                points.Add(wing2);
+            }
+
+            var rect = BoundingBox(points, lw + 2);
+            var annot = NewAnnotation(doc, page, "/Line", rect, style, author, contents);
+            annot.Elements["/L"] = new PdfArray(doc, new PdfReal(a.X), new PdfReal(a.Y), new PdfReal(b.X), new PdfReal(b.Y));
+            annot.Elements["/BS"] = BorderStyle(doc, lw);
+            if (arrow) annot.Elements["/LE"] = new PdfArray(doc, new PdfName("/None"), new PdfName("/OpenArrow"));
+
+            var ops = new StringBuilder($"{style.Color.Pdf} RG {N(lw)} w 1 J 1 j ");
+            ops.Append($"{Local(a, rect)} m {Local(b, rect)} l S");
+            if (arrow) ops.Append($" {Local(wing1, rect)} m {Local(b, rect)} l {Local(wing2, rect)} l S");
+            SetAppearance(doc, annot, rect.Width, rect.Height, ops.ToString(), style.Opacity);
+        });
+    }
+
+    /// <summary>
+    /// Desenho livre: cada traço é uma lista de pontos da tela (em pontos). Traços com menos de 2 pontos são ignorados.
+    /// </summary>
+    public static void AddInk(string input, int pageIndex, IReadOnlyList<IReadOnlyList<(double X, double Y)>> strokes,
+        AnnotationStyle style, string author, string output, string? contents = null)
+    {
+        var valid = strokes.Where(s => s.Count >= 2).ToList();
+        if (valid.Count == 0) throw new ArgumentException("O desenho precisa de ao menos um traço.", nameof(strokes));
+
+        Edit(input, output, doc =>
+        {
+            var page = GetPage(doc, pageIndex);
+            var geometry = PageGeometry.Of(page);
+            var pdfStrokes = valid.Select(s => s.Select(p => geometry.ViewToPdf(p.X, p.Y)).ToList()).ToList();
+            double lw = style.LineWidth;
+            var rect = BoundingBox(pdfStrokes.SelectMany(s => s), lw + 2);
+
+            var annot = NewAnnotation(doc, page, "/Ink", rect, style, author, contents);
+            var inkList = new PdfArray(doc);
+            foreach (var stroke in pdfStrokes)
+            {
+                var array = new PdfArray(doc);
+                foreach (var p in stroke) { array.Elements.Add(new PdfReal(p.X)); array.Elements.Add(new PdfReal(p.Y)); }
+                inkList.Elements.Add(array);
+            }
+            annot.Elements["/InkList"] = inkList;
+            annot.Elements["/BS"] = BorderStyle(doc, lw);
+
+            var ops = new StringBuilder($"{style.Color.Pdf} RG {N(lw)} w 1 J 1 j");
+            foreach (var stroke in pdfStrokes)
+            {
+                ops.Append($" {Local(stroke[0], rect)} m");
+                foreach (var p in stroke.Skip(1)) ops.Append($" {Local(p, rect)} l");
+                ops.Append(" S");
+            }
+            SetAppearance(doc, annot, rect.Width, rect.Height, ops.ToString(), style.Opacity);
         });
     }
 
@@ -226,6 +303,25 @@ public static partial class PdfAnnotations
             array.Elements.Add(new PdfReal(double.Parse(part, CultureInfo.InvariantCulture)));
         return array;
     }
+
+    private static PdfDictionary BorderStyle(PdfDocument doc, double width)
+    {
+        var bs = new PdfDictionary(doc);
+        bs.Elements["/W"] = new PdfReal(width);
+        return bs;
+    }
+
+    /// <summary>Menor retângulo que contém os pontos, com uma folga (para a espessura do traço).</summary>
+    private static PdfRectangle BoundingBox(IEnumerable<XPoint> points, double margin)
+    {
+        var list = points.ToList();
+        return new PdfRectangle(
+            new XPoint(list.Min(p => p.X) - margin, list.Min(p => p.Y) - margin),
+            new XPoint(list.Max(p => p.X) + margin, list.Max(p => p.Y) + margin));
+    }
+
+    /// <summary>Ponto do PDF nas coordenadas locais da aparência (origem no canto inferior esquerdo do /Rect).</summary>
+    private static string Local(XPoint p, PdfRectangle rect) => $"{N(p.X - rect.X1)} {N(p.Y - rect.Y1)}";
 
     /// <summary>Elipse dentro do retângulo, feita com 4 curvas de Bézier.</summary>
     private static string Ellipse(double x, double y, double w, double h)

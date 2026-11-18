@@ -250,14 +250,26 @@ public static partial class PdfOperations
             annot.Elements["/Rect"] = new PdfRectangle(
                 new PdfSharp.Drawing.XPoint(ax1 * s + tx, ay1 * s + ty), new PdfSharp.Drawing.XPoint(ax2 * s + tx, ay2 * s + ty));
 
-            if (annot.Elements.GetArray("/QuadPoints") is { } quads) // realces, sublinhados etc.
+            // Listas de coordenadas x, y, x, y...: realces (/QuadPoints), linhas (/L), polígonos (/Vertices).
+            foreach (var key in new[] { "/QuadPoints", "/L", "/Vertices" })
+                if (annot.Elements.GetArray(key) is { } coords) annot.Elements[key] = MovePoints(page.Owner, coords, s, tx, ty);
+
+            if (annot.Elements.GetArray("/InkList") is { } ink) // desenho livre: uma lista por traço
             {
                 var moved = new PdfArray(page.Owner);
-                for (int q = 0; q < quads.Elements.Count; q++)
-                    moved.Elements.Add(new PdfReal(quads.Elements.GetReal(q) * s + (q % 2 == 0 ? tx : ty)));
-                annot.Elements["/QuadPoints"] = moved;
+                for (int k = 0; k < ink.Elements.Count; k++)
+                    if (ink.Elements.GetArray(k) is { } stroke) moved.Elements.Add(MovePoints(page.Owner, stroke, s, tx, ty));
+                annot.Elements["/InkList"] = moved;
             }
         }
+    }
+
+    private static PdfArray MovePoints(PdfDocument owner, PdfArray coords, double s, double tx, double ty)
+    {
+        var moved = new PdfArray(owner);
+        for (int q = 0; q < coords.Elements.Count; q++)
+            moved.Elements.Add(new PdfReal(coords.Elements.GetReal(q) * s + (q % 2 == 0 ? tx : ty)));
+        return moved;
     }
 
     /// <summary>Número no formato do PDF (ponto decimal, independente do idioma do Windows).</summary>

@@ -62,7 +62,7 @@ public sealed partial class ViewerPage : Page
         [
             new("\uE7E6", "Realçar"), new("\uE8DC", "Sublinhar"), new("\uEDE0", "Riscar"), Sep,
             new("\uE8D2", "Caixa de texto"), new("\uE70B", "Nota"), Sep,
-            new("\uE7AD", "Linha"), new("\uE739", "Retângulo", "retangulo", NeedsFile: true), new("\uEA3A", "Oval"), new("\uEE56", "Desenho livre"), Sep,
+            new("\uE7AD", "Linha", "linha", NeedsFile: true), new("\uE72A", "Seta", "seta", NeedsFile: true), new("\uE739", "Retângulo", "retangulo", NeedsFile: true), new("\uEA3A", "Oval", "oval", NeedsFile: true), new("\uEE56", "Desenho livre", "desenho", NeedsFile: true), Sep,
             new("\uE8EC", "Carimbo"),
         ],
         ["editar"] =
@@ -136,7 +136,7 @@ public sealed partial class ViewerPage : Page
     {
         // Trocar de arquivo descarta a cópia de trabalho: pergunta antes se houver alterações.
         if (!await ConfirmDiscardAsync()) return;
-        SetTool(null);
+        SetTool(null, keepPendingInk: false);
         DiscardWork();
 
         LoadingBar.Visibility = Visibility.Visible;
@@ -422,7 +422,7 @@ public sealed partial class ViewerPage : Page
     private async void CloseFile_Click(object sender, RoutedEventArgs e)
     {
         if (!await ConfirmDiscardAsync()) return;
-        SetTool(null);
+        SetTool(null, keepPendingInk: false);
         DiscardWork();
         _document = null;
         _path = null;

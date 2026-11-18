@@ -125,6 +125,33 @@ public static class TestPdfs
             .Select(i => annots.Elements.GetDictionary(i)!.Elements.GetName("/Subtype")).ToList();
     }
 
+    private static PdfDictionary Annotation(PdfDocument doc, int index) =>
+        doc.Pages[0].Elements.GetArray("/Annots")!.Elements.GetDictionary(index)!;
+
+    /// <summary>Números de um array da anotação <paramref name="index"/> da primeira página (ex.: /L).</summary>
+    public static double[] AnnotationArray(string path, int index, string key)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var array = Annotation(doc, index).Elements.GetArray(key)!;
+        return Enumerable.Range(0, array.Elements.Count).Select(i => array.Elements.GetReal(i)).ToArray();
+    }
+
+    /// <summary>Nomes de um array da anotação (ex.: /LE = [/None /OpenArrow]).</summary>
+    public static string[] AnnotationNames(string path, int index, string key)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var array = Annotation(doc, index).Elements.GetArray(key)!;
+        return Enumerable.Range(0, array.Elements.Count).Select(i => array.Elements.GetName(i)).ToArray();
+    }
+
+    /// <summary>Quantidade de números em cada traço do /InkList da primeira anotação.</summary>
+    public static int[] InkStrokeLengths(string path)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var ink = Annotation(doc, 0).Elements.GetArray("/InkList")!;
+        return Enumerable.Range(0, ink.Elements.Count).Select(i => ink.Elements.GetArray(i)!.Elements.Count).ToArray();
+    }
+
     /// <summary>/Rect da primeira anotação da primeira página (x1, y1, x2, y2).</summary>
     public static double[] FirstAnnotationRect(string path)
     {

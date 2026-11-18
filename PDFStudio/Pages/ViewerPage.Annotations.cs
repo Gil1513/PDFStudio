@@ -146,8 +146,13 @@ public sealed partial class ViewerPage
 
     private async Task UndoRedoAsync(bool undo)
     {
-        if (_work is null || (undo ? !_work.CanUndo : !_work.CanRedo)) return;
         CancelDrawing();
+        if (undo && _inkStrokes.Count > 0) // primeiro desfaz o desenho livre que ainda não foi gravado
+        {
+            ClearInk();
+            return;
+        }
+        if (_work is null || (undo ? !_work.CanUndo : !_work.CanRedo)) return;
         if (undo) _work.Undo(); else _work.Redo();
         await RefreshDocumentAsync();
         UpdateEditState();
@@ -229,13 +234,30 @@ public sealed partial class ViewerPage
     // Ferramentas de comentário
     // =====================================================================
 
-    /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
-    private sealed record CommentTool(string Key, string Name, AnnotationKind Kind, string Hint, bool UsesColor = true, bool UsesWidth = true);
-
-    private static readonly Dictionary<string, CommentTool> CommentTools = new()
+    /// <summary>Como a ferramenta usa o mouse.</summary>
+    private enum DrawMode
     {
-        ["retangulo"] = new("retangulo", "Retângulo", AnnotationKind.Rectangle, "Arraste na página para desenhar."),
-    };
+        /// <summary>Arrastar uma caixa (retângulo, oval).</summary>
+        Box,
+        /// <summary>Arrastar do início ao fim (linha, seta).</summary>
+        Segment,
+        /// <summary>Traço livre; vários traços viram um único desenho ao concluir.</summary>
+        Freehand,
+    }
+
+    /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
+    private sealed record CommentTool(string Key, string Name, AnnotationKind Kind, DrawMode Mode, string Hint,
+        bool Arrow = false, bool UsesColor = true, bool UsesWidth = true);
+
+    private static readonly Dictionary<string, CommentTool> CommentTools = new[]
+    {
+        new CommentTool("retangulo", "Retângulo", AnnotationKind.Rectangle, DrawMode.Box, "Arraste na página para desenhar."),
+        new CommentTool("oval", "Oval", AnnotationKind.Oval, DrawMode.Box, "Arraste na página para desenhar."),
+        new CommentTool("linha", "Linha", AnnotationKind.Line, DrawMode.Segment, "Arraste do início ao fim da linha. Segure Shift para retas a cada 45°."),
+        new CommentTool("seta", "Seta", AnnotationKind.Line, DrawMode.Segment, "Arraste do início até onde a seta aponta. Shift: ângulos de 45°.", Arrow: true),
+        new CommentTool("desenho", "Desenho livre", AnnotationKind.Ink, DrawMode.Freehand,
+            "Desenhe com o mouse; pode fazer vários traços na mesma página. Clique em Concluir ou troque de página para gravar."),
+    }.ToDictionary(t => t.Key);
 
     private static readonly (string Name, string Hex)[] Palette =
     [
@@ -292,10 +314,18 @@ public sealed partial class ViewerPage
         App.Settings.Save();
     }
 
-    /// <summary>Liga uma ferramenta (ou desliga, com null). A ferramenta continua ativa até Esc ou "Concluir".</summary>
-    private void SetTool(string? key)
+    /// <summary>
+    /// Liga uma ferramenta (ou desliga, com null). A ferramenta continua ativa até Esc ou "Concluir".
+    /// Traços pendentes do desenho livre são gravados (ou descartados, com <paramref name="keepPendingInk"/> = false).
+    /// </summary>
+    private void SetTool(string? key, bool keepPendingInk = true)
     {
         CancelDrawing();
+        if (_inkStrokes.Count > 0)
+        {
+            if (keepPendingInk) _ = CommitInkAsync();
+            else ClearInk();
+        }
         _tool = key is not null && CommentTools.TryGetValue(key, out var tool) ? tool : null;
         ToolOptionsBar.Visibility = _tool is null ? Visibility.Collapsed : Visibility.Visible;
         if (_tool is not null)
@@ -317,63 +347,166 @@ public sealed partial class ViewerPage
     private Point _drawStart;
     private Shapes.Shape? _preview;
 
+    // Desenho livre: traços já feitos (ainda não gravados) e os desenhos provisórios na tela.
+    private readonly List<List<Point>> _inkStrokes = [];
+    private readonly List<Shapes.Polyline> _inkPreviews = [];
+    private DrawingSurface? _inkSurface;
+    private PageSlot? _inkSlot;
+
     /// <summary>O visualizador mede em DIPs (1/96 pol.); o PDF, em pontos (1/72 pol.).</summary>
     private const double DipsPerPoint = 96.0 / 72;
 
     private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e) =>
         ((DrawingSurface)sender).SetCursor(_tool is null ? null : InputSystemCursorShape.Cross);
 
+    private SolidColorBrush ToolBrush()
+    {
+        var c = ToolColor;
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
+    }
 
-    private void Surface_PointerPressed(object sender, PointerRoutedEventArgs e)
+    private async void Surface_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (_tool is null || sender is not DrawingSurface surface || SlotOf(surface) is not { } slot) return;
         var point = e.GetCurrentPoint(surface);
         if (!point.Properties.IsLeftButtonPressed) return;
+        e.Handled = true;
+
+        // Desenho livre em outra página: grava o desenho da página anterior antes de começar.
+        if (_tool.Mode == DrawMode.Freehand && _inkSlot is not null && _inkSlot != slot) await CommitInkAsync();
 
         CancelDrawing();
         surface.CapturePointer(e.Pointer);
         _drawSurface = surface;
         _drawSlot = slot;
-        _drawStart = point.Position;
-        var color = ToolColor;
-        _preview = new Shapes.Rectangle
+        _drawStart = Clamp(point.Position);
+        double thickness = App.Settings.CommentLineWidth * DipsPerPoint;
+
+        switch (_tool.Mode)
         {
-            Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(255, color.R, color.G, color.B)),
-            StrokeThickness = App.Settings.CommentLineWidth * DipsPerPoint,
-        };
-        PlacePreview(_drawStart);
+            case DrawMode.Box:
+                _preview = _tool.Kind == AnnotationKind.Oval ? new Shapes.Ellipse() : new Shapes.Rectangle();
+                PlaceBox(_drawStart);
+                break;
+            case DrawMode.Segment:
+                _preview = new Shapes.Line
+                {
+                    X1 = _drawStart.X, Y1 = _drawStart.Y, X2 = _drawStart.X, Y2 = _drawStart.Y,
+                    StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                };
+                break;
+            case DrawMode.Freehand:
+                _inkSurface = surface;
+                _inkSlot = slot;
+                _inkStrokes.Add([_drawStart]);
+                var line = new Shapes.Polyline
+                {
+                    StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                };
+                line.Points.Add(_drawStart);
+                _inkPreviews.Add(line);
+                _preview = line;
+                break;
+        }
+        _preview!.Stroke = ToolBrush();
+        _preview.StrokeThickness = thickness;
         surface.Children.Add(_preview);
-        e.Handled = true;
     }
 
     private void Surface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_preview is null || !ReferenceEquals(sender, _drawSurface)) return;
-        PlacePreview(e.GetCurrentPoint(_drawSurface).Position);
+        if (_preview is null || _tool is null || !ReferenceEquals(sender, _drawSurface)) return;
         e.Handled = true;
+        var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
+        switch (_tool.Mode)
+        {
+            case DrawMode.Box:
+                PlaceBox(current);
+                break;
+            case DrawMode.Segment when _preview is Shapes.Line line:
+                var end = SnapAngle(current, e.KeyModifiers.HasFlag(Windows.System.VirtualKeyModifiers.Shift));
+                line.X2 = end.X;
+                line.Y2 = end.Y;
+                break;
+            case DrawMode.Freehand when _preview is Shapes.Polyline poly:
+                var last = poly.Points[^1];
+                if (Math.Abs(current.X - last.X) + Math.Abs(current.Y - last.Y) < 1.5) break; // ignora tremidas mínimas
+                poly.Points.Add(current);
+                _inkStrokes[^1].Add(current);
+                break;
+        }
     }
 
     private async void Surface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
         if (_preview is null || _tool is null || _drawSurface is null || _drawSlot is null || !ReferenceEquals(sender, _drawSurface)) return;
         e.Handled = true;
-        var (x, y, w, h) = DragRect(e.GetCurrentPoint(_drawSurface).Position);
         var tool = _tool;
         int page = _drawSlot.Index;
-        CancelDrawing();
-        if (w < 4 || h < 4) return; // clique sem arrastar
-
-        // Tela (DIPs) → pontos do PDF; a conversão para o sistema do PDF (rotação etc.) é feita no Core.
-        double px = x / DipsPerPoint, py = y / DipsPerPoint, pw = w / DipsPerPoint, ph = h / DipsPerPoint;
+        var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
         var style = ToolStyle;
         string author = App.Settings.CommentAuthor;
-        await ApplyEditAsync((input, output) =>
-            PdfAnnotations.AddShape(input, page, tool.Kind, px, py, pw, ph, style, author, output));
+
+        if (tool.Mode == DrawMode.Freehand)
+        {
+            // O traço fica na tela; todos os traços viram um só comentário ao concluir.
+            _drawSurface.ReleasePointerCaptures();
+            _preview = null;
+            _drawSurface = null;
+            _drawSlot = null;
+            ToolHintText.Text = "Clique em Concluir (ou Esc) para gravar o desenho.";
+            return;
+        }
+
+        if (tool.Mode == DrawMode.Box)
+        {
+            var (x, y, w, h) = BoxBetween(_drawStart, current);
+            CancelDrawing();
+            if (w < 4 || h < 4) return; // clique sem arrastar
+            await ApplyEditAsync((input, output) =>
+                PdfAnnotations.AddShape(input, page, tool.Kind, x / DipsPerPoint, y / DipsPerPoint, w / DipsPerPoint, h / DipsPerPoint,
+                    style, author, output));
+        }
+        else
+        {
+            var start = _drawStart;
+            var end = SnapAngle(current, e.KeyModifiers.HasFlag(Windows.System.VirtualKeyModifiers.Shift));
+            CancelDrawing();
+            if (Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y) < 6) return;
+            await ApplyEditAsync((input, output) =>
+                PdfAnnotations.AddLine(input, page, start.X / DipsPerPoint, start.Y / DipsPerPoint, end.X / DipsPerPoint, end.Y / DipsPerPoint,
+                    tool.Arrow, style, author, output));
+        }
     }
 
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
-        if (ReferenceEquals(sender, _drawSurface)) CancelDrawing();
+        // No desenho livre o traço já está guardado; nas outras ferramentas, perder o mouse cancela.
+        if (ReferenceEquals(sender, _drawSurface) && _tool?.Mode != DrawMode.Freehand) CancelDrawing();
+    }
+
+    /// <summary>Grava como um único comentário todos os traços do desenho livre feitos até agora.</summary>
+    private async Task CommitInkAsync()
+    {
+        if (_inkSlot is null || _inkStrokes.Count == 0) { ClearInk(); return; }
+        int page = _inkSlot.Index;
+        var strokes = _inkStrokes.Where(s => s.Count >= 2)
+            .Select(s => (IReadOnlyList<(double X, double Y)>)s.Select(p => (p.X / DipsPerPoint, p.Y / DipsPerPoint)).ToList())
+            .ToList();
+        var style = ToolStyle;
+        string author = App.Settings.CommentAuthor;
+        ClearInk();
+        if (strokes.Count == 0) return;
+        await ApplyEditAsync((input, output) => PdfAnnotations.AddInk(input, page, strokes, style, author, output));
+    }
+
+    private void ClearInk()
+    {
+        if (_inkSurface is not null) foreach (var p in _inkPreviews) _inkSurface.Children.Remove(p);
+        _inkPreviews.Clear();
+        _inkStrokes.Clear();
+        _inkSurface = null;
+        _inkSlot = null;
     }
 
     /// <summary>
@@ -393,30 +526,38 @@ public sealed partial class ViewerPage
         return null;
     }
 
-    /// <summary>Retângulo entre o ponto inicial e <paramref name="current"/>, limitado à página.</summary>
-    private (double X, double Y, double W, double H) DragRect(Point current)
+    /// <summary>Mantém o ponto dentro da página.</summary>
+    private Point Clamp(Point p) => _drawSurface is null ? p
+        : new(Math.Clamp(p.X, 0, _drawSurface.ActualWidth), Math.Clamp(p.Y, 0, _drawSurface.ActualHeight));
+
+    /// <summary>Com Shift, prende a linha em múltiplos de 45° (horizontal, vertical, diagonal).</summary>
+    private Point SnapAngle(Point end, bool snap)
     {
-        double maxX = _drawSurface!.ActualWidth, maxY = _drawSurface.ActualHeight;
-        double x2 = Math.Clamp(current.X, 0, maxX), y2 = Math.Clamp(current.Y, 0, maxY);
-        double x = Math.Min(_drawStart.X, x2), y = Math.Min(_drawStart.Y, y2);
-        return (x, y, Math.Abs(x2 - _drawStart.X), Math.Abs(y2 - _drawStart.Y));
+        if (!snap) return end;
+        double dx = end.X - _drawStart.X, dy = end.Y - _drawStart.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        double angle = Math.Round(Math.Atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        return Clamp(new Point(_drawStart.X + length * Math.Cos(angle), _drawStart.Y + length * Math.Sin(angle)));
     }
 
-    private void PlacePreview(Point current)
+    private static (double X, double Y, double W, double H) BoxBetween(Point a, Point b) =>
+        (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
+
+    private void PlaceBox(Point current)
     {
-        var (x, y, w, h) = DragRect(current);
+        var (x, y, w, h) = BoxBetween(_drawStart, current);
         Canvas.SetLeft(_preview, x);
         Canvas.SetTop(_preview, y);
         _preview!.Width = w;
         _preview.Height = h;
     }
 
-    /// <summary>Remove o desenho provisório e solta o mouse.</summary>
+    /// <summary>Remove o desenho provisório (exceto os traços do desenho livre) e solta o mouse.</summary>
     private void CancelDrawing()
     {
         if (_drawSurface is not null)
         {
-            if (_preview is not null) _drawSurface.Children.Remove(_preview);
+            if (_preview is Shapes.Polyline poly && _inkPreviews.Contains(poly)) { }
+            else if (_preview is not null) _drawSurface.Children.Remove(_preview);
             _drawSurface.ReleasePointerCaptures();
         }
         _preview = null;
