@@ -258,6 +258,8 @@ public sealed partial class ViewerPage
         Stamp,
         /// <summary>Etapa 5.1: clicar e digitar um texto que passa a fazer parte da página (não é comentário).</summary>
         PageText,
+        /// <summary>Etapa 5.2: clicar (tamanho automático) ou arrastar (tamanho escolhido) para colocar uma imagem.</summary>
+        Image,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -287,6 +289,9 @@ public sealed partial class ViewerPage
         new CommentTool("adicionartexto", "Adicionar texto", AnnotationKind.Other, DrawMode.PageText,
             "Clique onde o texto deve começar e digite (Enter = nova linha). Clique fora ou Esc para concluir.",
             UsesWidth: false, UsesFontSize: true),
+        new CommentTool("imagem", "Imagem", AnnotationKind.Other, DrawMode.Image,
+            "Clique para colocar a imagem ou arraste para escolher o tamanho (a proporção é mantida).",
+            UsesColor: false, UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
     private static readonly (string Name, string Hex)[] Palette =
@@ -463,6 +468,8 @@ public sealed partial class ViewerPage
     {
         if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
         RemoveStampGhost();
+        CancelImageDrag();
+        RemoveImageGhost();
         CancelDrawing();
         if (_inkStrokes.Count > 0)
         {
@@ -483,6 +490,7 @@ public sealed partial class ViewerPage
             if (IsPageTextTool) InitPageFontOptions();
             ColorSwatch.Background = Brush(ToolColorHex);
             StampOption.Visibility = _tool.Mode == DrawMode.Stamp ? Visibility.Visible : Visibility.Collapsed;
+            ImageOption.Visibility = _tool.Mode == DrawMode.Image ? Visibility.Visible : Visibility.Collapsed;
             UpdateStampOptions();
             // Seleção de texto: já lê as palavras das páginas na tela, para a primeira seleção ser imediata.
             if (_tool.Mode == DrawMode.TextSelect && DisplayPath is not null)
@@ -535,6 +543,12 @@ public sealed partial class ViewerPage
         if (_tool.Mode == DrawMode.TextSelect)
         {
             await StartTextSelectionAsync(surface, slot, e);
+            return;
+        }
+        if (_tool.Mode == DrawMode.Image)
+        {
+            CancelDrawing();
+            StartImageDrag(surface, slot, e);
             return;
         }
         if (_tool.Mode == DrawMode.Stamp)
@@ -605,6 +619,11 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.Image && sender is DrawingSurface imageSurface)
+        {
+            MoveImageGhost(imageSurface, e);
+            return;
+        }
         if (_tool?.Mode == DrawMode.Stamp && sender is DrawingSurface hovered)
         {
             MoveStampGhost(hovered, e.GetCurrentPoint(hovered).Position);
@@ -640,6 +659,11 @@ public sealed partial class ViewerPage
 
     private async void Surface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.Image && sender is DrawingSurface imageSurface)
+        {
+            await FinishImageDragAsync(imageSurface, e);
+            return;
+        }
         if (_tool?.Mode == DrawMode.TextSelect && _selLayer is not null && ReferenceEquals(sender, _drawSurface))
         {
             e.Handled = true;
@@ -699,6 +723,7 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
+        if (ReferenceEquals(sender, _imageDragSurface)) { CancelImageDrag(); return; }
         // No desenho livre o traço já está guardado; nas outras ferramentas, perder o mouse cancela.
         // Na seleção de texto, soltar o botão também solta o mouse, mas a seleção termina em PointerReleased
         // (que pode ainda estar esperando a leitura das palavras).
@@ -844,6 +869,7 @@ public sealed partial class ViewerPage
     private void Surface_PointerExited(object sender, PointerRoutedEventArgs e)
     {
         if (ReferenceEquals(sender, _stampGhostSurface)) RemoveStampGhost();
+        if (ReferenceEquals(sender, _imageGhostSurface) && _imageDragSurface is null) RemoveImageGhost();
     }
 
     /// <summary>Mostra (ou move) a prévia do carimbo centralizada no mouse.</summary>

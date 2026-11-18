@@ -9,6 +9,7 @@
   <ItemGroup>
     <!-- PDFsharp 6.2.4 é a última versão MIT. A 6.5+ é AGPL-3.0 com chave de licença: NÃO atualizar. -->
     <!-- PdfPig (Apache-2.0): leitura do texto com posição de cada palavra (realçar/sublinhar/riscar; Etapa 5). -->
+    <InternalsVisibleTo Include="PDFStudio.Tests" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="PDFsharp" Version="[6.2.4]" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />

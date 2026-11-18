@@ -39,6 +39,64 @@ public static class PdfPageContent
         });
     }
 
+    /// <summary>Formatos de imagem aceitos por <see cref="AddImage"/>.</summary>
+    public static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg"];
+
+    /// <summary>
+    /// Coloca a imagem do arquivo <paramref name="imagePath"/> na página, ocupando o retângulo da tela
+    /// (<paramref name="x"/>, <paramref name="y"/>, <paramref name="width"/>, <paramref name="height"/>, em pontos).
+    /// A imagem fica "de pé" como a página aparece, mesmo em páginas giradas.
+    /// </summary>
+    public static void AddImage(string input, int pageIndex, double x, double y, double width, double height, string imagePath, string output)
+    {
+        if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "O tamanho da imagem precisa ser maior que zero.");
+        using var image = OpenImage(imagePath);
+        PdfAnnotations.Edit(input, output, doc =>
+        {
+            var page = doc.Pages[CheckPage(doc, pageIndex)];
+            DrawInView(page, gfx => gfx.DrawImage(image, x, y, width, height));
+        });
+    }
+
+    /// <summary>Tamanho natural da imagem em pontos (pela resolução gravada no arquivo; 96 ppp quando não tem).</summary>
+    public static (double Width, double Height) ImageSize(string imagePath)
+    {
+        using var image = OpenImage(imagePath);
+        return (image.PointWidth, image.PointHeight);
+    }
+
+    private static XImage OpenImage(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException("A imagem não foi encontrada.", path);
+        if (!ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()))
+            throw new InvalidOperationException("Use uma imagem PNG ou JPG.");
+        try
+        {
+            return XImage.FromStream(new MemoryStream(WithJfifHeader(File.ReadAllBytes(path))));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            throw new InvalidOperationException($"Não foi possível ler a imagem \"{Path.GetFileName(path)}\": {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// O leitor de JPEG do PDFsharp só reconhece arquivos que começam com o cabeçalho JFIF ou Exif; muitas fotos
+    /// (ex.: os papéis de parede do Windows) não têm. Nesses casos acrescenta um cabeçalho JFIF (96 ppp) — a foto não muda.
+    /// </summary>
+    internal static byte[] WithJfifHeader(byte[] data)
+    {
+        bool jpeg = data.Length > 4 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF;
+        if (!jpeg || data[3] is 0xE0 or 0xE1) return data;
+        byte[] jfif = [0xFF, 0xE0, 0x00, 0x10, (byte)'J', (byte)'F', (byte)'I', (byte)'F', 0x00, 0x01, 0x01, 0x01, 0x00, 0x60, 0x00, 0x60, 0x00, 0x00];
+        var result = new byte[data.Length + jfif.Length];
+        result[0] = 0xFF;
+        result[1] = 0xD8;
+        jfif.CopyTo(result, 2);
+        data.AsSpan(2).CopyTo(result.AsSpan(2 + jfif.Length));
+        return result;
+    }
+
     /// <summary>Largura e altura (pontos) que o texto ocupa com esse estilo.</summary>
     public static (double Width, double Height) MeasureText(string text, PageTextStyle style)
     {
