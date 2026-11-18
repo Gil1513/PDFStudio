@@ -83,4 +83,64 @@ public class PageToolsTests
         Assert.Equal(["doc_pagina_02.pdf", "doc_pagina_10.pdf", "doc_pagina_11.pdf"], files.Select(Path.GetFileName));
         Assert.Equal(["Página 10"], TestPdfs.Labels(files[1]));
     }
+
+    // ---------------- Inserir ----------------
+
+    [Theory]
+    [InlineData(0, new[] { "", "", "Página 1", "Página 2", "Página 3" })]
+    [InlineData(2, new[] { "Página 1", "Página 2", "", "", "Página 3" })]
+    [InlineData(3, new[] { "Página 1", "Página 2", "Página 3", "", "" })]
+    public void InsertBlankPages_PutsPagesAtPosition(int position, string[] expected)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 3);
+        string output = Path.Combine(dir, "out.pdf");
+
+        int total = PdfOperations.InsertBlankPages(input, position, 2, output);
+
+        Assert.Equal(5, total);
+        Assert.Equal(expected, TestPdfs.Labels(output));
+    }
+
+    [Fact]
+    public void InsertBlankPages_CopiesNeighborSize_OrUsesChosenSize()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 2, landscapeEvery: 2); // pág. 2 deitada
+        string same = Path.Combine(dir, "same.pdf"), a5 = Path.Combine(dir, "a5.pdf");
+
+        PdfOperations.InsertBlankPages(input, 2, 1, same);
+        PdfOperations.InsertBlankPages(input, 0, 1, a5, PdfSharp.PageSize.A5, landscape: true);
+
+        var sizes = TestPdfs.VisualSizes(same);
+        Assert.Equal(sizes[1], sizes[2]);           // igual à vizinha (paisagem)
+        Assert.True(sizes[2].Width > sizes[2].Height);
+        var first = TestPdfs.VisualSizes(a5)[0];
+        Assert.Equal(595, first.Width, 0);          // A5 deitada: 21 x 14,8 cm
+        Assert.Equal(420, first.Height, 0);
+    }
+
+    [Fact]
+    public void InsertPagesFromPdf_InsertsChosenPagesOfOtherFile()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 2);
+        string other = TestPdfs.Create(Path.Combine(dir, "outro.pdf"), 4, prefix: "Outro");
+
+        PdfOperations.InsertPagesFromPdf(input, other, "4, 1", 1, input);
+
+        Assert.Equal(["Página 1", "Outro 4", "Outro 1", "Página 2"], TestPdfs.Labels(input));
+    }
+
+    [Fact]
+    public void InsertPagesFromPdf_AllPagesWhenNoRange_AndRejectsBadPosition()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 2);
+        string output = Path.Combine(dir, "out.pdf");
+
+        Assert.Equal(4, PdfOperations.InsertPagesFromPdf(input, input, null, 2, output));
+        Assert.Equal(["Página 1", "Página 2", "Página 1", "Página 2"], TestPdfs.Labels(output));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PdfOperations.InsertPagesFromPdf(input, input, null, 3, output));
+    }
 }

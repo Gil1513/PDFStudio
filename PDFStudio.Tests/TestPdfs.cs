@@ -68,6 +68,13 @@ public static class TestPdfs
         }
     }
 
+    /// <summary>Tamanho de cada página como aparece na tela (pontos, considerando recorte e rotação).</summary>
+    public static List<(double Width, double Height)> VisualSizes(string path)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        return doc.Pages.Cast<PdfPage>().Select(PDFStudio.Core.PdfOperations.VisualSize).ToList();
+    }
+
     /// <summary>Rotação (/Rotate) de cada página, normalizada para 0..359.</summary>
     public static List<int> Rotations(string path)
     {

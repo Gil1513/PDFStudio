@@ -85,6 +85,32 @@ public sealed partial class ViewerPage
         }
     }
 
+    // ---------------- 3.3 Inserir ----------------
+
+    private async Task InsertPagesAsync()
+    {
+        if (_path is null) return;
+        var d = Prepare(new InsertPagesDialog(_slots.Count, CurrentIndex + 1, await IsSignedAsync(_path)));
+        if (await d.ShowAsync() != ContentDialogResult.Primary) return;
+
+        // Lê as opções da janela agora (na thread da tela), antes de rodar em segundo plano.
+        int position = d.Position;
+        Action<string, string> operation;
+        if (d.FromPdf)
+        {
+            string other = d.OtherPath!; string? ranges = d.OtherRanges;
+            operation = (input, output) => PdfOperations.InsertPagesFromPdf(input, other, ranges, position, output);
+        }
+        else
+        {
+            int count = d.Count; var size = d.Size; bool landscape = d.Landscape;
+            operation = (input, output) => PdfOperations.InsertBlankPages(input, position, count, output, size, landscape);
+        }
+
+        // Depois de salvar, mostra a primeira página inserida.
+        await ApplyPageToolAsync("Páginas inseridas", "-com-paginas", d.ReplaceOriginal, operation, goToPage: position);
+    }
+
     // ---------------- Fluxo comum ----------------
 
     private static bool SamePath(string a, string b) =>
@@ -94,7 +120,8 @@ public sealed partial class ViewerPage
     /// Executa uma operação que gera um novo PDF a partir do arquivo aberto: pergunta onde salvar
     /// (se não for substituir o original), roda a operação fora da tela e reabre o resultado.
     /// </summary>
-    private async Task ApplyPageToolAsync(string successTitle, string suffix, bool replaceOriginal, Action<string, string> operation)
+    private async Task ApplyPageToolAsync(string successTitle, string suffix, bool replaceOriginal,
+        Action<string, string> operation, int? goToPage = null)
     {
         if (_path is null) return;
         string input = _path;
@@ -103,7 +130,7 @@ public sealed partial class ViewerPage
             : await FilePickers.SavePdfAsync(Path.GetFileNameWithoutExtension(input) + suffix);
         if (output is null) return;
 
-        int page = CurrentIndex;
+        int page = goToPage ?? CurrentIndex;
         LoadingBar.Visibility = Visibility.Visible;
         try
         {
