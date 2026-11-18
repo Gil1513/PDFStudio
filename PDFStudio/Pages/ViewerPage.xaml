@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:ctl="using:PDFStudio.Controls"
     xmlns:pages="using:PDFStudio.Pages"
     xmlns:svc="using:PDFStudio.Services"
     AllowDrop="True"
@@ -16,6 +17,9 @@
         <KeyboardAccelerator Key="O" Invoked="Accel_Open" Modifiers="Control" />
         <KeyboardAccelerator Key="D" Invoked="Accel_Properties" Modifiers="Control" />
         <KeyboardAccelerator Key="S" Invoked="Accel_SaveCopy" Modifiers="Control,Shift" />
+        <KeyboardAccelerator Key="S" Invoked="Accel_Save" Modifiers="Control" />
+        <KeyboardAccelerator Key="Z" Invoked="Accel_Undo" Modifiers="Control" />
+        <KeyboardAccelerator Key="Y" Invoked="Accel_Redo" Modifiers="Control" />
         <KeyboardAccelerator Key="Add" Invoked="Accel_ZoomIn" Modifiers="Control" />
         <KeyboardAccelerator Key="Subtract" Invoked="Accel_ZoomOut" Modifiers="Control" />
         <KeyboardAccelerator Key="Number0" Invoked="Accel_FitWidth" Modifiers="Control" />
@@ -115,6 +119,20 @@
                                 <FontIcon Glyph="&#xE81C;" />
                             </MenuFlyoutSubItem.Icon>
                         </MenuFlyoutSubItem>
+                        <MenuFlyoutItem
+                            x:Name="SaveMenuItem"
+                            Click="Save_Click"
+                            KeyboardAcceleratorTextOverride="Ctrl+S"
+                            Text="Salvar">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74E;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="SaveAsMenuItem" Click="SaveAs_Click" Text="Salvar como…">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE792;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutItem
                             x:Name="SaveCopyMenuItem"
                             Click="SaveCopy_Click"
@@ -251,20 +269,22 @@
 
                 <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
                     <Button
+                        x:Name="UndoButton"
                         AutomationProperties.Name="Desfazer"
-                        Click="Soon_Click"
+                        Click="Undo_Click"
+                        IsEnabled="False"
                         Style="{StaticResource IconButtonStyle}"
-                        Tag="Desfazer"
-                        ToolTipService.ToolTip="Desfazer (em breve)">
-                        <FontIcon FontSize="15" Glyph="&#xE7A7;" Opacity="0.45" />
+                        ToolTipService.ToolTip="Desfazer (Ctrl+Z)">
+                        <FontIcon FontSize="15" Glyph="&#xE7A7;" />
                     </Button>
                     <Button
+                        x:Name="RedoButton"
                         AutomationProperties.Name="Refazer"
-                        Click="Soon_Click"
+                        Click="Redo_Click"
+                        IsEnabled="False"
                         Style="{StaticResource IconButtonStyle}"
-                        Tag="Refazer"
-                        ToolTipService.ToolTip="Refazer (em breve)">
-                        <FontIcon FontSize="15" Glyph="&#xE7A6;" Opacity="0.45" />
+                        ToolTipService.ToolTip="Refazer (Ctrl+Y)">
+                        <FontIcon FontSize="15" Glyph="&#xE7A6;" />
                     </Button>
                     <Rectangle
                         Width="1"
@@ -294,6 +314,15 @@
                         Width="1"
                         Margin="6,10"
                         Fill="{ThemeResource SeparatorBrush}" />
+                    <Button
+                        x:Name="QuickSaveButton"
+                        AutomationProperties.Name="Salvar"
+                        Click="Save_Click"
+                        IsEnabled="False"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTipService.ToolTip="Salvar (Ctrl+S)">
+                        <FontIcon FontSize="16" Glyph="&#xE74E;" />
+                    </Button>
                     <Button
                         x:Name="QuickSaveCopyButton"
                         AutomationProperties.Name="Salvar uma cópia"
@@ -332,15 +361,81 @@
                 </StackPanel>
             </Grid>
 
-            <InfoBar
-                x:Name="StatusBar"
-                Grid.Row="1"
-                Margin="0,8,0,0"
-                IsOpen="False">
-                <InfoBar.ActionButton>
-                    <Button x:Name="StatusAction" Click="StatusAction_Click" Visibility="Collapsed" />
-                </InfoBar.ActionButton>
-            </InfoBar>
+            <StackPanel Grid.Row="1">
+                <!--  Opções da ferramenta de comentário ativa (cor, espessura)  -->
+                <Grid
+                    x:Name="ToolOptionsBar"
+                    Margin="0,8,0,0"
+                    Padding="12,4"
+                    Background="{ThemeResource SidebarBackgroundBrush}"
+                    ColumnSpacing="12"
+                    CornerRadius="10"
+                    Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        x:Name="ToolNameText"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <StackPanel
+                        x:Name="ColorOption"
+                        Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <TextBlock VerticalAlignment="Center" Text="Cor" />
+                        <DropDownButton x:Name="ColorButton" AutomationProperties.Name="Cor">
+                            <Border
+                                x:Name="ColorSwatch"
+                                Width="18"
+                                Height="18"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="9" />
+                            <DropDownButton.Flyout>
+                                <Flyout x:Name="ColorFlyout" Placement="Bottom">
+                                    <StackPanel x:Name="ColorPalette" Orientation="Horizontal" Spacing="6" />
+                                </Flyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                    </StackPanel>
+                    <StackPanel
+                        x:Name="WidthOption"
+                        Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <TextBlock VerticalAlignment="Center" Text="Espessura" />
+                        <ComboBox
+                            x:Name="WidthBox"
+                            MinWidth="90"
+                            AutomationProperties.Name="Espessura"
+                            SelectionChanged="WidthBox_SelectionChanged" />
+                    </StackPanel>
+                    <TextBlock
+                        x:Name="ToolHintText"
+                        Grid.Column="3"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextTrimming="CharacterEllipsis" />
+                    <Button
+                        Grid.Column="4"
+                        Click="FinishTool_Click"
+                        Content="Concluir (Esc)" />
+                </Grid>
+
+                <InfoBar
+                    x:Name="StatusBar"
+                    Margin="0,8,0,0"
+                    IsOpen="False">
+                    <InfoBar.ActionButton>
+                        <Button x:Name="StatusAction" Click="StatusAction_Click" Visibility="Collapsed" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+            </StackPanel>
 
             <!--  Documento  -->
             <Grid
@@ -407,12 +502,25 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     CornerRadius="2">
-                                    <Image
-                                        Width="{x:Bind Width}"
-                                        Height="{x:Bind Height}"
-                                        AutomationProperties.Name="{x:Bind Label}"
-                                        Source="{x:Bind Image, Mode=OneWay}"
-                                        Stretch="Uniform" />
+                                    <Grid>
+                                        <Image
+                                            Width="{x:Bind Width}"
+                                            Height="{x:Bind Height}"
+                                            AutomationProperties.Name="{x:Bind Label}"
+                                            Source="{x:Bind Image, Mode=OneWay}"
+                                            Stretch="Uniform" />
+                                        <!--  Camada onde se desenham os comentários  -->
+                                        <ctl:DrawingSurface
+                                            Width="{x:Bind Width}"
+                                            Height="{x:Bind Height}"
+                                            Background="Transparent"
+                                            PointerCanceled="Surface_PointerReleased"
+                                            PointerCaptureLost="Surface_PointerCaptureLost"
+                                            PointerEntered="Surface_PointerEntered"
+                                            PointerMoved="Surface_PointerMoved"
+                                            PointerPressed="Surface_PointerPressed"
+                                            PointerReleased="Surface_PointerReleased" />
+                                    </Grid>
                                 </Border>
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>

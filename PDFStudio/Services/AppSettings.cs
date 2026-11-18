@@ -15,6 +15,13 @@ public sealed class AppSettings
     /// <summary>true = arquivos recentes em grade; false = lista.</summary>
     public bool RecentAsGrid { get; set; }
 
+    /// <summary>Nome gravado como autor dos comentários (padrão: usuário do Windows).</summary>
+    public string CommentAuthor { get; set; } = Environment.UserName;
+
+    /// <summary>Última cor e espessura usadas nas ferramentas de comentário.</summary>
+    public string CommentColor { get; set; } = "#E53935";
+    public double CommentLineWidth { get; set; } = 2;
+
     public static AppSettings Load()
     {
         try

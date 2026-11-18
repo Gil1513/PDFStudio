@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon("Assets/AppIcon.ico");
         FitToScreen();
         Activated += FirstActivated;
+        AppWindow.Closing += AppWindow_Closing;
         ApplyTheme(App.Settings.Theme);
 
         ContentFrame.Navigate(typeof(HomePage));
@@ -44,6 +45,26 @@ public sealed partial class MainWindow : Window
     {
         Activated -= FirstActivated;
         FitToScreen(); // repete quando a janela já está na tela certa
+    }
+
+    private bool _closeConfirmed;
+
+    /// <summary>Ao fechar com alterações não salvas no visualizador, pergunta antes (Salvar / Não salvar / Cancelar).</summary>
+    private async void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        var viewer = ViewerPage.Instance;
+        if (_closeConfirmed || viewer is not { HasUnsavedChanges: true })
+        {
+            viewer?.DiscardWork(); // apaga a cópia de trabalho temporária
+            return;
+        }
+
+        args.Cancel = true;
+        if (ContentFrame.CurrentSourcePageType != typeof(ViewerPage)) ContentFrame.Navigate(typeof(ViewerPage));
+        if (!await viewer.ConfirmDiscardAsync()) return;
+        viewer.DiscardWork();
+        _closeConfirmed = true;
+        Close();
     }
 
     // ---------- Navegação ----------

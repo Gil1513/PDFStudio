@@ -25,6 +25,21 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
+                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Comentários" />
+                <TextBox
+                    x:Name="AuthorBox"
+                    MaxWidth="360"
+                    HorizontalAlignment="Left"
+                    Header="Nome do autor dos comentários"
+                    LostFocus="AuthorBox_LostFocus"
+                    PlaceholderText="Seu nome" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Aparece para quem abrir o PDF em outros programas, junto com a data de cada comentário."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Arquivos recentes" />
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -42,7 +57,7 @@
                 <TextBlock x:Name="VersionText" />
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Bibliotecas: PDFsharp 6.2.4 (licença MIT), Windows App SDK e o leitor de PDF do próprio Windows."
+                    Text="Bibliotecas: PDFsharp 6.2.4 (licença MIT), PdfPig 0.1.16 (licença Apache 2.0), Windows App SDK e o leitor de PDF do próprio Windows."
                     TextWrapping="Wrap" />
             </StackPanel>
         </StackPanel>

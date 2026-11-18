@@ -14,7 +14,16 @@ public sealed partial class SettingsPage : Page
         InitializeComponent();
         ThemeRadios.SelectedIndex = Math.Max(0, Array.IndexOf(Themes, App.Settings.Theme));
         VersionText.Text = $"PDF Studio {typeof(App).Assembly.GetName().Version?.ToString(3) ?? "1.0.0"}";
+        AuthorBox.Text = App.Settings.CommentAuthor;
         _loading = false;
+    }
+
+    private void AuthorBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        string name = AuthorBox.Text.Trim();
+        if (name == App.Settings.CommentAuthor) return;
+        App.Settings.CommentAuthor = name;
+        App.Settings.Save();
     }
 
     private void ThemeRadios_SelectionChanged(object sender, SelectionChangedEventArgs e)

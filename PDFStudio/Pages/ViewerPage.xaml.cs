@@ -62,7 +62,7 @@ public sealed partial class ViewerPage : Page
         [
             new("\uE7E6", "Realçar"), new("\uE8DC", "Sublinhar"), new("\uEDE0", "Riscar"), Sep,
             new("\uE8D2", "Caixa de texto"), new("\uE70B", "Nota"), Sep,
-            new("\uE7AD", "Linha"), new("\uE739", "Retângulo"), new("\uEA3A", "Oval"), new("\uEE56", "Desenho livre"), Sep,
+            new("\uE7AD", "Linha"), new("\uE739", "Retângulo", "retangulo", NeedsFile: true), new("\uEA3A", "Oval"), new("\uEE56", "Desenho livre"), Sep,
             new("\uE8EC", "Carimbo"),
         ],
         ["editar"] =
@@ -117,6 +117,7 @@ public sealed partial class ViewerPage : Page
         NavigationCacheMode = NavigationCacheMode.Required; // mantém o PDF aberto ao ir para outra tela
         CategoryList.ItemsSource = Categories;
         CategoryList.SelectedIndex = 0;
+        InitCommentOptions();
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -133,6 +134,11 @@ public sealed partial class ViewerPage : Page
     /// <summary>Abre um PDF e prepara as páginas (a renderização ocorre sob demanda).</summary>
     public async Task OpenAsync(string path)
     {
+        // Trocar de arquivo descarta a cópia de trabalho: pergunta antes se houver alterações.
+        if (!await ConfirmDiscardAsync()) return;
+        SetTool(null);
+        DiscardWork();
+
         LoadingBar.Visibility = Visibility.Visible;
         StatusBar.IsOpen = false;
         try
@@ -161,6 +167,7 @@ public sealed partial class ViewerPage : Page
             App.MainWindow!.SetSubtitle(Path.GetFileName(path));
             SetPageBox(1);
             SetDocumentState(true);
+            UpdateEditState();
 
             // Ajusta à largura depois que o layout estiver pronto (o ScrollViewer acabou de ficar visível).
             Scroller.ChangeView(0, 0, null, true);
@@ -177,7 +184,7 @@ public sealed partial class ViewerPage : Page
     }
 
     /// <summary>Nome do arquivo aberto (para a barra de título).</summary>
-    public string? FileName => _path is null ? null : Path.GetFileName(_path);
+    public string? FileName => _path is null ? null : Path.GetFileName(_path) + (HasUnsavedChanges ? " • não salvo" : "");
 
     private void SetDocumentState(bool open)
     {
@@ -259,6 +266,13 @@ public sealed partial class ViewerPage : Page
                     },
                 },
             };
+            if (cmd.Key is not null && cmd.Key == _tool?.Key)
+            {
+                // Ferramenta de comentário ativa fica destacada.
+                button.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+                button.BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+                button.BorderThickness = new Thickness(1);
+            }
             ToolTipService.SetToolTip(button, available ? cmd.Label : $"{cmd.Label} (em breve)");
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, cmd.Label);
             button.Click += ToolButton_Click;
@@ -279,6 +293,16 @@ public sealed partial class ViewerPage : Page
 
     private async Task RunCommandAsync(string key)
     {
+        // Ferramentas de comentário: liga/desliga o modo de desenho.
+        if (CommentTools.ContainsKey(key))
+        {
+            SetTool(_tool?.Key == key ? null : key);
+            return;
+        }
+        // Ferramentas que trabalham direto no arquivo precisam das alterações salvas.
+        if (key is "excluir" or "extrair" or "inserir" or "recortar" or "redimensionar" or "organizar" or "assinar"
+            && !await EnsureSavedAsync()) return;
+
         switch (key)
         {
             case "abrir": await PickAndOpenAsync(); break;
@@ -350,7 +374,7 @@ public sealed partial class ViewerPage : Page
         }
         try
         {
-            string source = _path;
+            string source = DisplayPath!; // inclui as alterações ainda não salvas
             await Task.Run(() => File.Copy(source, output, overwrite: true));
             ShowStatus(InfoBarSeverity.Success, "Cópia salva", output, "Abrir a cópia", async () => await OpenAsync(output));
         }
@@ -370,7 +394,7 @@ public sealed partial class ViewerPage : Page
 
     private async Task ShowPropertiesAsync()
     {
-        if (_path is null) return;
+        if (_path is null || !await EnsureSavedAsync()) return;
         string path = _path;
         try
         {
@@ -395,8 +419,11 @@ public sealed partial class ViewerPage : Page
             Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_path}\"") { UseShellExecute = true });
     }
 
-    private void CloseFile_Click(object sender, RoutedEventArgs e)
+    private async void CloseFile_Click(object sender, RoutedEventArgs e)
     {
+        if (!await ConfirmDiscardAsync()) return;
+        SetTool(null);
+        DiscardWork();
         _document = null;
         _path = null;
         _slots = [];
@@ -485,8 +512,7 @@ public sealed partial class ViewerPage : Page
         var doc = _document;
         try
         {
-            double scale = PageSlot.ThumbMaxWidth * 1.5 / Math.Max(slot.Width, slot.Height);
-            var image = await PdfRenderer.RenderAsync(doc, slot.Index, scale);
+            var image = await PdfRenderer.RenderAsync(doc, slot.Index, ThumbnailScale(slot));
             if (doc == _document) slot.Thumbnail = image;
         }
         catch
@@ -570,6 +596,12 @@ public sealed partial class ViewerPage : Page
 
     private void Accel_ExitFullScreen(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a)
     {
+        if (_tool is not null) // Esc primeiro sai da ferramenta de comentário
+        {
+            a.Handled = true;
+            SetTool(null);
+            return;
+        }
         var window = App.MainWindow!.AppWindow;
         if (window.Presenter.Kind != Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen) return;
         a.Handled = true;

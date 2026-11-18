@@ -116,6 +116,15 @@ public static class TestPdfs
         File.Move(path + ".tmp", path, overwrite: true);
     }
 
+    /// <summary>/Subtype de todas as anotações da primeira página, na ordem.</summary>
+    public static List<string> AnnotationSubtypes(string path)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var annots = doc.Pages[0].Elements.GetArray("/Annots");
+        return annots is null ? [] : Enumerable.Range(0, annots.Elements.Count)
+            .Select(i => annots.Elements.GetDictionary(i)!.Elements.GetName("/Subtype")).ToList();
+    }
+
     /// <summary>/Rect da primeira anotação da primeira página (x1, y1, x2, y2).</summary>
     public static double[] FirstAnnotationRect(string path)
     {

@@ -32,5 +32,8 @@ public partial class App : Application
         MainWindow = new MainWindow(startupFile);
         _window = MainWindow;
         _window.Activate();
+
+        // Cópias de trabalho esquecidas (app fechado à força) não ficam ocupando espaço.
+        Task.Run(() => PDFStudio.Core.WorkingCopy.CleanupStale());
     }
 }

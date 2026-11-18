@@ -1,0 +1,274 @@
+using System.Globalization;
+using System.Text;
+using PdfSharp.Drawing;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
+
+namespace PDFStudio.Core;
+
+/// <summary>Cor RGB de um comentário.</summary>
+public readonly record struct AnnotationColor(byte R, byte G, byte B)
+{
+    public static AnnotationColor FromHex(string hex)
+    {
+        hex = hex.TrimStart('#');
+        return new(Convert.ToByte(hex[..2], 16), Convert.ToByte(hex[2..4], 16), Convert.ToByte(hex[4..6], 16));
+    }
+
+    public string ToHex() => $"#{R:X2}{G:X2}{B:X2}";
+
+    /// <summary>Componentes de 0 a 1, no formato do PDF ("1 0 0").</summary>
+    internal string Pdf => $"{N(R / 255.0)} {N(G / 255.0)} {N(B / 255.0)}";
+
+    internal PdfArray ToPdfArray(PdfDocument doc) => new(doc, new PdfReal(R / 255.0), new PdfReal(G / 255.0), new PdfReal(B / 255.0));
+
+    internal static string N(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+}
+
+/// <summary>Tipos de comentário que o PDF Studio cria ou reconhece.</summary>
+public enum AnnotationKind { Rectangle, Oval, Line, Ink, TextBox, Note, Highlight, Underline, StrikeOut, Stamp, Other }
+
+/// <summary>Aparência de um comentário novo.</summary>
+public sealed record AnnotationStyle(AnnotationColor Color, double LineWidth = 2, double Opacity = 1);
+
+/// <summary>Um comentário existente, com a posição já convertida para a tela (pontos, canto superior esquerdo).</summary>
+public sealed record AnnotationInfo(
+    int PageIndex,
+    int Index,
+    AnnotationKind Kind,
+    string Subtype,
+    double X, double Y, double Width, double Height,
+    string Contents,
+    string Author,
+    DateTime? Modified,
+    AnnotationColor? Color,
+    bool Hidden);
+
+/// <summary>
+/// Comentários (anotações) do PDF: criar, listar e excluir. Cada comentário criado recebe uma
+/// aparência própria (/AP), para ser exibido igual em qualquer leitor (Adobe, navegadores, celular).
+/// </summary>
+public static partial class PdfAnnotations
+{
+    /// <summary>Tipos que não são "comentários" para o usuário (links, campos de formulário, janelas pop-up).</summary>
+    private static readonly HashSet<string> NotComments = ["/Link", "/Widget", "/Popup"];
+
+    // ---------------- Formas ----------------
+
+    /// <summary>
+    /// Desenha um retângulo ou uma oval. A posição (<paramref name="x"/>, <paramref name="y"/>, largura, altura)
+    /// é a da tela, em pontos, a partir do canto superior esquerdo da página visível.
+    /// </summary>
+    public static void AddShape(string input, int pageIndex, AnnotationKind kind, double x, double y, double width, double height,
+        AnnotationStyle style, string author, string output, string? contents = null)
+    {
+        if (kind is not (AnnotationKind.Rectangle or AnnotationKind.Oval))
+            throw new ArgumentException("Use Rectangle ou Oval.", nameof(kind));
+
+        Edit(input, output, doc =>
+        {
+            var page = GetPage(doc, pageIndex);
+            var rect = PageGeometry.Of(page).ViewRectToPdf(x, y, width, height);
+            var annot = NewAnnotation(doc, page, kind == AnnotationKind.Rectangle ? "/Square" : "/Circle", rect, style, author, contents);
+
+            var bs = new PdfDictionary(doc);
+            bs.Elements["/W"] = new PdfReal(style.LineWidth);
+            annot.Elements["/BS"] = bs;
+
+            double lw = style.LineWidth, w = rect.Width, h = rect.Height;
+            string path = kind == AnnotationKind.Rectangle
+                ? $"{N(lw / 2)} {N(lw / 2)} {N(w - lw)} {N(h - lw)} re"
+                : Ellipse(lw / 2, lw / 2, w - lw, h - lw);
+            SetAppearance(doc, annot, w, h, $"{style.Color.Pdf} RG {N(lw)} w {path} S", style.Opacity);
+        });
+    }
+
+    // ---------------- Listar / excluir ----------------
+
+    /// <summary>Lista os comentários de todas as páginas, na ordem em que aparecem.</summary>
+    public static List<AnnotationInfo> List(string path)
+    {
+        using var doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
+        var result = new List<AnnotationInfo>();
+        for (int p = 0; p < doc.PageCount; p++)
+        {
+            var page = doc.Pages[p];
+            var annots = page.Elements.GetArray("/Annots");
+            if (annots is null) continue;
+            var geometry = PageGeometry.Of(page);
+            for (int i = 0; i < annots.Elements.Count; i++)
+            {
+                var a = annots.Elements.GetDictionary(i);
+                if (a is null) continue;
+                string subtype = a.Elements.GetName("/Subtype");
+                if (NotComments.Contains(subtype) || a.Elements.GetArray("/Rect") is not { Elements.Count: 4 } r) continue;
+
+                var (vx, vy, vw, vh) = geometry.PdfRectToView(r.Elements.GetReal(0), r.Elements.GetReal(1), r.Elements.GetReal(2), r.Elements.GetReal(3));
+                result.Add(new AnnotationInfo(p, i, KindOf(subtype, a), subtype, vx, vy, vw, vh,
+                    a.Elements.GetString("/Contents"), a.Elements.GetString("/T"),
+                    DocumentPropertiesService.ParsePdfDate(a.Elements.GetString("/M")),
+                    ReadColor(a.Elements.GetArray("/C")),
+                    (a.Elements.GetInteger("/F") & HiddenFlag) != 0));
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Exclui o comentário <paramref name="index"/> (posição em /Annots) da página, e o pop-up ligado a ele.</summary>
+    public static void Delete(string input, int pageIndex, int index, string output) =>
+        Edit(input, output, doc =>
+        {
+            var annots = GetPage(doc, pageIndex).Elements.GetArray("/Annots")
+                ?? throw new InvalidOperationException("A página não tem comentários.");
+            var target = annots.Elements.GetDictionary(index) ?? throw new ArgumentOutOfRangeException(nameof(index));
+            var popup = target.Elements.GetDictionary("/Popup");
+            for (int i = annots.Elements.Count - 1; i >= 0; i--)
+            {
+                var a = annots.Elements.GetDictionary(i);
+                if (ReferenceEquals(a, target) || (popup is not null && ReferenceEquals(a, popup))) annots.Elements.RemoveAt(i);
+            }
+        });
+
+    // ---------------- Infraestrutura ----------------
+
+    private const int PrintFlag = 4, HiddenFlag = 2;
+
+    /// <summary>Abre o PDF para edição (lido da memória, então pode gravar por cima dele mesmo), aplica e salva.</summary>
+    internal static void Edit(string input, string output, Action<PdfDocument> edit)
+    {
+        PdfDocument doc;
+        try
+        {
+            doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(input)), PdfDocumentOpenMode.Modify);
+        }
+        catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Este PDF é protegido por senha; não é possível adicionar comentários nele.", ex);
+        }
+        using (doc)
+        {
+            edit(doc);
+            PdfOperations.SaveSafely(doc, output);
+        }
+    }
+
+    private static PdfPage GetPage(PdfDocument doc, int index) =>
+        index >= 0 && index < doc.PageCount ? doc.Pages[index] : throw new ArgumentOutOfRangeException(nameof(index), $"A página {index + 1} não existe.");
+
+    /// <summary>Cria o dicionário do comentário com os dados comuns e o acrescenta à página.</summary>
+    private static PdfDictionary NewAnnotation(PdfDocument doc, PdfPage page, string subtype, PdfRectangle rect,
+        AnnotationStyle style, string author, string? contents)
+    {
+        var a = new PdfDictionary(doc);
+        a.Elements["/Type"] = new PdfName("/Annot");
+        a.Elements["/Subtype"] = new PdfName(subtype);
+        a.Elements["/Rect"] = rect;
+        a.Elements["/C"] = style.Color.ToPdfArray(doc);
+        a.Elements["/F"] = new PdfInteger(PrintFlag);
+        a.Elements["/NM"] = new PdfString(Guid.NewGuid().ToString());
+        if (!string.IsNullOrWhiteSpace(author)) a.Elements["/T"] = new PdfString(author, PdfStringEncoding.Unicode);
+        if (!string.IsNullOrEmpty(contents)) a.Elements["/Contents"] = new PdfString(contents, PdfStringEncoding.Unicode);
+        string now = PdfDate(DateTime.Now);
+        a.Elements["/M"] = new PdfString(now);
+        a.Elements["/CreationDate"] = new PdfString(now);
+        if (style.Opacity < 1) a.Elements["/CA"] = new PdfReal(style.Opacity);
+        if (page.Reference is not null) a.Elements["/P"] = page.Reference;
+
+        doc.Internals.AddObject(a);
+        var annots = page.Elements.GetArray("/Annots");
+        if (annots is null)
+        {
+            annots = new PdfArray(doc);
+            page.Elements["/Annots"] = annots;
+        }
+        annots.Elements.Add(a.Reference!);
+        return a;
+    }
+
+    /// <summary>
+    /// Grava a aparência (/AP /N): um "desenho" em coordenadas locais (0,0 = canto inferior esquerdo do /Rect).
+    /// <paramref name="matrix"/> permite desenhar "de pé" em páginas giradas.
+    /// </summary>
+    private static void SetAppearance(PdfDocument doc, PdfDictionary annot, double width, double height, string operators,
+        double opacity = 1, PdfDictionary? resources = null, string? matrix = null)
+    {
+        var form = new PdfDictionary(doc);
+        form.Elements["/Type"] = new PdfName("/XObject");
+        form.Elements["/Subtype"] = new PdfName("/Form");
+        form.Elements["/BBox"] = new PdfRectangle(new XPoint(0, 0), new XPoint(width, height));
+        if (matrix is not null) form.Elements["/Matrix"] = ParseArray(doc, matrix);
+
+        resources ??= new PdfDictionary(doc);
+        if (opacity < 1)
+        {
+            var gs = new PdfDictionary(doc);
+            gs.Elements["/Type"] = new PdfName("/ExtGState");
+            gs.Elements["/CA"] = new PdfReal(opacity);
+            gs.Elements["/ca"] = new PdfReal(opacity);
+            var ext = resources.Elements.GetDictionary("/ExtGState") ?? new PdfDictionary(doc);
+            ext.Elements["/GSa"] = gs;
+            resources.Elements["/ExtGState"] = ext;
+            operators = "/GSa gs " + operators;
+        }
+        form.Elements["/Resources"] = resources;
+        form.CreateStream(Encoding.ASCII.GetBytes(operators));
+        doc.Internals.AddObject(form);
+
+        var ap = new PdfDictionary(doc);
+        ap.Elements["/N"] = form.Reference!;
+        annot.Elements["/AP"] = ap;
+    }
+
+    private static PdfArray ParseArray(PdfDocument doc, string numbers)
+    {
+        var array = new PdfArray(doc);
+        foreach (var part in numbers.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            array.Elements.Add(new PdfReal(double.Parse(part, CultureInfo.InvariantCulture)));
+        return array;
+    }
+
+    /// <summary>Elipse dentro do retângulo, feita com 4 curvas de Bézier.</summary>
+    private static string Ellipse(double x, double y, double w, double h)
+    {
+        const double k = 0.5522847498;
+        double rx = w / 2, ry = h / 2, cx = x + rx, cy = y + ry, ox = rx * k, oy = ry * k;
+        return $"{N(cx + rx)} {N(cy)} m " +
+               $"{N(cx + rx)} {N(cy + oy)} {N(cx + ox)} {N(cy + ry)} {N(cx)} {N(cy + ry)} c " +
+               $"{N(cx - ox)} {N(cy + ry)} {N(cx - rx)} {N(cy + oy)} {N(cx - rx)} {N(cy)} c " +
+               $"{N(cx - rx)} {N(cy - oy)} {N(cx - ox)} {N(cy - ry)} {N(cx)} {N(cy - ry)} c " +
+               $"{N(cx + ox)} {N(cy - ry)} {N(cx + rx)} {N(cy - oy)} {N(cx + rx)} {N(cy)} c h";
+    }
+
+    private static AnnotationKind KindOf(string subtype, PdfDictionary a) => subtype switch
+    {
+        "/Square" => AnnotationKind.Rectangle,
+        "/Circle" => AnnotationKind.Oval,
+        "/Line" => AnnotationKind.Line,
+        "/Ink" => AnnotationKind.Ink,
+        "/FreeText" => AnnotationKind.TextBox,
+        "/Text" => AnnotationKind.Note,
+        "/Highlight" => AnnotationKind.Highlight,
+        "/Underline" => AnnotationKind.Underline,
+        "/StrikeOut" => AnnotationKind.StrikeOut,
+        "/Stamp" => AnnotationKind.Stamp,
+        _ => AnnotationKind.Other,
+    };
+
+    private static AnnotationColor? ReadColor(PdfArray? c) =>
+        c is { Elements.Count: 3 }
+            ? new AnnotationColor(ToByte(c.Elements.GetReal(0)), ToByte(c.Elements.GetReal(1)), ToByte(c.Elements.GetReal(2)))
+            : null;
+
+    private static byte ToByte(double v) => (byte)Math.Clamp(Math.Round(v * 255), 0, 255);
+
+    /// <summary>Data no formato do PDF: D:AAAAMMDDhhmmss-03'00'.</summary>
+    internal static string PdfDate(DateTime local)
+    {
+        var offset = TimeZoneInfo.Local.GetUtcOffset(local);
+        char sign = offset < TimeSpan.Zero ? '-' : '+';
+        offset = offset.Duration();
+        return $"D:{local:yyyyMMddHHmmss}{sign}{offset.Hours:00}'{offset.Minutes:00}'";
+    }
+
+    private static string N(double v) => AnnotationColor.N(v);
+}
