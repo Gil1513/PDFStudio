@@ -184,7 +184,7 @@ public static partial class PdfAnnotations
                 result.Add(new AnnotationInfo(p, i, KindOf(subtype, a), subtype, vx, vy, vw, vh,
                     a.Elements.GetString("/Contents"), a.Elements.GetString("/T"),
                     DocumentPropertiesService.ParsePdfDate(a.Elements.GetString("/M")),
-                    ReadColor(a.Elements.GetArray("/C")),
+                    ReadColor(a.Elements.GetArray("/C")) ?? ColorFromDA(a.Elements.GetString("/DA")),
                     (a.Elements.GetInteger("/F") & HiddenFlag) != 0));
             }
         }

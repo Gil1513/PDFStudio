@@ -152,6 +152,23 @@ public static class TestPdfs
         return Enumerable.Range(0, ink.Elements.Count).Select(i => ink.Elements.GetArray(i)!.Elements.Count).ToArray();
     }
 
+    /// <summary>Conteúdo (já descompactado) da aparência normal (/AP /N) da anotação, e a /Matrix dela, se houver.</summary>
+    public static (string Content, double[]? Matrix) Appearance(string path, int index)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var form = Annotation(doc, index).Elements.GetDictionary("/AP")!.Elements.GetDictionary("/N")!;
+        var m = form.Elements.GetArray("/Matrix");
+        return (System.Text.Encoding.Latin1.GetString(form.Stream!.UnfilteredValue),
+            m is null ? null : Enumerable.Range(0, m.Elements.Count).Select(i => m.Elements.GetReal(i)).ToArray());
+    }
+
+    /// <summary>Texto de uma chave da anotação (ex.: /DA).</summary>
+    public static string AnnotationString(string path, int index, string key)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        return Annotation(doc, index).Elements.GetString(key);
+    }
+
     /// <summary>/Rect da primeira anotação da primeira página (x1, y1, x2, y2).</summary>
     public static double[] FirstAnnotationRect(string path)
     {

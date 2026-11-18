@@ -146,6 +146,7 @@ public sealed partial class ViewerPage
 
     private async Task UndoRedoAsync(bool undo)
     {
+        if (_textEditor is not null) { await FinishTextEditorAsync(commit: false); return; }
         CancelDrawing();
         if (undo && _inkStrokes.Count > 0) // primeiro desfaz o desenho livre que ainda não foi gravado
         {
@@ -243,11 +244,15 @@ public sealed partial class ViewerPage
         Segment,
         /// <summary>Traço livre; vários traços viram um único desenho ao concluir.</summary>
         Freehand,
+        /// <summary>Arrastar (ou clicar) e digitar o texto na própria página.</summary>
+        Text,
+        /// <summary>Clicar onde fica o ícone da nota e digitar o texto.</summary>
+        Note,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
     private sealed record CommentTool(string Key, string Name, AnnotationKind Kind, DrawMode Mode, string Hint,
-        bool Arrow = false, bool UsesColor = true, bool UsesWidth = true);
+        bool Arrow = false, bool UsesColor = true, bool UsesWidth = true, bool UsesFontSize = false);
 
     private static readonly Dictionary<string, CommentTool> CommentTools = new[]
     {
@@ -257,6 +262,10 @@ public sealed partial class ViewerPage
         new CommentTool("seta", "Seta", AnnotationKind.Line, DrawMode.Segment, "Arraste do início até onde a seta aponta. Shift: ângulos de 45°.", Arrow: true),
         new CommentTool("desenho", "Desenho livre", AnnotationKind.Ink, DrawMode.Freehand,
             "Desenhe com o mouse; pode fazer vários traços na mesma página. Clique em Concluir ou troque de página para gravar."),
+        new CommentTool("texto", "Caixa de texto", AnnotationKind.TextBox, DrawMode.Text,
+            "Clique (ou arraste uma caixa) e digite. Clique fora ou Esc para concluir.", UsesWidth: false, UsesFontSize: true),
+        new CommentTool("nota", "Nota", AnnotationKind.Note, DrawMode.Note,
+            "Clique onde a nota deve ficar e digite o texto. Clique fora ou Esc para concluir.", UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
     private static readonly (string Name, string Hex)[] Palette =
@@ -266,6 +275,7 @@ public sealed partial class ViewerPage
     ];
 
     private static readonly double[] LineWidths = [1, 2, 3, 5, 8];
+    private static readonly double[] FontSizes = [8, 10, 12, 14, 16, 18, 24, 32];
 
     private CommentTool? _tool;
 
@@ -299,6 +309,10 @@ public sealed partial class ViewerPage
         foreach (double w in LineWidths) WidthBox.Items.Add($"{w:0} pt");
         int index = Array.IndexOf(LineWidths, App.Settings.CommentLineWidth);
         WidthBox.SelectedIndex = index >= 0 ? index : 1;
+
+        foreach (double size in FontSizes) FontSizeBox.Items.Add($"{size:0} pt");
+        int sizeIndex = Array.IndexOf(FontSizes, App.Settings.CommentFontSize);
+        FontSizeBox.SelectedIndex = sizeIndex >= 0 ? sizeIndex : 2;
     }
 
     private static SolidColorBrush Brush(string hex)
@@ -314,12 +328,20 @@ public sealed partial class ViewerPage
         App.Settings.Save();
     }
 
+    private void FontSizeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FontSizeBox is null || FontSizeBox.SelectedIndex < 0) return;
+        App.Settings.CommentFontSize = FontSizes[FontSizeBox.SelectedIndex];
+        App.Settings.Save();
+    }
+
     /// <summary>
     /// Liga uma ferramenta (ou desliga, com null). A ferramenta continua ativa até Esc ou "Concluir".
     /// Traços pendentes do desenho livre são gravados (ou descartados, com <paramref name="keepPendingInk"/> = false).
     /// </summary>
     private void SetTool(string? key, bool keepPendingInk = true)
     {
+        if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
         CancelDrawing();
         if (_inkStrokes.Count > 0)
         {
@@ -334,6 +356,7 @@ public sealed partial class ViewerPage
             ToolHintText.Text = _tool.Hint;
             ColorOption.Visibility = _tool.UsesColor ? Visibility.Visible : Visibility.Collapsed;
             WidthOption.Visibility = _tool.UsesWidth ? Visibility.Visible : Visibility.Collapsed;
+            FontSizeOption.Visibility = _tool.UsesFontSize ? Visibility.Visible : Visibility.Collapsed;
         }
         BuildToolbar(SelectedCategory);
     }
@@ -372,6 +395,20 @@ public sealed partial class ViewerPage
         if (!point.Properties.IsLeftButtonPressed) return;
         e.Handled = true;
 
+        // Com um texto sendo digitado, clicar fora dele só conclui o texto.
+        if (_textEditor is not null)
+        {
+            await FinishTextEditorAsync(commit: true);
+            return;
+        }
+        if (_tool.Mode == DrawMode.Note)
+        {
+            CancelDrawing();
+            var p = point.Position;
+            OpenTextEditor(surface, slot, p.X, p.Y, PdfAnnotations.NoteIconSize * DipsPerPoint, PdfAnnotations.NoteIconSize * DipsPerPoint);
+            return;
+        }
+
         // Desenho livre em outra página: grava o desenho da página anterior antes de começar.
         if (_tool.Mode == DrawMode.Freehand && _inkSlot is not null && _inkSlot != slot) await CommitInkAsync();
 
@@ -386,6 +423,11 @@ public sealed partial class ViewerPage
         {
             case DrawMode.Box:
                 _preview = _tool.Kind == AnnotationKind.Oval ? new Shapes.Ellipse() : new Shapes.Rectangle();
+                PlaceBox(_drawStart);
+                break;
+            case DrawMode.Text:
+                _preview = new Shapes.Rectangle { StrokeDashArray = [4, 3] };
+                thickness = 1;
                 PlaceBox(_drawStart);
                 break;
             case DrawMode.Segment:
@@ -420,7 +462,7 @@ public sealed partial class ViewerPage
         var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
         switch (_tool.Mode)
         {
-            case DrawMode.Box:
+            case DrawMode.Box or DrawMode.Text:
                 PlaceBox(current);
                 break;
             case DrawMode.Segment when _preview is Shapes.Line line:
@@ -458,6 +500,17 @@ public sealed partial class ViewerPage
             return;
         }
 
+        if (tool.Mode == DrawMode.Text)
+        {
+            var (x, y, w, h) = BoxBetween(_drawStart, current);
+            var surface = _drawSurface;
+            var slot = _drawSlot;
+            CancelDrawing();
+            if (w < 30 || h < 10) (x, y, w, h) = (_drawStart.X, _drawStart.Y, 0, 0); // só um clique: tamanho padrão
+            OpenTextEditor(surface, slot, x, y, w, h);
+            return;
+        }
+
         if (tool.Mode == DrawMode.Box)
         {
             var (x, y, w, h) = BoxBetween(_drawStart, current);
@@ -483,6 +536,108 @@ public sealed partial class ViewerPage
     {
         // No desenho livre o traço já está guardado; nas outras ferramentas, perder o mouse cancela.
         if (ReferenceEquals(sender, _drawSurface) && _tool?.Mode != DrawMode.Freehand) CancelDrawing();
+    }
+
+    // ---------------- Caixa de texto e nota: digitar na página ----------------
+
+    private TextBox? _textEditor;
+    private DrawingSurface? _textSurface;
+    private PageSlot? _textSlot;
+    private Rect _textBox; // caixa de texto: posição e tamanho (DIPs); nota: posição e tamanho do ícone
+
+    /// <summary>Largura padrão (pontos) da caixa de texto criada com um clique e da área para digitar a nota.</summary>
+    private const double DefaultTextWidth = 200, NoteEditorWidth = 220;
+
+    /// <summary>Mostra uma caixa para digitar na página, na posição (x, y) em DIPs.</summary>
+    private void OpenTextEditor(DrawingSurface surface, PageSlot slot, double x, double y, double width, double height)
+    {
+        bool note = _tool?.Mode == DrawMode.Note;
+        double fontSize = App.Settings.CommentFontSize;
+        if (!note && width <= 0)
+        {
+            width = Math.Min(DefaultTextWidth * DipsPerPoint, surface.ActualWidth - x);
+            height = PdfAnnotations.TextHeight(1, fontSize) * DipsPerPoint;
+        }
+        _textBox = new Rect(x, y, width, height);
+        _textSurface = surface;
+        _textSlot = slot;
+
+        var editor = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinWidth = 0,
+            MinHeight = 0,
+            CornerRadius = new CornerRadius(0),
+            RequestedTheme = ElementTheme.Light, // está sobre a página branca
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(editor, note ? "Texto da nota" : "Texto da caixa");
+        if (note)
+        {
+            // A nota: área de digitação ao lado do ponto clicado, com fundo de "post-it".
+            editor.PlaceholderText = "Texto da nota";
+            editor.Width = Math.Min(NoteEditorWidth * DipsPerPoint, Math.Max(120, surface.ActualWidth - 8));
+            editor.MinHeight = 80;
+            editor.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 249, 196));
+            Canvas.SetLeft(editor, Math.Max(0, Math.Min(x + 4, surface.ActualWidth - editor.Width)));
+            Canvas.SetTop(editor, Math.Max(0, y + 4));
+            var icon = new FontIcon { Glyph = "\uE70B", FontSize = 18, Foreground = ToolBrush(), Tag = "note-icon" };
+            Canvas.SetLeft(icon, x);
+            Canvas.SetTop(icon, y);
+            surface.Children.Add(icon);
+        }
+        else
+        {
+            // A caixa de texto: mesma posição, largura, letra e cor que terá no PDF.
+            editor.Width = width;
+            editor.MinHeight = height;
+            editor.FontFamily = new FontFamily("Arial");
+            editor.FontSize = fontSize * DipsPerPoint;
+            editor.Foreground = ToolBrush();
+            editor.Padding = new Thickness(PdfAnnotations.TextPadding * DipsPerPoint - 1);
+            editor.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(200, 255, 255, 255));
+            Canvas.SetLeft(editor, x);
+            Canvas.SetTop(editor, y);
+        }
+        editor.LostFocus += async (_, _) => { if (ReferenceEquals(editor, _textEditor)) await FinishTextEditorAsync(commit: true); };
+        _textEditor = editor;
+        surface.Children.Add(editor);
+        ToolHintText.Text = "Digite o texto. Clique fora (ou Esc) para concluir.";
+        editor.Loaded += (_, _) => editor.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>Fecha a caixa de digitação; com <paramref name="commit"/>, grava o texto (se houver) como comentário.</summary>
+    private async Task FinishTextEditorAsync(bool commit)
+    {
+        if (_textEditor is not { } editor || _textSurface is not { } surface || _textSlot is not { } slot) return;
+        _textEditor = null; // evita gravar duas vezes (perda de foco + clique)
+        string text = editor.Text;
+        bool note = editor.PlaceholderText == "Texto da nota";
+        var box = _textBox;
+        surface.Children.Remove(editor);
+        foreach (var icon in surface.Children.OfType<FontIcon>().Where(i => (i.Tag as string) == "note-icon").ToList())
+            surface.Children.Remove(icon);
+        _textSurface = null;
+        _textSlot = null;
+        if (_tool is not null) ToolHintText.Text = _tool.Hint;
+        if (!commit || string.IsNullOrWhiteSpace(text)) return;
+
+        int page = slot.Index;
+        string author = App.Settings.CommentAuthor;
+        var color = ToolColor;
+        if (note)
+        {
+            await ApplyEditAsync((input, output) =>
+                PdfAnnotations.AddNote(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, text, color, author, output));
+        }
+        else
+        {
+            double fontSize = App.Settings.CommentFontSize;
+            var style = new AnnotationStyle(color, LineWidth: 0);
+            await ApplyEditAsync((input, output) =>
+                PdfAnnotations.AddTextBox(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, box.Width / DipsPerPoint,
+                    box.Height / DipsPerPoint, text, fontSize, style, author, output));
+        }
     }
 
     /// <summary>Grava como um único comentário todos os traços do desenho livre feitos até agora.</summary>

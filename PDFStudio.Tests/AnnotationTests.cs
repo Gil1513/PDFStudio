@@ -221,4 +221,73 @@ public class AnnotationTests
         Assert.Equal(["segundo"], PdfAnnotations.List(input).Select(a => a.Contents));
         Assert.Equal(["/Square", "/Link"], TestPdfs.AnnotationSubtypes(input)); // o link continua lá
     }
+
+    // ---------------- Caixa de texto e nota ----------------
+
+    [Fact]
+    public void AddTextBox_StoresTextAndColor_AndGrowsToFitTheText()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string text = "Atenção: revisar a cláusula três antes de assinar o contrato com o fornecedor.";
+
+        double height = PdfAnnotations.AddTextBox(input, 0, 50, 60, 150, 20, text, 12, Red with { LineWidth = 0 }, "Ana", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal(AnnotationKind.TextBox, info.Kind);
+        Assert.Equal(text, info.Contents);
+        Assert.Equal(new AnnotationColor(255, 0, 0), info.Color); // lida do /DA
+        Assert.True(height > 20, "a caixa deveria crescer para caber o texto");
+        Assert.Equal((50, 60, 150), (Math.Round(info.X, 3), Math.Round(info.Y, 3), Math.Round(info.Width, 3)));
+        Assert.Equal(height, info.Height, 3);
+        Assert.StartsWith("/Helv 12 Tf", TestPdfs.AnnotationString(input, 0, "/DA"));
+
+        var (content, matrix) = TestPdfs.Appearance(input, 0);
+        Assert.Null(matrix);
+        Assert.Contains(@"(Aten\347\343o:", content);     // ç e ã em WinAnsi (octal)
+        Assert.DoesNotContain(" re S", content);               // sem borda
+        int lines = PdfAnnotations.WrapText(text, 12, 150 - 2 * PdfAnnotations.TextPadding).Count;
+        Assert.True(lines >= 3);
+        Assert.Equal(lines, content.Split(" Tj").Length - 1);
+    }
+
+    [Fact]
+    public void WrapText_KeepsTypedLineBreaks_AndCutsLongWords()
+    {
+        var lines = PdfAnnotations.WrapText("um\r\ndois\n\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 10, 60);
+        Assert.Equal(["um", "dois", ""], lines.Take(3));
+        Assert.True(lines.Count > 4);
+        Assert.Equal(40, string.Concat(lines.Skip(3)).Length);
+    }
+
+    [Theory]
+    [InlineData(90, "0 1 -1 0 0 0")]
+    [InlineData(270, "0 -1 1 0 0 0")]
+    public void AddTextBox_OnRotatedPage_KeepsScreenPositionAndUprightText(int rotation, string expected)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        PdfOperations.Reorganize(input, [new(0, rotation)], input);
+
+        double h = PdfAnnotations.AddTextBox(input, 0, 100, 80, 200, 40, "Olá", 14, Red, "", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal((100, 80, 200, h), (Math.Round(info.X, 3), Math.Round(info.Y, 3), Math.Round(info.Width, 3), Math.Round(info.Height, 3)));
+        Assert.Equal(expected, string.Join(" ", TestPdfs.Appearance(input, 0).Matrix!.Select(v => v.ToString("0"))));
+    }
+
+    [Fact]
+    public void AddNote_IsAnIconAtTheClickedPoint_WithTheText()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+
+        PdfAnnotations.AddNote(input, 0, 300, 400, "Conferir valores", new AnnotationColor(253, 216, 53), "Ana", input);
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal(AnnotationKind.Note, info.Kind);
+        Assert.Equal("Conferir valores", info.Contents);
+        Assert.Equal((300, 400, 20, 20), (Math.Round(info.X, 3), Math.Round(info.Y, 3), Math.Round(info.Width, 3), Math.Round(info.Height, 3)));
+        Assert.Throws<ArgumentException>(() => PdfAnnotations.AddNote(input, 0, 0, 0, "  ", new AnnotationColor(0, 0, 0), "", input));
+    }
 }
