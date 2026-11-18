@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="PDFStudio.Dialogs.ResizePagesDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Redimensionar páginas"
+    CloseButtonText="Cancelar"
+    DefaultButton="Primary"
+    PrimaryButtonClick="Primary_Click"
+    PrimaryButtonText="Redimensionar"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxHeight">900</x:Double>
+    </ContentDialog.Resources>
+
+    <ScrollViewer Width="460" Padding="0,0,12,0">
+        <StackPanel Spacing="16">
+            <InfoBar
+                x:Name="SignedWarning"
+                Title="Este PDF tem assinatura digital"
+                IsClosable="False"
+                Message="Redimensionar invalida as assinaturas existentes."
+                Severity="Warning" />
+
+            <TextBlock x:Name="CurrentSizeText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <ComboBox
+                x:Name="SizeBox"
+                MinWidth="260"
+                Header="Novo tamanho"
+                SelectionChanged="SizeBox_SelectionChanged" />
+            <StackPanel
+                x:Name="CustomPanel"
+                Orientation="Horizontal"
+                Spacing="12"
+                Visibility="Collapsed">
+                <NumberBox
+                    x:Name="WidthBox"
+                    Width="140"
+                    Header="Largura (cm)"
+                    Maximum="500"
+                    Minimum="1.3"
+                    SpinButtonPlacementMode="Compact"
+                    Value="21" />
+                <NumberBox
+                    x:Name="HeightBox"
+                    Width="140"
+                    Header="Altura (cm)"
+                    Maximum="500"
+                    Minimum="1.3"
+                    SpinButtonPlacementMode="Compact"
+                    Value="29.7" />
+            </StackPanel>
+
+            <ComboBox
+                x:Name="OrientationBox"
+                MinWidth="260"
+                Header="Orientação"
+                SelectedIndex="0">
+                <x:String>Manter a de cada página</x:String>
+                <x:String>Retrato (em pé)</x:String>
+                <x:String>Paisagem (deitada)</x:String>
+            </ComboBox>
+
+            <RadioButtons x:Name="ContentChoice" Header="Conteúdo" SelectedIndex="0">
+                <x:String>Ajustar ao novo tamanho (aumentar ou reduzir)</x:String>
+                <x:String>Manter o tamanho original, centralizado</x:String>
+            </RadioButtons>
+            <TextBlock
+                Margin="0,-8,0,0"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Text="Ao manter o tamanho original numa folha menor, as bordas do conteúdo ficam de fora. Links e comentários acompanham o conteúdo."
+                TextWrapping="Wrap" />
+
+            <RadioButtons
+                x:Name="PagesChoice"
+                Header="Em quais páginas"
+                SelectedIndex="0"
+                SelectionChanged="PagesChoice_SelectionChanged">
+                <x:String>Todas</x:String>
+                <x:String>Só estas:</x:String>
+            </RadioButtons>
+            <TextBox
+                x:Name="RangesBox"
+                Margin="0,-8,0,0"
+                IsEnabled="False"
+                PlaceholderText="Ex.: 1-3, 8" />
+
+            <RadioButtons x:Name="TargetChoice" Header="Onde salvar" SelectedIndex="0">
+                <x:String>Criar um novo arquivo (o original fica intacto)</x:String>
+                <x:String>Substituir o arquivo aberto</x:String>
+            </RadioButtons>
+
+            <TextBlock
+                x:Name="ErrorText"
+                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                TextWrapping="Wrap"
+                Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

@@ -86,6 +86,44 @@ public static class TestPdfs
             .ToList();
     }
 
+    /// <summary>Operandos do primeiro comando "cm" (matriz a b c d e f) da página, ou null.</summary>
+    public static double[]? FirstMatrix(string path, int pageIndex)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        return FindMatrix(ContentReader.ReadContent(doc.Pages[pageIndex]));
+    }
+
+    private static double[]? FindMatrix(CObject obj) => obj switch
+    {
+        COperator { OpCode.Name: "cm" } op => op.Operands.Select(o => o switch
+        {
+            CInteger i => (double)i.Value,
+            CReal r => r.Value,
+            _ => double.NaN,
+        }).ToArray(),
+        CSequence seq => seq.Select(FindMatrix).FirstOrDefault(m => m is not null),
+        _ => null,
+    };
+
+    /// <summary>Acrescenta um link (anotação) na primeira página, em coordenadas do PDF.</summary>
+    public static void AddLink(string path, double x1, double y1, double x2, double y2)
+    {
+        using (var doc = PdfReader.Open(path, PdfDocumentOpenMode.Modify))
+        {
+            doc.Pages[0].AddWebLink(new PdfRectangle(new XPoint(x1, y1), new XPoint(x2, y2)), "https://example.com");
+            doc.Save(path + ".tmp");
+        }
+        File.Move(path + ".tmp", path, overwrite: true);
+    }
+
+    /// <summary>/Rect da primeira anotação da primeira página (x1, y1, x2, y2).</summary>
+    public static double[] FirstAnnotationRect(string path)
+    {
+        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var rect = doc.Pages[0].Elements.GetArray("/Annots")!.Elements.GetDictionary(0)!.Elements.GetArray("/Rect")!;
+        return Enumerable.Range(0, 4).Select(i => rect.Elements.GetReal(i)).ToArray();
+    }
+
     /// <summary>Rotação (/Rotate) de cada página, normalizada para 0..359.</summary>
     public static List<int> Rotations(string path)
     {

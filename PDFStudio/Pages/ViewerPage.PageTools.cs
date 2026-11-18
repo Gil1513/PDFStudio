@@ -121,7 +121,6 @@ public sealed partial class ViewerPage
         try { preview = await PdfRenderer.RenderAsync(_document, slot.Index, 300 / Math.Max(slot.Width, slot.Height)); }
         catch { /* sem prévia, a janela continua funcionando */ }
 
-        const double PointsPerDip = 72.0 / 96;
         var d = Prepare(new CropPagesDialog(_slots.Count, slot.Number, await IsSignedAsync(_path),
             preview, slot.Width * PointsPerDip, slot.Height * PointsPerDip));
         if (await d.ShowAsync() != ContentDialogResult.Primary) return;
@@ -136,7 +135,28 @@ public sealed partial class ViewerPage
                 (input, output) => PdfOperations.CropPages(input, ranges, margins, output));
     }
 
+    // ---------------- 3.5 Redimensionar ----------------
+
+    private async Task ResizePagesAsync()
+    {
+        if (_path is null) return;
+        var slot = _slots[CurrentIndex];
+        var d = Prepare(new ResizePagesDialog(_slots.Count, slot.Number, await IsSignedAsync(_path),
+            slot.Width * PointsPerDip, slot.Height * PointsPerDip));
+        if (await d.ShowAsync() != ContentDialogResult.Primary) return;
+
+        string? ranges = d.Ranges;
+        var (width, height) = d.SizePt;
+        var orientation = d.Orientation;
+        bool scale = d.ScaleContent;
+        await ApplyPageToolAsync("Páginas redimensionadas", "-redimensionado", d.ReplaceOriginal,
+            (input, output) => PdfOperations.ResizePages(input, ranges, width, height, orientation, scale, output));
+    }
+
     // ---------------- Fluxo comum ----------------
+
+    /// <summary>O visualizador mede em DIPs (1/96 pol.); o PDF, em pontos (1/72 pol.).</summary>
+    private const double PointsPerDip = 72.0 / 96;
 
     private static bool SamePath(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);

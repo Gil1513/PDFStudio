@@ -184,6 +184,85 @@ public static partial class PdfOperations
         SaveSafely(result, output);
     }
 
+    // ---------------- Redimensionar ----------------
+
+    /// <summary>
+    /// Muda o tamanho das páginas (todas, ou só as de <paramref name="ranges"/>) para
+    /// <paramref name="widthPt"/> x <paramref name="heightPt"/> pontos, na orientação pedida (como aparece na tela).
+    /// Com <paramref name="scaleContent"/>, o conteúdo é ampliado/reduzido para caber inteiro;
+    /// sem ele, fica no tamanho original, centralizado (pode sobrar margem ou ser cortado).
+    /// O conteúdo não é redesenhado: recebe uma transformação, e links/comentários acompanham.
+    /// </summary>
+    public static void ResizePages(string input, string? ranges, double widthPt, double heightPt,
+        PageOrientationChoice orientation, bool scaleContent, string output)
+    {
+        if (widthPt < MinCroppedSide || heightPt < MinCroppedSide || widthPt > 14400 || heightPt > 14400)
+            throw new ArgumentOutOfRangeException(nameof(widthPt), "Tamanho de página fora do limite (de 1,3 cm a 5 m).");
+        double shortSide = Math.Min(widthPt, heightPt), longSide = Math.Max(widthPt, heightPt);
+
+        EditPages(input, ranges, output, (page, _) =>
+        {
+            var (visualW, visualH) = VisualSize(page);
+            bool landscape = orientation switch
+            {
+                PageOrientationChoice.Portrait => false,
+                PageOrientationChoice.Landscape => true,
+                _ => visualW > visualH,
+            };
+            double targetVisualW = landscape ? longSide : shortSide, targetVisualH = landscape ? shortSide : longSide;
+
+            // Trabalha no sistema da página sem rotação: em 90/270 graus largura e altura se invertem.
+            bool turned = Normalize(page.Rotate) is 90 or 270;
+            double targetW = turned ? targetVisualH : targetVisualW, targetH = turned ? targetVisualW : targetVisualH;
+
+            var box = page.Elements.ContainsKey("/CropBox") ? page.CropBox : page.MediaBox;
+            double x1 = Math.Min(box.X1, box.X2), y1 = Math.Min(box.Y1, box.Y2);
+            double w = Math.Abs(box.Width), h = Math.Abs(box.Height);
+
+            double s = scaleContent ? Math.Min(targetW / w, targetH / h) : 1;
+            double tx = (targetW - w * s) / 2 - x1 * s, ty = (targetH - h * s) / 2 - y1 * s;
+
+            WrapContent(page, $"q {Num(s)} 0 0 {Num(s)} {Num(tx)} {Num(ty)} cm\n", "\nQ\n");
+            MoveAnnotations(page, s, tx, ty);
+
+            foreach (var key in new[] { "/CropBox", "/BleedBox", "/TrimBox", "/ArtBox" }) page.Elements.Remove(key);
+            page.MediaBox = new PdfRectangle(new PdfSharp.Drawing.XPoint(0, 0), new PdfSharp.Drawing.XPoint(targetW, targetH));
+        });
+    }
+
+    /// <summary>Coloca comandos antes e depois de todo o conteúdo da página.</summary>
+    private static void WrapContent(PdfPage page, string before, string after)
+    {
+        page.Contents.PrependContent().CreateStream(System.Text.Encoding.ASCII.GetBytes(before));
+        page.Contents.AppendContent().CreateStream(System.Text.Encoding.ASCII.GetBytes(after));
+    }
+
+    /// <summary>Aplica a mesma escala/deslocamento à posição de cada anotação (links, comentários, campos).</summary>
+    private static void MoveAnnotations(PdfPage page, double s, double tx, double ty)
+    {
+        var annots = page.Elements.GetArray("/Annots");
+        if (annots is null) return;
+        for (int i = 0; i < annots.Elements.Count; i++)
+        {
+            var annot = annots.Elements.GetDictionary(i);
+            if (annot?.Elements.GetArray("/Rect") is not { Elements.Count: 4 } rect) continue;
+            double ax1 = rect.Elements.GetReal(0), ay1 = rect.Elements.GetReal(1), ax2 = rect.Elements.GetReal(2), ay2 = rect.Elements.GetReal(3);
+            annot.Elements["/Rect"] = new PdfRectangle(
+                new PdfSharp.Drawing.XPoint(ax1 * s + tx, ay1 * s + ty), new PdfSharp.Drawing.XPoint(ax2 * s + tx, ay2 * s + ty));
+
+            if (annot.Elements.GetArray("/QuadPoints") is { } quads) // realces, sublinhados etc.
+            {
+                var moved = new PdfArray(page.Owner);
+                for (int q = 0; q < quads.Elements.Count; q++)
+                    moved.Elements.Add(new PdfReal(quads.Elements.GetReal(q) * s + (q % 2 == 0 ? tx : ty)));
+                annot.Elements["/QuadPoints"] = moved;
+            }
+        }
+    }
+
+    /// <summary>Número no formato do PDF (ponto decimal, independente do idioma do Windows).</summary>
+    private static string Num(double value) => value.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture);
+
     // ---------------- Utilitários ----------------
 
     /// <summary>Largura e altura (em pontos) da página como ela aparece na tela, considerando a rotação.</summary>

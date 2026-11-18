@@ -208,4 +208,86 @@ public class PageToolsTests
         Assert.Throws<InvalidOperationException>(() => PdfOperations.CropPages(input, null, new PageMargins(410, 0, 410, 0), output)); // A4 tem 842 pt: sobrariam 22 pt
         Assert.Throws<ArgumentException>(() => PdfOperations.CropPages(input, null, new PageMargins(-1, 0, 0, 0), output));
     }
+
+    // ---------------- Redimensionar ----------------
+
+    private static readonly (double W, double H) A5 = (419.53, 595.28);
+
+    [Fact]
+    public void ResizePages_ScalesContentToFitNewSize()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 2);
+        string output = Path.Combine(dir, "out.pdf");
+
+        var a4 = TestPdfs.VisualSizes(input)[0];
+
+        PdfOperations.ResizePages(input, "1", A5.W, A5.H, PageOrientationChoice.Auto, scaleContent: true, output);
+
+        var sizes = TestPdfs.VisualSizes(output);
+        Assert.Equal(A5.W, sizes[0].Width, 1);
+        Assert.Equal(A5.H, sizes[0].Height, 1);
+        Assert.Equal(a4, sizes[1]);                              // página 2 não foi escolhida: continua A4
+        Assert.Equal(["Página 1", "Página 2"], TestPdfs.Labels(output)); // conteúdo preservado
+
+        var m = TestPdfs.FirstMatrix(output, 0)!;
+        Assert.Equal(Math.Min(A5.W / a4.Width, A5.H / a4.Height), m[0], 4); // reduzido para caber inteiro
+        Assert.Equal(m[0], m[3], 6);                             // mesma escala nos dois eixos (sem deformar)
+    }
+
+    [Fact]
+    public void ResizePages_CenterMode_KeepsContentSize()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var a4 = TestPdfs.VisualSizes(input)[0];
+
+        PdfOperations.ResizePages(input, null, 841.89, 1190.55, PageOrientationChoice.Auto, scaleContent: false, input); // A3
+
+        var m = TestPdfs.FirstMatrix(input, 0)!;
+        Assert.Equal(1, m[0], 6);
+        Assert.Equal((841.89 - a4.Width) / 2, m[4], 3); // centralizado na horizontal
+        Assert.Equal(1190.55, TestPdfs.VisualSizes(input)[0].Height, 1);
+    }
+
+    [Theory]
+    [InlineData(PageOrientationChoice.Auto, true)]       // a página deitada continua deitada
+    [InlineData(PageOrientationChoice.Portrait, false)]
+    public void ResizePages_RespectsOrientation_OnRotatedPages(PageOrientationChoice orientation, bool expectLandscape)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        PdfOperations.Reorganize(input, [new(0, 90)], input); // aparece deitada
+
+        PdfOperations.ResizePages(input, null, A5.W, A5.H, orientation, scaleContent: true, input);
+
+        var size = TestPdfs.VisualSizes(input)[0];
+        Assert.Equal(expectLandscape, size.Width > size.Height);
+        Assert.Equal(A5.H, Math.Max(size.Width, size.Height), 1);
+        Assert.Equal([90], TestPdfs.Rotations(input));
+    }
+
+    [Fact]
+    public void ResizePages_MovesLinksWithTheContent()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        TestPdfs.AddLink(input, 100, 200, 300, 250);
+
+        PdfOperations.ResizePages(input, null, A5.W, A5.H, PageOrientationChoice.Auto, scaleContent: true, input);
+
+        var m = TestPdfs.FirstMatrix(input, 0)!;
+        var rect = TestPdfs.FirstAnnotationRect(input);
+        Assert.Equal(100 * m[0] + m[4], rect[0], 3);
+        Assert.Equal(250 * m[3] + m[5], rect[3], 3);
+    }
+
+    [Fact]
+    public void ResizePages_RejectsAbsurdSizes()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PdfOperations.ResizePages(input, null, 10, 500, PageOrientationChoice.Auto, true, Path.Combine(dir, "x.pdf")));
+    }
 }
