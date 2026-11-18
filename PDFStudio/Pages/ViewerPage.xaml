@@ -569,7 +569,7 @@
             </Grid>
         </Grid>
 
-        <!--  ================= PAINEL LATERAL (miniaturas) =================  -->
+        <!--  ================= PAINEL LATERAL (miniaturas ou comentários) =================  -->
         <Grid
             Grid.Column="2"
             Margin="0,0,6,0"
@@ -581,6 +581,7 @@
             </Grid.RowDefinitions>
             <Grid Padding="16,10,8,6">
                 <TextBlock
+                    x:Name="SidePanelTitle"
                     VerticalAlignment="Center"
                     Style="{StaticResource BodyStrongTextBlockStyle}"
                     Text="Páginas" />
@@ -626,6 +627,135 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+
+            <!--  Comentários: filtro, ocultar todos, lista por página e ações  -->
+            <Grid
+                x:Name="CommentsPanel"
+                Grid.Row="1"
+                Padding="8,0,8,8"
+                RowSpacing="6"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox
+                        x:Name="CommentFilterBox"
+                        HorizontalAlignment="Stretch"
+                        AutomationProperties.Name="Filtrar comentários por tipo"
+                        SelectionChanged="CommentFilterBox_SelectionChanged" />
+                    <ToggleButton
+                        x:Name="HideCommentsToggle"
+                        Grid.Column="1"
+                        AutomationProperties.Name="Ocultar todos os comentários"
+                        Checked="HideCommentsToggle_Changed"
+                        Unchecked="HideCommentsToggle_Changed"
+                        ToolTipService.ToolTip="Ocultar todos os comentários na tela (o arquivo não muda)">
+                        <FontIcon FontSize="14" Glyph="&#xED1A;" />
+                    </ToggleButton>
+                </Grid>
+                <TextBlock
+                    x:Name="CommentCountText"
+                    Grid.Row="1"
+                    Margin="4,0"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    TextWrapping="Wrap" />
+                <ListView
+                    x:Name="CommentList"
+                    Grid.Row="2"
+                    IsItemClickEnabled="True"
+                    ItemClick="CommentList_ItemClick"
+                    SelectionChanged="CommentList_SelectionChanged"
+                    SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style BasedOn="{StaticResource DefaultListViewItemStyle}" TargetType="ListViewItem">
+                            <Setter Property="Padding" Value="8,4" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="svc:CommentItem">
+                            <StackPanel AutomationProperties.Name="{x:Bind AutomationName}" Spacing="2">
+                                <TextBlock
+                                    Margin="0,6,0,2"
+                                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                                    Text="{x:Bind PageHeader}"
+                                    Visibility="{x:Bind HeaderVisibility}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon
+                                        VerticalAlignment="Top"
+                                        Margin="0,2,0,0"
+                                        FontSize="16"
+                                        Foreground="{x:Bind ColorBrush}"
+                                        Glyph="{x:Bind Glyph}" />
+                                    <StackPanel Grid.Column="1" Spacing="1">
+                                        <TextBlock Text="{x:Bind KindName}" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Meta}" />
+                                        <TextBlock
+                                            MaxLines="3"
+                                            Text="{x:Bind Text}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="Wrap"
+                                            Visibility="{x:Bind TextVisibility}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel
+                    Grid.Row="3"
+                    HorizontalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <Button
+                        x:Name="EditCommentButton"
+                        AutomationProperties.Name="Editar texto"
+                        Click="EditComment_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Editar o texto do comentário">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE70F;" />
+                            <TextBlock Text="Texto" />
+                        </StackPanel>
+                    </Button>
+                    <DropDownButton
+                        x:Name="CommentColorButton"
+                        AutomationProperties.Name="Cor do comentário"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Trocar a cor">
+                        <FontIcon FontSize="14" Glyph="&#xE790;" />
+                        <DropDownButton.Flyout>
+                            <Flyout x:Name="CommentColorFlyout" Placement="Top">
+                                <StackPanel x:Name="CommentColorPalette" Orientation="Horizontal" Spacing="6" />
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                    <Button
+                        x:Name="DeleteCommentButton"
+                        AutomationProperties.Name="Excluir comentário"
+                        Click="DeleteComment_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Excluir o comentário (Desfazer traz de volta)">
+                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <!--  ================= TRILHO DIREITO: painéis, páginas e zoom =================  -->
@@ -658,14 +788,15 @@
                     ToolTipService.ToolTip="Marcadores (em breve)">
                     <FontIcon FontSize="16" Glyph="&#xE8A4;" Opacity="0.45" />
                 </Button>
-                <Button
+                <ToggleButton
+                    x:Name="CommentsToggle"
                     AutomationProperties.Name="Comentários"
-                    Click="Soon_Click"
-                    Style="{StaticResource IconButtonStyle}"
-                    Tag="Lista de comentários"
-                    ToolTipService.ToolTip="Comentários (em breve)">
-                    <FontIcon FontSize="16" Glyph="&#xE90A;" Opacity="0.45" />
-                </Button>
+                    Checked="CommentsToggle_Changed"
+                    Unchecked="CommentsToggle_Changed"
+                    Style="{StaticResource RailToggleStyle}"
+                    ToolTipService.ToolTip="Comentários do documento">
+                    <FontIcon FontSize="16" Glyph="&#xE90A;" />
+                </ToggleButton>
                 <Button
                     AutomationProperties.Name="Anexos"
                     Click="Soon_Click"

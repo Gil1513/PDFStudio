@@ -52,6 +52,7 @@ public sealed partial class ViewerPage
             return false;
         }
 
+        if (_hideComments) ShowCommentsAgain(); // um comentário novo precisa aparecer
         await RefreshDocumentAsync();
         UpdateEditState();
         if (first && await IsSignedAsync(_path))
@@ -63,9 +64,9 @@ public sealed partial class ViewerPage
     /// <summary>Recarrega o arquivo mostrado e redesenha só as páginas e miniaturas que estão na tela.</summary>
     private async Task RefreshDocumentAsync()
     {
-        if (DisplayPath is not { } path) return;
         try
         {
+            if (await RenderSourceAsync() is not { } path) return;
             var doc = await PdfRenderer.LoadAsync(path);
             _document = doc;
             foreach (var slot in _slots)
@@ -97,6 +98,7 @@ public sealed partial class ViewerPage
         RedoButton.IsEnabled = _work?.CanRedo == true;
         QuickSaveButton.IsEnabled = HasUnsavedChanges;
         if (_path is not null) App.MainWindow!.SetSubtitle(FileName!);
+        _ = RefreshCommentListAsync();
     }
 
     /// <summary>Grava as alterações no arquivo original. Retorna false se não conseguiu.</summary>
@@ -164,6 +166,8 @@ public sealed partial class ViewerPage
     {
         _work?.Dispose();
         _work = null;
+        ShowCommentsAgain();
+        DeleteHiddenCopy();
         UpdateEditState();
     }
 

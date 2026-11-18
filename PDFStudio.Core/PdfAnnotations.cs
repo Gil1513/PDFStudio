@@ -20,6 +20,9 @@ public readonly record struct AnnotationColor(byte R, byte G, byte B)
     /// <summary>Componentes de 0 a 1, no formato do PDF ("1 0 0").</summary>
     internal string Pdf => $"{N(R / 255.0)} {N(G / 255.0)} {N(B / 255.0)}";
 
+    /// <summary>A cor como aparece nos comandos do PDF (ex.: "1 0 0").</summary>
+    public string ToPdfString() => Pdf;
+
     internal PdfArray ToPdfArray(PdfDocument doc) => new(doc, new PdfReal(R / 255.0), new PdfReal(G / 255.0), new PdfReal(B / 255.0));
 
     internal static string N(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
@@ -31,7 +34,10 @@ public enum AnnotationKind { Rectangle, Oval, Line, Ink, TextBox, Note, Highligh
 /// <summary>Aparência de um comentário novo.</summary>
 public sealed record AnnotationStyle(AnnotationColor Color, double LineWidth = 2, double Opacity = 1);
 
-/// <summary>Um comentário existente, com a posição já convertida para a tela (pontos, canto superior esquerdo).</summary>
+/// <summary>
+/// Um comentário existente, com a posição já convertida para a tela (pontos, canto superior esquerdo).
+/// <see cref="Id"/> é o identificador único gravado no PDF (/NM), vazio se o comentário não tiver um.
+/// </summary>
 public sealed record AnnotationInfo(
     int PageIndex,
     int Index,
@@ -42,7 +48,8 @@ public sealed record AnnotationInfo(
     string Author,
     DateTime? Modified,
     AnnotationColor? Color,
-    bool Hidden);
+    bool Hidden,
+    string Id = "");
 
 /// <summary>
 /// Comentários (anotações) do PDF: criar, listar e excluir. Cada comentário criado recebe uma
@@ -185,7 +192,8 @@ public static partial class PdfAnnotations
                     a.Elements.GetString("/Contents"), a.Elements.GetString("/T"),
                     DocumentPropertiesService.ParsePdfDate(a.Elements.GetString("/M")),
                     ReadColor(a.Elements.GetArray("/C")) ?? ColorFromDA(a.Elements.GetString("/DA")),
-                    (a.Elements.GetInteger("/F") & HiddenFlag) != 0));
+                    (a.Elements.GetInteger("/F") & HiddenFlag) != 0,
+                    a.Elements.GetString("/NM")));
             }
         }
         return result;

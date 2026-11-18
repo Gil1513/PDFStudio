@@ -118,6 +118,7 @@ public sealed partial class ViewerPage : Page
         CategoryList.ItemsSource = Categories;
         CategoryList.SelectedIndex = 0;
         InitCommentOptions();
+        InitCommentsPanel();
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -197,6 +198,7 @@ public sealed partial class ViewerPage : Page
         {
             PageCountText.Text = "0";
             ThumbnailsToggle.IsChecked = false;
+            CommentsToggle.IsChecked = false;
             SidePanelColumn.Width = new GridLength(0);
             App.MainWindow!.SetSubtitle("Visualizar");
         }
@@ -489,20 +491,30 @@ public sealed partial class ViewerPage : Page
     // Miniaturas
     // =====================================================================
 
-    private void ThumbnailsToggle_Click(object sender, RoutedEventArgs e) => UpdateSidePanel();
+    private void ThumbnailsToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = false; // um painel por vez
+        UpdateSidePanel();
+    }
 
     private void ClosePanel_Click(object sender, RoutedEventArgs e)
     {
         ThumbnailsToggle.IsChecked = false;
+        CommentsToggle.IsChecked = false;
         UpdateSidePanel();
     }
 
+    /// <summary>Mostra o painel lateral escolhido no trilho (miniaturas ou comentários), ou o esconde.</summary>
     private void UpdateSidePanel()
     {
-        bool show = ThumbnailsToggle.IsChecked == true && _path is not null;
-        if (ThumbnailsToggle.IsChecked == true && _path is null) ThumbnailsToggle.IsChecked = false;
-        SidePanelColumn.Width = new GridLength(show ? 196 : 0);
-        if (show) SyncThumbnailSelection((int)Math.Max(1, PageNumberBox.Value) - 1);
+        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; }
+        bool thumbs = ThumbnailsToggle.IsChecked == true, comments = CommentsToggle.IsChecked == true;
+        SidePanelColumn.Width = new GridLength(comments ? 300 : thumbs ? 196 : 0);
+        SidePanelTitle.Text = comments ? "Comentários" : "Páginas";
+        ThumbnailList.Visibility = comments ? Visibility.Collapsed : Visibility.Visible;
+        CommentsPanel.Visibility = comments ? Visibility.Visible : Visibility.Collapsed;
+        if (thumbs) SyncThumbnailSelection((int)Math.Max(1, PageNumberBox.Value) - 1);
+        if (comments) _ = RefreshCommentListAsync();
     }
 
     private async void ThumbnailList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)

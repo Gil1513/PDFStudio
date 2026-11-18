@@ -134,6 +134,7 @@ public class AnnotationTests
         Assert.Equal(new AnnotationColor(255, 0, 0), info.Color);
         Assert.False(info.Hidden);
         Assert.NotNull(info.Modified);
+        Assert.True(Guid.TryParse(info.Id, out _)); // identificador único (/NM)
         Assert.Equal(["Página 1", "Página 2"], TestPdfs.Labels(output)); // conteúdo intacto
     }
 
@@ -413,5 +414,62 @@ public class AnnotationTests
         Assert.NotNull(TestPdfs.Appearance(input, 0).Matrix);
         Assert.Throws<ArgumentException>(() =>
             PdfAnnotations.AddStamp(input, 0, 100, 100, new StampDesign("  ", new AnnotationColor(0, 0, 0)), "", input));
+    }
+
+    // ---------------- Alterar comentários ----------------
+
+    [Fact]
+    public void SetContents_ChangesTheText_AndRedrawsTheTextBox()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        double h = PdfAnnotations.AddTextBox(input, 0, 50, 100, 120, 10, "Curto", 12, Red with { LineWidth = 0 }, "", input);
+        PdfAnnotations.AddShape(input, 0, AnnotationKind.Rectangle, 10, 10, 50, 50, Red, "", input);
+
+        PdfAnnotations.SetContents(input, 0, 0, "Um texto bem mais comprido que agora ocupa várias linhas na caixa", input);
+        PdfAnnotations.SetContents(input, 0, 1, "Ver isto", input);
+
+        var list = PdfAnnotations.List(input);
+        Assert.Equal("Um texto bem mais comprido que agora ocupa várias linhas na caixa", list[0].Contents);
+        Assert.True(list[0].Height > h, "a caixa cresce para caber o texto novo");
+        Assert.Equal(100, list[0].Y, 3);
+        Assert.Contains("(Um texto", TestPdfs.Appearance(input, 0).Content);
+        Assert.Equal("Ver isto", list[1].Contents);
+        Assert.Throws<ArgumentException>(() => PdfAnnotations.SetContents(input, 0, 0, " ", input));
+    }
+
+    [Fact]
+    public void SetColor_ChangesColorAndDrawing()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var blue = new AnnotationColor(30, 136, 229);
+        PdfAnnotations.AddShape(input, 0, AnnotationKind.Oval, 10, 10, 50, 50, Red, "", input);
+        PdfAnnotations.AddTextBox(input, 0, 100, 100, 150, 30, "Olá", 12, Red with { LineWidth = 0 }, "", input);
+
+        PdfAnnotations.SetColor(input, 0, 0, blue, input);
+        PdfAnnotations.SetColor(input, 0, 1, blue, input);
+
+        Assert.All(PdfAnnotations.List(input), a => Assert.Equal(blue, a.Color));
+        Assert.Contains($"{blue.ToPdfString()} RG", TestPdfs.Appearance(input, 0).Content);
+        Assert.DoesNotContain("1 0 0 RG", TestPdfs.Appearance(input, 0).Content);
+        Assert.Contains($"{blue.ToPdfString()} rg", TestPdfs.Appearance(input, 1).Content);
+        Assert.Equal($"/Helv 12 Tf {blue.ToPdfString()} rg", TestPdfs.AnnotationString(input, 1, "/DA"));
+    }
+
+    [Fact]
+    public void CopyWithoutComments_KeepsLinksAndTheOriginal()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string clean = Path.Combine(dir, "limpo.pdf");
+        PdfAnnotations.AddShape(input, 0, AnnotationKind.Rectangle, 10, 10, 50, 50, Red, "", input);
+        TestPdfs.AddLink(input, 300, 300, 400, 350);
+        PdfAnnotations.AddNote(input, 0, 100, 100, "nota", Red.Color, "", input);
+
+        PdfAnnotations.CopyWithoutComments(input, clean);
+
+        Assert.Equal(["/Link"], TestPdfs.AnnotationSubtypes(clean));
+        Assert.Equal(2, PdfAnnotations.List(input).Count); // o arquivo de origem não muda
     }
 }
