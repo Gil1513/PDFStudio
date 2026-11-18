@@ -290,4 +290,86 @@ public class AnnotationTests
         Assert.Equal((300, 400, 20, 20), (Math.Round(info.X, 3), Math.Round(info.Y, 3), Math.Round(info.Width, 3), Math.Round(info.Height, 3)));
         Assert.Throws<ArgumentException>(() => PdfAnnotations.AddNote(input, 0, 0, 0, "  ", new AnnotationColor(0, 0, 0), "", input));
     }
+
+    // ---------------- Texto da página (PdfPig) e marcações ----------------
+
+    [Fact]
+    public void Words_AreInReadingOrder_WithScreenPositions()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+
+        var words = PdfTextLayout.Words(input, 0);
+
+        Assert.Equal(["topo", "Página", "1"], words.Select(w => w.Text));
+        var topo = words[0];
+        Assert.InRange(topo.X, 19, 21);                 // desenhado em x = 20
+        Assert.InRange(topo.Y + topo.Height, 38, 43);    // linha de base em y = 38 (+ parte de baixo das letras)
+        Assert.InRange(topo.Height, 14, 17);             // fonte de 14 pt
+        Assert.Equal(words[1].Line, words[2].Line);      // "Página" e "1" na mesma linha
+        Assert.NotEqual(words[0].Line, words[1].Line);
+    }
+
+    [Fact]
+    public void Words_FollowRotationAndCrop()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var plain = PdfTextLayout.Words(input, 0)[0];
+
+        PdfOperations.CropPages(input, null, new PageMargins(10, 0, 0, 15), input); // corta 10 em cima e 15 à esquerda
+        var cropped = PdfTextLayout.Words(input, 0)[0];
+        Assert.Equal(plain.X - 15, cropped.X, 1);
+        Assert.Equal(plain.Y - 10, cropped.Y, 1);
+
+        PdfOperations.Reorganize(input, [new(0, 90)], input);
+        // Na página girada o texto fica na vertical (o PdfPig separa as letras); o "topo" vai para a direita.
+        var size = TestPdfs.VisualSizes(input)[0];
+        var right = PdfTextLayout.Words(input, 0).Where(w => w.X > size.Width - 60).ToList();
+        Assert.Equal("topo".Length, right.Count);
+        double x1 = right.Min(w => w.X), x2 = right.Max(w => w.Right), y1 = right.Min(w => w.Y), y2 = right.Max(w => w.Bottom);
+        Assert.True(y2 - y1 > x2 - x1, "texto na vertical na página girada");
+    }
+
+    [Fact]
+    public void Select_TakesTheWordsBetweenTwoPoints()
+    {
+        var words = new List<TextWord>
+        {
+            new("Um", 10, 10, 20, 10, 0), new("dois", 40, 10, 30, 10, 0), new("três", 80, 10, 30, 10, 0),
+            new("quatro", 10, 30, 40, 10, 1), new("cinco", 60, 30, 30, 10, 1),
+        };
+
+        var selected = PdfTextLayout.Select(words, 45, 15, 20, 35); // de "dois" até "quatro" (arrastando para trás funciona igual)
+
+        Assert.Equal(["dois", "três", "quatro"], selected.Select(w => w.Text));
+        Assert.Equal("dois três\nquatro", PdfTextLayout.TextOf(selected));
+        Assert.Equal([(40.0, 10.0, 70.0, 10.0), (10.0, 30.0, 40.0, 10.0)], PdfTextLayout.LineRects(selected));
+    }
+
+    [Theory]
+    [InlineData(AnnotationKind.Highlight, "/Highlight")]
+    [InlineData(AnnotationKind.Underline, "/Underline")]
+    [InlineData(AnnotationKind.StrikeOut, "/StrikeOut")]
+    public void AddTextMarkup_StoresQuadsTextAndAppearance(AnnotationKind kind, string subtype)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        var words = PdfTextLayout.Words(input, 0);
+        var selected = words.Where(w => w.Text != "topo").ToList();
+
+        PdfAnnotations.AddTextMarkup(input, 0, kind, PdfTextLayout.LineRects(selected), Red, "Ana", input, PdfTextLayout.TextOf(selected));
+
+        var info = Assert.Single(PdfAnnotations.List(input));
+        Assert.Equal(kind, info.Kind);
+        Assert.Equal(subtype, info.Subtype);
+        Assert.Equal("Página 1", info.Contents);
+        var quads = TestPdfs.AnnotationArray(input, 0, "/QuadPoints");
+        Assert.Equal(8, quads.Length); // uma linha = 4 cantos
+        var size = TestPdfs.VisualSizes(input)[0];
+        Assert.Equal(size.Height - selected[0].Y, quads[1], 1); // topo-esquerda no PDF = topo da palavra na tela
+        string content = TestPdfs.Appearance(input, 0).Content;
+        if (kind == AnnotationKind.Highlight) Assert.Contains("/GSm gs", content);
+        else Assert.EndsWith(" S", content);
+    }
 }

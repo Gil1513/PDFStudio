@@ -22,6 +22,9 @@ public sealed class AppSettings
     public string CommentColor { get; set; } = "#E53935";
     public double CommentLineWidth { get; set; } = 2;
 
+    /// <summary>Cor do realce (separada das outras ferramentas: o padrão é o amarelo de marca-texto).</summary>
+    public string HighlightColor { get; set; } = "#FDD835";
+
     /// <summary>Último tamanho de letra usado na caixa de texto, em pontos.</summary>
     public double CommentFontSize { get; set; } = 12;
 

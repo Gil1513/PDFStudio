@@ -60,7 +60,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["comentario"] =
         [
-            new("\uE7E6", "Realçar"), new("\uE8DC", "Sublinhar"), new("\uEDE0", "Riscar"), Sep,
+            new("\uE7E6", "Realçar", "realcar", NeedsFile: true), new("\uE8DC", "Sublinhar", "sublinhar", NeedsFile: true), new("\uEDE0", "Riscar", "riscar", NeedsFile: true), Sep,
             new("\uE8D2", "Caixa de texto", "texto", NeedsFile: true), new("\uE70B", "Nota", "nota", NeedsFile: true), Sep,
             new("\uE7AD", "Linha", "linha", NeedsFile: true), new("\uE72A", "Seta", "seta", NeedsFile: true), new("\uE739", "Retângulo", "retangulo", NeedsFile: true), new("\uEA3A", "Oval", "oval", NeedsFile: true), new("\uEE56", "Desenho livre", "desenho", NeedsFile: true), Sep,
             new("\uE8EC", "Carimbo"),

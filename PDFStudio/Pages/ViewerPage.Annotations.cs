@@ -248,6 +248,8 @@ public sealed partial class ViewerPage
         Text,
         /// <summary>Clicar onde fica o ícone da nota e digitar o texto.</summary>
         Note,
+        /// <summary>Arrastar sobre o texto da página, como numa seleção (realçar, sublinhar, riscar).</summary>
+        TextSelect,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -256,6 +258,12 @@ public sealed partial class ViewerPage
 
     private static readonly Dictionary<string, CommentTool> CommentTools = new[]
     {
+        new CommentTool("realcar", "Realçar", AnnotationKind.Highlight, DrawMode.TextSelect,
+            "Arraste sobre o texto para realçar.", UsesWidth: false),
+        new CommentTool("sublinhar", "Sublinhar", AnnotationKind.Underline, DrawMode.TextSelect,
+            "Arraste sobre o texto para sublinhar.", UsesWidth: false),
+        new CommentTool("riscar", "Riscar", AnnotationKind.StrikeOut, DrawMode.TextSelect,
+            "Arraste sobre o texto para riscar.", UsesWidth: false),
         new CommentTool("retangulo", "Retângulo", AnnotationKind.Rectangle, DrawMode.Box, "Arraste na página para desenhar."),
         new CommentTool("oval", "Oval", AnnotationKind.Oval, DrawMode.Box, "Arraste na página para desenhar."),
         new CommentTool("linha", "Linha", AnnotationKind.Line, DrawMode.Segment, "Arraste do início ao fim da linha. Segure Shift para retas a cada 45°."),
@@ -279,7 +287,20 @@ public sealed partial class ViewerPage
 
     private CommentTool? _tool;
 
-    private AnnotationColor ToolColor => AnnotationColor.FromHex(App.Settings.CommentColor);
+    private bool UsesHighlightColor => _tool?.Kind == AnnotationKind.Highlight;
+
+    /// <summary>Cor da ferramenta ativa (o realce guarda a sua separada).</summary>
+    private string ToolColorHex
+    {
+        get => UsesHighlightColor ? App.Settings.HighlightColor : App.Settings.CommentColor;
+        set
+        {
+            if (UsesHighlightColor) App.Settings.HighlightColor = value; else App.Settings.CommentColor = value;
+            App.Settings.Save();
+        }
+    }
+
+    private AnnotationColor ToolColor => AnnotationColor.FromHex(ToolColorHex);
     private AnnotationStyle ToolStyle => new(ToolColor, App.Settings.CommentLineWidth);
 
     /// <summary>Monta a paleta de cores e a lista de espessuras (chamado no construtor).</summary>
@@ -297,9 +318,8 @@ public sealed partial class ViewerPage
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
             button.Click += (s, _) =>
             {
-                App.Settings.CommentColor = (string)((FrameworkElement)s).Tag;
-                App.Settings.Save();
-                ColorSwatch.Background = Brush(App.Settings.CommentColor);
+                ToolColorHex = (string)((FrameworkElement)s).Tag;
+                ColorSwatch.Background = Brush(ToolColorHex);
                 ColorFlyout.Hide();
             };
             ColorPalette.Children.Add(button);
@@ -357,6 +377,10 @@ public sealed partial class ViewerPage
             ColorOption.Visibility = _tool.UsesColor ? Visibility.Visible : Visibility.Collapsed;
             WidthOption.Visibility = _tool.UsesWidth ? Visibility.Visible : Visibility.Collapsed;
             FontSizeOption.Visibility = _tool.UsesFontSize ? Visibility.Visible : Visibility.Collapsed;
+            ColorSwatch.Background = Brush(ToolColorHex);
+            // Seleção de texto: já lê as palavras das páginas na tela, para a primeira seleção ser imediata.
+            if (_tool.Mode == DrawMode.TextSelect && DisplayPath is not null)
+                foreach (var slot in _slots.Where(s => s.Image is not null)) _ = WordsOfPage(slot.Index);
         }
         BuildToolbar(SelectedCategory);
     }
@@ -380,7 +404,8 @@ public sealed partial class ViewerPage
     private const double DipsPerPoint = 96.0 / 72;
 
     private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e) =>
-        ((DrawingSurface)sender).SetCursor(_tool is null ? null : InputSystemCursorShape.Cross);
+        ((DrawingSurface)sender).SetCursor(_tool is null ? null
+            : _tool.Mode == DrawMode.TextSelect ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
 
     private SolidColorBrush ToolBrush()
     {
@@ -399,6 +424,11 @@ public sealed partial class ViewerPage
         if (_textEditor is not null)
         {
             await FinishTextEditorAsync(commit: true);
+            return;
+        }
+        if (_tool.Mode == DrawMode.TextSelect)
+        {
+            await StartTextSelectionAsync(surface, slot, e);
             return;
         }
         if (_tool.Mode == DrawMode.Note)
@@ -457,6 +487,12 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.TextSelect && _selLayer is not null && ReferenceEquals(sender, _drawSurface))
+        {
+            e.Handled = true;
+            ShowSelection(Clamp(e.GetCurrentPoint(_drawSurface).Position));
+            return;
+        }
         if (_preview is null || _tool is null || !ReferenceEquals(sender, _drawSurface)) return;
         e.Handled = true;
         var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
@@ -481,6 +517,12 @@ public sealed partial class ViewerPage
 
     private async void Surface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.TextSelect && _selLayer is not null && ReferenceEquals(sender, _drawSurface))
+        {
+            e.Handled = true;
+            await FinishTextSelectionAsync(Clamp(e.GetCurrentPoint(_drawSurface).Position));
+            return;
+        }
         if (_preview is null || _tool is null || _drawSurface is null || _drawSlot is null || !ReferenceEquals(sender, _drawSurface)) return;
         e.Handled = true;
         var tool = _tool;
@@ -535,7 +577,9 @@ public sealed partial class ViewerPage
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
         // No desenho livre o traço já está guardado; nas outras ferramentas, perder o mouse cancela.
-        if (ReferenceEquals(sender, _drawSurface) && _tool?.Mode != DrawMode.Freehand) CancelDrawing();
+        // Na seleção de texto, soltar o botão também solta o mouse, mas a seleção termina em PointerReleased
+        // (que pode ainda estar esperando a leitura das palavras).
+        if (ReferenceEquals(sender, _drawSurface) && _tool?.Mode is not (DrawMode.Freehand or DrawMode.TextSelect)) CancelDrawing();
     }
 
     // ---------------- Caixa de texto e nota: digitar na página ----------------
@@ -640,6 +684,92 @@ public sealed partial class ViewerPage
         }
     }
 
+    // ---------------- Realçar / sublinhar / riscar: selecionar o texto ----------------
+
+    private Canvas? _selLayer;                     // retângulos da seleção, mostrados enquanto arrasta
+    private Task<List<TextWord>>? _selWordsTask;
+    private List<TextWord>? _selWords;
+    private List<TextWord> _selected = [];
+
+    // Palavras de cada página, lidas uma vez por versão do arquivo.
+    private readonly Dictionary<int, Task<List<TextWord>>> _wordCache = [];
+    private string? _wordCachePath;
+
+    private Task<List<TextWord>> WordsOfPage(int page)
+    {
+        string path = DisplayPath!;
+        if (_wordCachePath != path) { _wordCache.Clear(); _wordCachePath = path; }
+        if (!_wordCache.TryGetValue(page, out var task))
+            _wordCache[page] = task = Task.Run(() => PdfTextLayout.Words(path, page));
+        return task;
+    }
+
+    private async Task StartTextSelectionAsync(DrawingSurface surface, PageSlot slot, PointerRoutedEventArgs e)
+    {
+        CancelDrawing();
+        surface.CapturePointer(e.Pointer);
+        _drawSurface = surface;
+        _drawSlot = slot;
+        _drawStart = Clamp(e.GetCurrentPoint(surface).Position);
+        _selected = [];
+        var layer = new Canvas { IsHitTestVisible = false };
+        _selLayer = layer;
+        surface.Children.Add(layer);
+
+        var task = WordsOfPage(slot.Index);
+        _selWordsTask = task;
+        var words = await task;
+        if (!ReferenceEquals(layer, _selLayer)) return; // já soltou ou cancelou
+        _selWords = words;
+        if (words.Count == 0)
+        {
+            CancelDrawing();
+            ShowStatus(InfoBarSeverity.Informational, "Esta página não tem texto para selecionar",
+                "Ela provavelmente é uma imagem (documento escaneado). Use o retângulo ou o desenho livre para marcar.");
+        }
+    }
+
+    /// <summary>Atualiza as palavras selecionadas entre o início do arraste e <paramref name="current"/> e as mostra.</summary>
+    private void ShowSelection(Point current)
+    {
+        if (_selLayer is not { } layer || _selWords is not { Count: > 0 } words) return;
+        var a = new Point(_drawStart.X / DipsPerPoint, _drawStart.Y / DipsPerPoint);
+        var b = new Point(current.X / DipsPerPoint, current.Y / DipsPerPoint);
+        // Começou longe de qualquer texto e quase não arrastou: não seleciona nada.
+        bool nearText = words.Min(w => w.DistanceTo(a.X, a.Y)) < 12 || words.Min(w => w.DistanceTo(b.X, b.Y)) < 12;
+        _selected = nearText ? PdfTextLayout.Select(words, a.X, a.Y, b.X, b.Y) : [];
+
+        layer.Children.Clear();
+        var c = ToolColor;
+        var fill = new SolidColorBrush(Windows.UI.Color.FromArgb(90, c.R, c.G, c.B));
+        foreach (var (x, y, w, h) in PdfTextLayout.LineRects(_selected))
+        {
+            var rect = new Shapes.Rectangle { Width = w * DipsPerPoint, Height = h * DipsPerPoint, Fill = fill };
+            Canvas.SetLeft(rect, x * DipsPerPoint);
+            Canvas.SetTop(rect, y * DipsPerPoint);
+            layer.Children.Add(rect);
+        }
+    }
+
+    private async Task FinishTextSelectionAsync(Point current)
+    {
+        if (_tool is not { } tool || _drawSlot is not { } slot || _selWordsTask is not { } task) { CancelDrawing(); return; }
+        var layer = _selLayer;
+        _selWords ??= await task;
+        if (!ReferenceEquals(layer, _selLayer)) return;
+        ShowSelection(current);
+        var selected = _selected;
+        CancelDrawing();
+        if (selected.Count == 0) return;
+
+        var lines = PdfTextLayout.LineRects(selected);
+        string text = PdfTextLayout.TextOf(selected);
+        int page = slot.Index;
+        var style = new AnnotationStyle(ToolColor, LineWidth: 1);
+        string author = App.Settings.CommentAuthor;
+        await ApplyEditAsync((input, output) => PdfAnnotations.AddTextMarkup(input, page, tool.Kind, lines, style, author, output, text));
+    }
+
     /// <summary>Grava como um único comentário todos os traços do desenho livre feitos até agora.</summary>
     private async Task CommitInkAsync()
     {
@@ -709,6 +839,13 @@ public sealed partial class ViewerPage
     /// <summary>Remove o desenho provisório (exceto os traços do desenho livre) e solta o mouse.</summary>
     private void CancelDrawing()
     {
+        if (_selLayer is not null)
+        {
+            _drawSurface?.Children.Remove(_selLayer);
+            _selLayer = null;
+            _selWords = null;
+            _selWordsTask = null;
+        }
         if (_drawSurface is not null)
         {
             if (_preview is Shapes.Polyline poly && _inkPreviews.Contains(poly)) { }
