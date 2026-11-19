@@ -132,11 +132,11 @@ public sealed partial class HomePage : Page
             return;
         }
         if (tool.Key == "viewer") await App.MainWindow!.PickAndOpenAsync();
-        else if (tool.Key == "comprimir")
+        else if (tool.Key is "comprimir" or "ocr")
         {
-            // Etapa 7.6: escolhe o PDF, abre no visualizador e já mostra a janela de comprimir.
+            // Etapas 7.6 e 7.7: escolhe o PDF, abre no visualizador e já mostra a janela da ferramenta.
             if (await FilePickers.PickPdfAsync() is { } pdf)
-                App.MainWindow!.OpenTool("viewer", new ViewerRequest(pdf, "comprimir"));
+                App.MainWindow!.OpenTool("viewer", new ViewerRequest(pdf, tool.Key));
         }
         else if (tool.Key == "criarimagem")
         {

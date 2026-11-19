@@ -56,7 +56,7 @@ public sealed partial class ViewerPage : Page
         ["inicio"] =
         [
             new("\uE8E5", "Abrir", "abrir"), new("\uE792", "Salvar cópia", "salvarcopia", NeedsFile: true), Sep,
-            new("\uE70F", "Editar tudo", "editartudo", NeedsFile: true), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
+            new("\uE70F", "Editar tudo", "editartudo", NeedsFile: true), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uE8E9", "OCR", "ocr", NeedsFile: true), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar arquivos", "combinar"), new("\uE73F", "Comprimir PDF", "comprimir", NeedsFile: true), Sep,
             new("\uEE56", "Assinar", "assinar", NeedsFile: true),
         ],
@@ -75,7 +75,7 @@ public sealed partial class ViewerPage : Page
         ["converter"] =
         [
             new("\uE8A5", "Para Word"), new("\uEB9F", "Para imagem", "paraimagem", NeedsFile: true), new("\uE8C4", "Para texto"), Sep,
-            new("\uE91B", "Imagem para PDF", "imagemparapdf"), new("\uE8E9", "OCR"),
+            new("\uE91B", "Imagem para PDF", "imagemparapdf"), new("\uE8E9", "OCR", "ocr", NeedsFile: true),
         ],
         ["ver"] =
         [
@@ -91,7 +91,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["ferramentas"] =
         [
-            new("\uE8E9", "OCR"), new("\uE73F", "Comprimir", "comprimir", NeedsFile: true), Sep,
+            new("\uE8E9", "OCR", "ocr", NeedsFile: true), new("\uE73F", "Comprimir", "comprimir", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar", "combinar"), new("\uE8C6", "Dividir", "dividir"), Sep,
             new("\uE8B9", "PDFs em lote"), new("\uE749", "Impressão em lote"), new("\uE767", "Ler em voz alta"),
         ],
@@ -364,6 +364,7 @@ public sealed partial class ViewerPage : Page
             case "fontes": await ShowFontsAsync(); break;
             case "paraimagem": await ExportImagesAsync(); break;
             case "comprimir": await CompressAsync(); break;
+            case "ocr": await OcrAsync(); break;
             case "imagemparapdf":
                 // Cria o PDF a partir de imagens e abre (OpenAsync pergunta antes se há alterações não salvas).
                 if (await Dialogs.ImagesToPdfDialog.RunAsync(XamlRoot) is { } created) await OpenAsync(created);

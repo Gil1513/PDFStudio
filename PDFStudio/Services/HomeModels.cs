@@ -41,7 +41,7 @@ public static class ToolCatalog
     public static readonly ToolInfo Viewer = new("viewer", "Abrir e visualizar", "Leia o PDF com zoom e navegação por páginas.", "", Blue, true);
     public static readonly ToolInfo Edit = new("editar", "Editar PDF", "Edite textos e imagens no arquivo.", "", Orange, false);
     public static readonly ToolInfo Convert = new("converter", "Converter PDF", "Converta PDFs para Word, imagens e mais.", "", Teal, false);
-    public static readonly ToolInfo Ocr = new("ocr", "PDF por OCR", "Deixe PDFs digitalizados pesquisáveis e copiáveis.", "", Green, false);
+    public static readonly ToolInfo Ocr = new("ocr", "PDF por OCR", "Deixe PDFs digitalizados pesquisáveis e copiáveis.", "", Green, true);
     public static readonly ToolInfo Merge = new("combinar", "Combinar PDFs", "Junte vários arquivos em um único PDF.", "", Blue, true);
     public static readonly ToolInfo Split = new("dividir", "Dividir PDF", "Separe as páginas em vários arquivos.", "", Cyan, true);
     public static readonly ToolInfo Organize = new("organizar", "Organizar páginas", "Gire e reordene as páginas do documento.", "", Purple, true);

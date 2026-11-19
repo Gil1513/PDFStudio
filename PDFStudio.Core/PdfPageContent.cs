@@ -164,7 +164,10 @@ public static class PdfPageContent
     /// Quando informado, o desenho fica num trecho próprio do conteúdo marcado como "artefato" do PDF
     /// (marca d'água, cabeçalho, fundo…) com a assinatura do PDF Studio, para poder ser removido depois.
     /// </param>
-    internal static void DrawInView(PdfPage page, Action<XGraphics> draw, bool behind = false, ArtifactKind? artifact = null)
+    /// <param name="invisibleText">Texto desenhado fica invisível (modo 3 do PDF: não aparece, mas pode ser pesquisado,
+    /// selecionado e copiado). É o que os programas de OCR usam; uma cor transparente não serve, porque o PDFsharp
+    /// a grava como preto.</param>
+    internal static void DrawInView(PdfPage page, Action<XGraphics> draw, bool behind = false, ArtifactKind? artifact = null, bool invisibleText = false)
     {
         var before = ContentItems(page);
         var geometry = PageGeometry.Of(page);
@@ -192,6 +195,13 @@ public static class PdfPageContent
         {
             page.Rotate = rotate;
         }
+        if (invisibleText)
+            foreach (var added in ContentItems(page).Except(before))
+                if (added is PdfDictionary stream)
+                {
+                    string text = Encoding.Latin1.GetString(Content(stream));
+                    SetContent(stream, Encoding.Latin1.GetBytes(System.Text.RegularExpressions.Regex.Replace(text, @"(?m)^BT\r?$", "BT\n3 Tr")));
+                }
         if (artifact is { } kind)
             foreach (var added in ContentItems(page).Except(before))
                 if (added is PdfDictionary stream)
