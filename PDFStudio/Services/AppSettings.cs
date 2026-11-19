@@ -39,6 +39,7 @@ public sealed class AppSettings
     public string PageTextColor { get; set; } = "#212121";
     public bool PageTextBold { get; set; }
     public bool PageTextItalic { get; set; }
+    public string WatermarkFont { get; set; } = "Arial";
 
     public static AppSettings Load()
     {

@@ -1,3 +1,4 @@
+using System.Text;
 using PdfSharp.Drawing;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
@@ -125,7 +126,7 @@ public static class PdfPageContent
 
     // ---------------- Infraestrutura ----------------
 
-    private static XFont CreateFont(PageTextStyle style)
+    internal static XFont CreateFont(PageTextStyle style)
     {
         if (style.FontSize <= 0) throw new ArgumentOutOfRangeException(nameof(style), "O tamanho da letra precisa ser maior que zero.");
         PdfFonts.Ensure();
@@ -148,40 +149,135 @@ public static class PdfPageContent
         }
     }
 
-    private static List<string> SplitLines(string text) =>
+    internal static List<string> SplitLines(string text) =>
         text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(l => l.Replace('\t', ' ').TrimEnd()).ToList();
 
-    private static int CheckPage(PdfDocument doc, int index) =>
+    internal static int CheckPage(PdfDocument doc, int index) =>
         index >= 0 && index < doc.PageCount ? index : throw new ArgumentOutOfRangeException(nameof(index), $"A página {index + 1} não existe.");
 
     /// <summary>
     /// Desenha na página com o PDFsharp usando as coordenadas da tela. O PDFsharp trata páginas giradas de um jeito
     /// próprio; por isso a rotação é tirada durante o desenho, a conversão tela → página é feita aqui e a rotação volta no fim.
     /// </summary>
-    internal static void DrawInView(PdfPage page, Action<XGraphics> draw)
+    /// <param name="behind">true = desenha atrás do conteúdo que já existe (ex.: fundo, marca d'água "atrás").</param>
+    /// <param name="artifact">
+    /// Quando informado, o desenho fica num trecho próprio do conteúdo marcado como "artefato" do PDF
+    /// (marca d'água, cabeçalho, fundo…) com a assinatura do PDF Studio, para poder ser removido depois.
+    /// </param>
+    internal static void DrawInView(PdfPage page, Action<XGraphics> draw, bool behind = false, ArtifactKind? artifact = null)
     {
+        if (!behind) IsolateExistingContent(page);
+        var before = ContentItems(page);
         var geometry = PageGeometry.Of(page);
         var media = page.MediaBox;
         int rotate = page.Rotate;
         page.Rotate = 0; // (não mexer em page.Orientation: no PDFsharp isso troca a largura pela altura da página)
         try
         {
-            using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
-            // Coordenadas do PDFsharp: origem no canto superior esquerdo da página sem rotação, y para baixo.
-            XPoint ToGfx(double vx, double vy)
+            using (var gfx = XGraphics.FromPdfPage(page, behind ? XGraphicsPdfPageOptions.Prepend : XGraphicsPdfPageOptions.Append))
             {
-                var p = geometry.ViewToPdf(vx, vy);
-                return new XPoint(p.X - media.X1, media.Y2 - p.Y);
+                // Coordenadas do PDFsharp: origem no canto superior esquerdo da página sem rotação, y para baixo.
+                XPoint ToGfx(double vx, double vy)
+                {
+                    var p = geometry.ViewToPdf(vx, vy);
+                    return new XPoint(p.X - media.X1, media.Y2 - p.Y);
+                }
+                var o = ToGfx(0, 0);
+                var ex = ToGfx(1, 0);
+                var ey = ToGfx(0, 1);
+                gfx.MultiplyTransform(new XMatrix(ex.X - o.X, ex.Y - o.Y, ey.X - o.X, ey.Y - o.Y, o.X, o.Y));
+                draw(gfx);
             }
-            var o = ToGfx(0, 0);
-            var ex = ToGfx(1, 0);
-            var ey = ToGfx(0, 1);
-            gfx.MultiplyTransform(new XMatrix(ex.X - o.X, ex.Y - o.Y, ey.X - o.X, ey.Y - o.Y, o.X, o.Y));
-            draw(gfx);
         }
         finally
         {
             page.Rotate = rotate;
         }
+        if (artifact is { } kind)
+            foreach (var added in ContentItems(page).Except(before))
+                if (added is PdfDictionary stream)
+                    SetContent(stream, Encoding.ASCII.GetBytes(ArtifactPrefix(kind) + "\n").Concat(Content(stream)).Concat(Encoding.ASCII.GetBytes("\nEMC\n")).ToArray());
+    }
+
+    // ---------------- Trechos do conteúdo da página ----------------
+
+    /// <summary>Tipos de conteúdo que o app coloca e sabe remover depois.</summary>
+    public enum ArtifactKind { Watermark, Header, Footer, PageNumber, Background }
+
+    private const string Signature = "/PDFStudio";
+
+    /// <summary>Início do trecho marcado: <c>/Artifact &lt;&lt;/PDFStudio /Watermark /Type /Pagination /Subtype /Watermark&gt;&gt; BDC</c>.</summary>
+    private static string ArtifactPrefix(ArtifactKind kind)
+    {
+        string type = kind == ArtifactKind.Background ? "/Background" : "/Pagination";
+        string subtype = kind switch
+        {
+            ArtifactKind.Watermark => " /Subtype /Watermark",
+            ArtifactKind.Header => " /Subtype /Header",
+            ArtifactKind.Footer or ArtifactKind.PageNumber => " /Subtype /Footer",
+            _ => "",
+        };
+        return $"/Artifact <<{Signature} /{kind} /Type {type}{subtype}>> BDC";
+    }
+
+    /// <summary>Quantos trechos do tipo <paramref name="kind"/> (colocados pelo PDF Studio) a página tem.</summary>
+    internal static int CountArtifacts(PdfPage page, ArtifactKind kind) =>
+        ContentItems(page).OfType<PdfDictionary>().Count(s => IsArtifact(s, kind));
+
+    /// <summary>Remove da página os trechos do tipo <paramref name="kind"/> colocados pelo PDF Studio.</summary>
+    internal static int RemoveArtifacts(PdfPage page, ArtifactKind kind)
+    {
+        if (page.Elements["/Contents"] is null) return 0;
+        var contents = page.Contents.Elements;
+        int removed = 0;
+        for (int i = contents.Count - 1; i >= 0; i--)
+            if (contents.GetDictionary(i) is { } stream && IsArtifact(stream, kind))
+            {
+                contents.RemoveAt(i);
+                removed++;
+            }
+        return removed;
+    }
+
+    private static bool IsArtifact(PdfDictionary stream, ArtifactKind kind)
+    {
+        if (stream.Stream is null) return false;
+        byte[] start = Content(stream);
+        string prefix = $"/Artifact <<{Signature} /{kind} ";
+        return start.Length >= prefix.Length && Encoding.ASCII.GetString(start, 0, prefix.Length) == prefix;
+    }
+
+    /// <summary>
+    /// Fecha o conteúdo original entre "q … Q" (uma vez por página), para que um PDF que deixou o estado gráfico
+    /// alterado no fim (escala, deslocamento) não desloque o que o app desenha por cima.
+    /// </summary>
+    private static void IsolateExistingContent(PdfPage page)
+    {
+        if (page.Elements["/Contents"] is null) return;
+        var contents = page.Contents.Elements;
+        if (contents.Count == 0) return;
+        if (contents.GetDictionary(0) is { Stream: not null } first && Encoding.ASCII.GetString(Content(first)).StartsWith("q % PDFStudio")) return;
+        // O PDFsharp exige objetos PdfContent na lista /Contents (dicionários comuns quebram o XGraphics).
+        page.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q % PDFStudio\n"));
+        page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("\nQ % PDFStudio\n"));
+    }
+
+    private static List<PdfItem> ContentItems(PdfPage page)
+    {
+        if (page.Elements["/Contents"] is null) return [];
+        var contents = page.Contents.Elements;
+        var list = new List<PdfItem>();
+        for (int i = 0; i < contents.Count; i++)
+            if (contents.GetDictionary(i) is { } d) list.Add(d);
+        return list;
+    }
+
+    private static byte[] Content(PdfDictionary stream) => stream.Stream.UnfilteredValue;
+
+    private static void SetContent(PdfDictionary stream, byte[] data)
+    {
+        stream.Elements.Remove("/Filter");
+        stream.Elements.Remove("/DecodeParms");
+        stream.Stream.Value = data;
     }
 }
