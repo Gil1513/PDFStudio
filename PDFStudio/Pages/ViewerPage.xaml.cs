@@ -75,7 +75,7 @@ public sealed partial class ViewerPage : Page
         ["converter"] =
         [
             new("\uE8A5", "Para Word"), new("\uEB9F", "Para imagem", "paraimagem", NeedsFile: true), new("\uE8C4", "Para texto"), Sep,
-            new("\uE91B", "Imagem para PDF"), new("\uE8E9", "OCR"),
+            new("\uE91B", "Imagem para PDF", "imagemparapdf"), new("\uE8E9", "OCR"),
         ],
         ["ver"] =
         [
@@ -357,6 +357,10 @@ public sealed partial class ViewerPage : Page
             case "propriedades": await ShowPropertiesAsync(); break;
             case "fontes": await ShowFontsAsync(); break;
             case "paraimagem": await ExportImagesAsync(); break;
+            case "imagemparapdf":
+                // Cria o PDF a partir de imagens e abre (OpenAsync pergunta antes se há alterações não salvas).
+                if (await Dialogs.ImagesToPdfDialog.RunAsync(XamlRoot) is { } created) await OpenAsync(created);
+                break;
             case "telacheia": ToggleFullScreen(); break;
             case "excluir": await DeletePagesAsync(); break;
             case "extrair": await ExtractPagesAsync(); break;

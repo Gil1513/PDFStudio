@@ -67,7 +67,7 @@ public static class ToolCatalog
             new("cabecalho", "Cabeçalho e rodapé", "Números de página, datas e textos fixos.", "", Slate, false)]),
         new("Converter", [Convert, Ocr,
             new("imagens", "PDF para imagem", "Salve cada página como PNG ou JPG.", "", Cyan, false),
-            new("criarimagem", "Imagem para PDF", "Junte fotos e digitalizações em um PDF.", "", Green, false)]),
+            new("criarimagem", "Imagem para PDF", "Junte fotos e digitalizações em um PDF.", "", Green, true)]),
         new("Proteger e assinar", [Sign,
             new("senha", "Proteger com senha", "Coloque ou remova a senha do PDF.", "", Red, false),
             new("redigir", "Redigir", "Cubra informações sensíveis.", "", Slate, false),

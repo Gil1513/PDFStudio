@@ -132,6 +132,11 @@ public sealed partial class HomePage : Page
             return;
         }
         if (tool.Key == "viewer") await App.MainWindow!.PickAndOpenAsync();
+        else if (tool.Key == "criarimagem")
+        {
+            // Etapa 7.5: cria o PDF a partir de imagens e já abre no visualizador.
+            if (await Dialogs.ImagesToPdfDialog.RunAsync(XamlRoot) is { } created) App.MainWindow!.OpenInViewer(created);
+        }
         else App.MainWindow!.OpenTool(tool.Key);
     }
 

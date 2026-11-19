@@ -34,6 +34,15 @@ public static class FilePickers
         return result?.Path;
     }
 
+    /// <summary>Escolhe vários arquivos de uma vez (ex.: imagens para virar PDF).</summary>
+    public static async Task<IReadOnlyList<string>> PickFilesAsync(params string[] extensions)
+    {
+        var picker = new FileOpenPicker(WindowId) { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+        foreach (var ext in extensions) picker.FileTypeFilter.Add(ext);
+        var results = await picker.PickMultipleFilesAsync();
+        return results?.Select(r => r.Path).ToList() ?? [];
+    }
+
     public static async Task<string?> SavePdfAsync(string suggestedName)
     {
         var picker = new FileSavePicker(WindowId)
