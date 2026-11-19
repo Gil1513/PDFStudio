@@ -99,13 +99,13 @@ public sealed partial class ViewerPage : Page
         [
             new("\uE70B", "Preencher"), Sep,
             new("\uE8D2", "Campo de texto"), new("\uE73A", "Caixa de seleção"), new("\uECCB", "Botão de opção"), new("\uE8EF", "Lista"), Sep,
-            new("\uE81E", "Achatar"),
+            new("\uE81E", "Achatar", "achatar", NeedsFile: true),
         ],
         ["proteger"] =
         [
             new("\uEE56", "Assinar digitalmente", "assinar", NeedsFile: true), Sep,
             new("\uE72E", "Colocar senha", "colocarsenha", NeedsFile: true), new("\uE785", "Remover senha", "removersenha", NeedsFile: true), Sep,
-            new("\uE7B3", "Redigir", "redigir", NeedsFile: true), new("\uE81E", "Achatar"),
+            new("\uE7B3", "Redigir", "redigir", NeedsFile: true), new("\uE81E", "Achatar", "achatar", NeedsFile: true),
         ],
         ["ia"] =
         [
@@ -351,6 +351,7 @@ public sealed partial class ViewerPage : Page
             case "marcadagua": await WatermarkAsync(); break;
             case "colocarsenha": await ProtectAsync(); break;
             case "removersenha": await RemovePasswordAsync(); break;
+            case "achatar": await FlattenAsync(); break;
             case "numeropagina": await HeaderFooterAsync(true); break;
             case "cabecalho": await HeaderFooterAsync(false); break;
             case "fundo": await BackgroundAsync(); break;
