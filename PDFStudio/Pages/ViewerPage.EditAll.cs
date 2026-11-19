@@ -133,9 +133,10 @@ public sealed partial class ViewerPage
         string font = await ChooseEditFontAsync(block.FontFamily);
         if (_tool?.Mode != DrawMode.EditAll || _blockEditor is not null) return; // o usuário saiu do modo enquanto isso
         var c = block.Color;
+        // Atenção: AcceptsReturn precisa vir ANTES do texto. Uma caixa de uma linha só corta o texto na primeira
+        // quebra de linha; ao aplicar, as outras linhas do bloco eram apagadas da página.
         var editor = new TextBox
         {
-            Text = block.Text,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
             FontFamily = EditorFontFamily(font),
@@ -148,6 +149,7 @@ public sealed partial class ViewerPage
             MinWidth = (block.Width + 8) * DipsPerPoint,
             MinHeight = 0,
         };
+        editor.Text = block.Text; // só depois de AcceptsReturn (veja acima)
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(editor, "Editar texto do bloco");
         // Mesmo fundo branco ao passar o mouse e com foco (o tema escuro do WinUI escureceria a caixa).
         foreach (var key in new[] { "TextControlBackgroundPointerOver", "TextControlBackgroundFocused" })

@@ -122,4 +122,21 @@ public class TextEditTests
         var image = Assert.Single(PdfContentBlocks.Detect(input, 0), b => b.Kind == BlockKind.Image);
         Assert.Throws<ArgumentException>(() => PdfTextEditor.Replace(input, 0, image, "x", input));
     }
+
+    [Fact]
+    public void ChangingOneWord_KeepsEveryLineOfTheParagraph()
+    {
+        // Defeito encontrado: a caixa de edição recebia só a primeira linha e, ao aplicar, as outras sumiam.
+        // Aqui: o texto inteiro do bloco volta com uma palavra trocada, e todas as linhas continuam na página.
+        string dir = TestPdfs.TempDir();
+        string input = ContentBlockTests.Sample(dir);
+        var old = BlockStarting(input, "Primeira");
+        string output = Path.Combine(dir, "saida.pdf");
+
+        PdfTextEditor.Replace(input, 0, old, old.Text.Replace("segunda", "SEGUNDA"), output);
+
+        var now = BlockStarting(output, "Primeira");
+        Assert.Equal(old.Lines.Count, now.Lines.Count);
+        Assert.Equal("Primeira linha do texto\nSEGUNDA linha do texto\nterceira linha", now.Text);
+    }
 }
