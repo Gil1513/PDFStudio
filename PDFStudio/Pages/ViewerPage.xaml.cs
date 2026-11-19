@@ -22,6 +22,8 @@ public sealed partial class ViewerPage : Page
     private const double ContentMargin = 24; // igual ao Margin do ItemsRepeater
     private const double RenderScale = 2.0;
     private const int WrongPasswordHResult = unchecked((int)0x8007052B);
+    /// <summary>O visualizador do Windows não conhece a criptografia (ex.: AES de 256 bits).</summary>
+    private const int UnsupportedEncryptionHResult = unchecked((int)0x80048040);
 
     private WinPdfDocument? _document;
     private string? _path;
@@ -102,7 +104,7 @@ public sealed partial class ViewerPage : Page
         ["proteger"] =
         [
             new("\uEE56", "Assinar digitalmente", "assinar", NeedsFile: true), Sep,
-            new("\uE72E", "Colocar senha"), new("\uE785", "Remover senha"), Sep,
+            new("\uE72E", "Colocar senha", "colocarsenha", NeedsFile: true), new("\uE785", "Remover senha", "removersenha", NeedsFile: true), Sep,
             new("\uE7B3", "Redigir"), new("\uE81E", "Achatar"),
         ],
         ["ia"] =
@@ -133,7 +135,8 @@ public sealed partial class ViewerPage : Page
     // =====================================================================
 
     /// <summary>Abre um PDF e prepara as páginas (a renderização ocorre sob demanda).</summary>
-    public async Task OpenAsync(string path)
+    /// <param name="knownPassword">Senha já conhecida (ex.: acabou de ser colocada); se faltar, o app pergunta.</param>
+    public async Task OpenAsync(string path, string? knownPassword = null)
     {
         // Trocar de arquivo descarta a cópia de trabalho: pergunta antes se houver alterações.
         if (!await ConfirmDiscardAsync()) return;
@@ -145,18 +148,20 @@ public sealed partial class ViewerPage : Page
         try
         {
             WinPdfDocument? doc;
+            string? password = string.IsNullOrEmpty(knownPassword) ? null : knownPassword;
             try
             {
-                doc = await PdfRenderer.LoadAsync(path);
+                doc = await PdfRenderer.LoadAsync(path, password);
             }
             catch (Exception ex) when (ex.HResult == WrongPasswordHResult)
             {
-                string? password = await AskPasswordAsync(Path.GetFileName(path));
+                password = await AskPasswordAsync(Path.GetFileName(path));
                 if (password is null) return;
                 doc = await PdfRenderer.LoadAsync(path, password);
             }
 
             _document = doc;
+            _password = string.IsNullOrEmpty(password) ? null : password;
             _path = path;
             App.Recent.Add(path);
             _slots = PdfRenderer.CreateSlots(doc);
@@ -176,7 +181,12 @@ public sealed partial class ViewerPage : Page
         }
         catch (Exception ex)
         {
-            ShowStatus(InfoBarSeverity.Error, "Não foi possível abrir o PDF", ex.HResult == WrongPasswordHResult ? "Senha incorreta." : ex.Message);
+            ShowStatus(InfoBarSeverity.Error, "Não foi possível abrir o PDF", ex.HResult switch
+            {
+                WrongPasswordHResult => "Senha incorreta.",
+                UnsupportedEncryptionHResult => "Este PDF usa uma criptografia (provavelmente AES de 256 bits) que o visualizador do Windows ainda não abre.",
+                _ => ex.Message,
+            });
         }
         finally
         {
@@ -208,7 +218,17 @@ public sealed partial class ViewerPage : Page
 
     private async Task<string?> AskPasswordAsync(string fileName)
     {
+        // Aberto pela linha de comando, o arquivo chega antes de a página estar na tela: espera para mostrar o diálogo.
+        if (XamlRoot is null)
+        {
+            var loaded = new TaskCompletionSource();
+            RoutedEventHandler? handler = null;
+            handler = (_, _) => { Loaded -= handler; loaded.TrySetResult(); };
+            Loaded += handler;
+            await loaded.Task;
+        }
         var box = new PasswordBox { PlaceholderText = "Senha" };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(box, "Senha");
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
@@ -329,6 +349,8 @@ public sealed partial class ViewerPage : Page
             case "recortar": await CropPagesAsync(); break;
             case "redimensionar": await ResizePagesAsync(); break;
             case "marcadagua": await WatermarkAsync(); break;
+            case "colocarsenha": await ProtectAsync(); break;
+            case "removersenha": await RemovePasswordAsync(); break;
             case "numeropagina": await HeaderFooterAsync(true); break;
             case "cabecalho": await HeaderFooterAsync(false); break;
             case "fundo": await BackgroundAsync(); break;

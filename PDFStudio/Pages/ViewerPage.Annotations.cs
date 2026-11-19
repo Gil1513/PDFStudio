@@ -32,9 +32,16 @@ public sealed partial class ViewerPage
     /// Aplica uma alteração na cópia de trabalho (criada na primeira alteração) e redesenha as páginas.
     /// <paramref name="operation"/> recebe (versão atual, arquivo novo).
     /// </summary>
-    private async Task<bool> ApplyEditAsync(Action<string, string> operation)
+    /// <param name="allowProtected">A operação sabe lidar com PDF que tem senha (ex.: remover a senha).</param>
+    private async Task<bool> ApplyEditAsync(Action<string, string> operation, bool allowProtected = false)
     {
         if (_path is null) return false;
+        if (_password is not null && !allowProtected && DisplayPath is { } current
+            && await Task.Run(() => PdfPasswords.Inspect(current)) == PasswordState.OpenPassword)
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Este PDF tem senha", ProtectedEditHint);
+            return false;
+        }
         bool first = _work is null;
         try
         {
@@ -48,7 +55,9 @@ public sealed partial class ViewerPage
         }
         catch (Exception ex)
         {
-            ShowStatus(InfoBarSeverity.Error, "Não foi possível alterar o documento", ex.Message);
+            bool restricted = ex.Message.Contains("owner password", StringComparison.OrdinalIgnoreCase);
+            ShowStatus(InfoBarSeverity.Error, restricted ? "Este PDF tem restrições de edição" : "Não foi possível alterar o documento",
+                restricted ? ProtectedEditHint : ex.Message);
             return false;
         }
 
@@ -67,7 +76,7 @@ public sealed partial class ViewerPage
         try
         {
             if (await RenderSourceAsync() is not { } path) return;
-            var doc = await PdfRenderer.LoadAsync(path);
+            var doc = await PdfRenderer.LoadAsync(path, _password); // a senha não atrapalha versões já sem senha (ex.: depois de Desfazer)
             _document = doc;
             foreach (var slot in _slots)
             {
