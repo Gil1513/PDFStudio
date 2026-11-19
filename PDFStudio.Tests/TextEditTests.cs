@@ -111,7 +111,11 @@ public class TextEditTests
     [InlineData("Fonte Que Nao Existe", "Arial")]
     public void ChooseFont_UsesInstalledOrSimilar(string original, string expected)
     {
-        Assert.Equal(expected, PdfTextEditor.ChooseFont(original));
+        // Finge que a Helvetica falta: se ela foi adicionada ao app, a escolha certa seria ela mesma.
+        if (original == "Helvetica")
+            Assert.Equal(expected, FontLibrary.Resolve(original, n => n != "Helvetica" && FontLibrary.IsAvailable(n)).Use);
+        else
+            Assert.Equal(expected, PdfTextEditor.ChooseFont(original));
     }
 
     [Fact]

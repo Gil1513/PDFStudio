@@ -69,7 +69,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["editar"] =
         [
-            new("\uE70F", "Editar tudo", "editartudo", NeedsFile: true), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link", "link", NeedsFile: true), Sep,
+            new("\uE70F", "Editar tudo", "editartudo", NeedsFile: true), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link", "link", NeedsFile: true), new("\uE8D3", "Fontes", "fontes"), Sep,
             new("\uE790", "Marca d'água", "marcadagua", NeedsFile: true), new("\uE8EF", "Número de página", "numeropagina", NeedsFile: true), new("\uE8A5", "Cabeçalho e rodapé", "cabecalho", NeedsFile: true), new("\uE771", "Fundo", "fundo", NeedsFile: true),
         ],
         ["converter"] =
@@ -345,6 +345,7 @@ public sealed partial class ViewerPage : Page
                 UpdateSidePanel();
                 break;
             case "propriedades": await ShowPropertiesAsync(); break;
+            case "fontes": await ShowFontsAsync(); break;
             case "telacheia": ToggleFullScreen(); break;
             case "excluir": await DeletePagesAsync(); break;
             case "extrair": await ExtractPagesAsync(); break;

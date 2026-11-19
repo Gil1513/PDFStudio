@@ -23,8 +23,16 @@ public static class PdfFonts
             if (_done) return;
             _done = true;
             if (GlobalFontSettings.FontResolver is not null) return;
-            if (OperatingSystem.IsWindows()) GlobalFontSettings.FontResolver = new GdiFontResolver();
+            if (OperatingSystem.IsWindows()) GlobalFontSettings.FontResolver = _resolver = new GdiFontResolver();
         }
+    }
+
+    private static GdiFontResolver? _resolver;
+
+    /// <summary>Esquece as fontes já procuradas (uma fonte que faltava pode ter sido adicionada agora).</summary>
+    internal static void Forget()
+    {
+        lock (Gate) _resolver?.Forget();
     }
 
     /// <summary>Busca as fontes pelo GDI do Windows. Fontes CFF (.otf "PostScript") não servem para o PDFsharp e ficam de fora.</summary>
@@ -46,6 +54,13 @@ public static class PdfFonts
         public byte[]? GetFont(string faceName)
         {
             lock (_faces) return _faces.GetValueOrDefault(faceName);
+        }
+
+        /// <summary>Só as respostas "não achei" são esquecidas: as fontes já entregues ao PDFsharp continuam valendo.</summary>
+        public void Forget()
+        {
+            lock (_faces)
+                foreach (var key in _resolved.Where(r => r.Value is null).Select(r => r.Key).ToList()) _resolved.Remove(key);
         }
 
         private FontResolverInfo? Resolve(string family, bool bold, bool italic)

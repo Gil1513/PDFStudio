@@ -128,6 +128,7 @@ public static class FontLibrary
     public static void Refresh()
     {
         lock (Gate) _available = null;
+        PdfFonts.Forget();
     }
 
     /// <summary>Arquivo de uma fonte do app ou baixada (para a caixa de edição mostrar a mesma letra), ou null.</summary>

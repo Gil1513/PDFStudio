@@ -53,8 +53,9 @@ public class FontLibraryTests
     [Fact]
     public void TextEditor_UsesTheTwin_WhenTheOriginalIsMissing()
     {
-        // "Helvetica" nunca está instalada de verdade no Windows: a escolha cai em Arial (parecida) ou na gêmea.
-        Assert.Contains(PdfTextEditor.ChooseFont("Helvetica"), new[] { "Arial", "Liberation Sans" });
+        // Sem a Helvetica (finge que falta, mesmo que alguém tenha adicionado a fonte): usa a gêmea.
+        static bool SemHelvetica(string name) => name != "Helvetica" && FontLibrary.IsAvailable(name);
+        Assert.Equal("Liberation Sans", FontLibrary.Resolve("Helvetica", SemHelvetica).Use);
         Assert.Equal(PdfTextEditor.ChooseFont("FonteQueNaoExiste"), FontLibrary.Resolve("FonteQueNaoExiste").Use);
     }
 
