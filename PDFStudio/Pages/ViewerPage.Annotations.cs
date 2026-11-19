@@ -263,6 +263,8 @@ public sealed partial class ViewerPage
         Image,
         /// <summary>Etapa 5.3: arrastar sobre a área que vira link; clicar num link existente edita ou exclui.</summary>
         Link,
+        /// <summary>Etapa 5.8: mostra os blocos da página (parágrafos e imagens); clicar seleciona um.</summary>
+        EditAll,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -297,6 +299,9 @@ public sealed partial class ViewerPage
             UsesColor: false, UsesWidth: false),
         new CommentTool("link", "Link", AnnotationKind.Other, DrawMode.Link,
             "Arraste sobre a área que vai virar link (ex.: um texto). Clique num link existente (contorno azul) para editar ou excluir.",
+            UsesColor: false, UsesWidth: false),
+        new CommentTool("editartudo", "Editar tudo", AnnotationKind.Other, DrawMode.EditAll,
+            "Os textos (azul) e as imagens (verde) da página aparecem contornados. Clique num deles para ver os detalhes.",
             UsesColor: false, UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
@@ -475,6 +480,8 @@ public sealed partial class ViewerPage
         if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
         RemoveStampGhost();
         RemoveLinkOutlines();
+        RemoveBlockOutlines();
+        ToolTipService.SetToolTip(ToolHintText, null);
         CancelImageDrag();
         RemoveImageGhost();
         CancelDrawing();
@@ -531,6 +538,7 @@ public sealed partial class ViewerPage
         surface.SetCursor(_tool is null ? null
             : _tool.Mode is DrawMode.TextSelect or DrawMode.PageText ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
         if (_tool?.Mode == DrawMode.Link) _ = ShowLinkOutlinesAsync(surface);
+        else if (_tool?.Mode == DrawMode.EditAll) { surface.SetCursor(null); _ = ShowBlockOutlinesAsync(surface); }
         // Já lê os links da página, para a "mãozinha" aparecer sem atraso.
         else if (_tool is null && DisplayPath is not null && SlotOf(surface) is { } slot) _ = LinksOfPage(slot.Index);
     }
@@ -569,6 +577,13 @@ public sealed partial class ViewerPage
         {
             CancelDrawing();
             StartImageDrag(surface, slot, e);
+            return;
+        }
+        if (_tool.Mode == DrawMode.EditAll)
+        {
+            await BlocksOfPage(slot.Index); // a leitura pode ter começado agora há pouco (mouse chegando)
+            await ShowBlockOutlinesAsync(surface);
+            SelectBlock(slot, point.Position);
             return;
         }
         if (_tool.Mode == DrawMode.Link && LinkAt(slot, point.Position) is { } existing)
@@ -649,6 +664,11 @@ public sealed partial class ViewerPage
         if (_tool?.Mode == DrawMode.Image && sender is DrawingSurface imageSurface)
         {
             MoveImageGhost(imageSurface, e);
+            return;
+        }
+        if (_tool?.Mode == DrawMode.EditAll && sender is DrawingSurface blockSurface)
+        {
+            HoverBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position);
             return;
         }
         if (_tool is null && sender is DrawingSurface plain)

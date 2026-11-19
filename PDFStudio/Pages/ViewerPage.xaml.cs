@@ -54,7 +54,7 @@ public sealed partial class ViewerPage : Page
         ["inicio"] =
         [
             new("\uE8E5", "Abrir", "abrir"), new("\uE792", "Salvar cópia", "salvarcopia", NeedsFile: true), Sep,
-            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
+            new("\uE70F", "Editar tudo", "editartudo", NeedsFile: true), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uE8E9", "OCR"), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar arquivos", "combinar"), new("\uE73F", "Comprimir PDF"), Sep,
             new("\uEE56", "Assinar", "assinar", NeedsFile: true),
         ],
@@ -67,7 +67,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["editar"] =
         [
-            new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link", "link", NeedsFile: true), Sep,
+            new("\uE70F", "Editar tudo", "editartudo", NeedsFile: true), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link", "link", NeedsFile: true), Sep,
             new("\uE790", "Marca d'água", "marcadagua", NeedsFile: true), new("\uE8EF", "Número de página", "numeropagina", NeedsFile: true), new("\uE8A5", "Cabeçalho e rodapé", "cabecalho", NeedsFile: true), new("\uE771", "Fundo", "fundo", NeedsFile: true),
         ],
         ["converter"] =
