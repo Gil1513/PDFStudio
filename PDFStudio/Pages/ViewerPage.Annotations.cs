@@ -274,6 +274,8 @@ public sealed partial class ViewerPage
         Link,
         /// <summary>Etapa 5.8: mostra os blocos da página (parágrafos e imagens); clicar seleciona um.</summary>
         EditAll,
+        /// <summary>Etapa 6.2: arrastar marca uma área a redigir; clicar numa marca a desfaz. Aplica tudo de uma vez.</summary>
+        Redact,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -311,6 +313,9 @@ public sealed partial class ViewerPage
             UsesColor: false, UsesWidth: false),
         new CommentTool("editartudo", "Editar tudo", AnnotationKind.Other, DrawMode.EditAll,
             "Textos (azul) e imagens (verde) aparecem contornados. Clique num texto para selecionar e clique de novo para editar.",
+            UsesColor: false, UsesWidth: false),
+        new CommentTool("redigir", "Redigir", AnnotationKind.Other, DrawMode.Redact,
+            "Arraste sobre o que deve sumir (pode marcar várias áreas, em várias páginas). Depois clique em Aplicar redação.",
             UsesColor: false, UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
@@ -491,6 +496,7 @@ public sealed partial class ViewerPage
         RemoveLinkOutlines();
         if (_blockEditor is not null) _ = FinishBlockEditorAsync(commit: keepPendingInk);
         RemoveBlockOutlines();
+        ClearRedactMarks();
         ToolTipService.SetToolTip(ToolHintText, null);
         CancelImageDrag();
         RemoveImageGhost();
@@ -515,6 +521,8 @@ public sealed partial class ViewerPage
             ColorSwatch.Background = Brush(ToolColorHex);
             StampOption.Visibility = _tool.Mode == DrawMode.Stamp ? Visibility.Visible : Visibility.Collapsed;
             ImageOption.Visibility = _tool.Mode == DrawMode.Image ? Visibility.Visible : Visibility.Collapsed;
+            RedactApplyButton.Visibility = _tool.Mode == DrawMode.Redact ? Visibility.Visible : Visibility.Collapsed;
+            UpdateRedactHint();
             UpdateStampOptions();
             // Seleção de texto: já lê as palavras das páginas na tela, para a primeira seleção ser imediata.
             if (_tool.Mode == DrawMode.TextSelect && DisplayPath is not null)
@@ -549,6 +557,7 @@ public sealed partial class ViewerPage
             : _tool.Mode is DrawMode.TextSelect or DrawMode.PageText ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
         if (_tool?.Mode == DrawMode.Link) _ = ShowLinkOutlinesAsync(surface);
         else if (_tool?.Mode == DrawMode.EditAll) { surface.SetCursor(null); _ = ShowBlockOutlinesAsync(surface); }
+        else if (_tool?.Mode == DrawMode.Redact) ShowRedactMarks(surface);
         // Já lê os links da página, para a "mãozinha" aparecer sem atraso.
         else if (_tool is null && DisplayPath is not null && SlotOf(surface) is { } slot) _ = LinksOfPage(slot.Index);
     }
@@ -597,6 +606,11 @@ public sealed partial class ViewerPage
             await ClickBlockAsync(surface, slot, point.Position);
             return;
         }
+        if (_tool.Mode == DrawMode.Redact)
+        {
+            ShowRedactMarks(surface);
+            if (RedactMarkAt(slot, point.Position) is { } mark) { CancelDrawing(); RemoveRedactMark(mark); return; }
+        }
         if (_tool.Mode == DrawMode.Link && LinkAt(slot, point.Position) is { } existing)
         {
             CancelDrawing();
@@ -639,7 +653,7 @@ public sealed partial class ViewerPage
                 _preview = _tool.Kind == AnnotationKind.Oval ? new Shapes.Ellipse() : new Shapes.Rectangle();
                 PlaceBox(_drawStart);
                 break;
-            case DrawMode.Text or DrawMode.Link:
+            case DrawMode.Text or DrawMode.Link or DrawMode.Redact:
                 _preview = new Shapes.Rectangle { StrokeDashArray = [4, 3] };
                 thickness = 1;
                 PlaceBox(_drawStart);
@@ -664,8 +678,12 @@ public sealed partial class ViewerPage
                 _preview = line;
                 break;
         }
-        _preview!.Stroke = _tool.Mode == DrawMode.Link
-            ? (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"] : ToolBrush();
+        _preview!.Stroke = _tool.Mode switch
+        {
+            DrawMode.Link => (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+            DrawMode.Redact => RedactStroke,
+            _ => ToolBrush(),
+        };
         _preview.StrokeThickness = thickness;
         surface.Children.Add(_preview);
     }
@@ -703,7 +721,7 @@ public sealed partial class ViewerPage
         var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
         switch (_tool.Mode)
         {
-            case DrawMode.Box or DrawMode.Text or DrawMode.Link:
+            case DrawMode.Box or DrawMode.Text or DrawMode.Link or DrawMode.Redact:
                 PlaceBox(current);
                 break;
             case DrawMode.Segment when _preview is Shapes.Line line:
@@ -760,6 +778,16 @@ public sealed partial class ViewerPage
             CancelDrawing();
             if (w < 30 || h < 10) (x, y, w, h) = (_drawStart.X, _drawStart.Y, 0, 0); // só um clique: tamanho padrão
             OpenTextEditor(surface, slot, x, y, w, h);
+            return;
+        }
+
+        if (tool.Mode == DrawMode.Redact)
+        {
+            var (x, y, w, h) = BoxBetween(_drawStart, current);
+            var surface = _drawSurface;
+            var slot = _drawSlot;
+            CancelDrawing();
+            if (w >= 4 && h >= 4) AddRedactMark(surface, slot, new Rect(x, y, w, h));
             return;
         }
 
