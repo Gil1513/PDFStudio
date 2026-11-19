@@ -107,12 +107,96 @@ public sealed partial class ViewerPage
         PaintBlockOutlines();
     }
 
-    private void SelectBlock(PageSlot slot, Point p)
+    /// <summary>Clique no modo "Editar tudo": seleciona o bloco; clicar de novo num texto já selecionado abre a edição.</summary>
+    private void ClickBlock(DrawingSurface surface, PageSlot slot, Point p)
     {
-        _selectedBlock = BlockAt(slot, p);
+        var block = BlockAt(slot, p);
+        if (block is { Kind: BlockKind.Text } && ReferenceEquals(block, _selectedBlock))
+        {
+            OpenBlockEditor(surface, slot, block);
+            return;
+        }
+        _selectedBlock = block;
         PaintBlockOutlines();
-        ToolHintText.Text = _selectedBlock is { } b ? Describe(b) : CommentTools["editartudo"].Hint;
-        ToolTipService.SetToolTip(ToolHintText, _selectedBlock?.Text);
+        ToolHintText.Text = block is null ? CommentTools["editartudo"].Hint
+            : Describe(block) + (block.Kind == BlockKind.Text ? " · Clique de novo para editar." : "");
+        ToolTipService.SetToolTip(ToolHintText, block?.Text);
+    }
+
+    // ---------------- Etapa 5.9: editar o texto do bloco ----------------
+
+    private TextBox? _blockEditor;
+    private (DrawingSurface Surface, PageSlot Slot, ContentBlock Block, string Font)? _blockEditing;
+
+    private void OpenBlockEditor(DrawingSurface surface, PageSlot slot, ContentBlock block)
+    {
+        string font = PdfTextEditor.ChooseFont(block.FontFamily);
+        var c = block.Color;
+        var editor = new TextBox
+        {
+            Text = block.Text,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily(font),
+            FontSize = Math.Max(4, block.FontSize * DipsPerPoint),
+            FontWeight = block.Bold ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal,
+            FontStyle = block.Italic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B)),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.White),
+            Padding = new Thickness(2, 0, 2, 0),
+            MinWidth = (block.Width + 8) * DipsPerPoint,
+            MinHeight = 0,
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(editor, "Editar texto do bloco");
+        // Mesmo fundo branco ao passar o mouse e com foco (o tema escuro do WinUI escureceria a caixa).
+        foreach (var key in new[] { "TextControlBackgroundPointerOver", "TextControlBackgroundFocused" })
+            editor.Resources[key] = new SolidColorBrush(Microsoft.UI.Colors.White);
+        foreach (var key in new[] { "TextControlForegroundPointerOver", "TextControlForegroundFocused" })
+            editor.Resources[key] = editor.Foreground;
+        editor.KeyDown += async (s, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; await FinishBlockEditorAsync(commit: false); }
+            else if (e.Key == Windows.System.VirtualKey.Enter
+                && Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
+            { e.Handled = true; await FinishBlockEditorAsync(commit: true); }
+        };
+        Canvas.SetLeft(editor, (block.X - 3) * DipsPerPoint);
+        Canvas.SetTop(editor, (block.Y - 2) * DipsPerPoint);
+        surface.Children.Add(editor);
+        _blockEditor = editor;
+        _blockEditing = (surface, slot, block, font);
+        editor.Focus(FocusState.Programmatic);
+        editor.SelectAll();
+        ToolHintText.Text = (font.Equals(block.FontFamily, StringComparison.OrdinalIgnoreCase) ? "" : $"Original: {block.FontFamily} → usando: {font} · ")
+            + "Ctrl+Enter ou clique fora para aplicar; Esc cancela. Apagar tudo remove o texto.";
+    }
+
+    /// <summary>Fecha a caixa de edição; com <paramref name="commit"/>, troca o texto na página (com desfazer).</summary>
+    private async Task FinishBlockEditorAsync(bool commit)
+    {
+        if (_blockEditor is not { } editor || _blockEditing is not { } editing) return;
+        _blockEditor = null;
+        _blockEditing = null;
+        string text = editor.Text.Replace("\r\n", "\n").Replace('\r', '\n');
+        editing.Surface.Children.Remove(editor);
+        var block = editing.Block;
+        if (!commit || text == block.Text)
+        {
+            ToolHintText.Text = Describe(block) + " · Clique de novo para editar.";
+            return;
+        }
+        int page = editing.Slot.Index;
+        TextEditResult? result = null;
+        if (!await ApplyEditAsync((input, output) => result = PdfTextEditor.Replace(input, page, block, text, output))) return;
+        var notes = new List<string>();
+        if (result is { } r && !r.FontUsed.Equals(block.FontFamily, StringComparison.OrdinalIgnoreCase))
+            notes.Add($"Original: {block.FontFamily} → usando: {r.FontUsed}.");
+        if (result?.Covered == true)
+            notes.Add("Parte do texto antigo não pôde ser apagada e foi coberta com branco.");
+        notes.Add("Use Desfazer (Ctrl+Z) para voltar.");
+        ShowStatus(InfoBarSeverity.Success, text.Trim().Length == 0 ? "Texto removido" : "Texto alterado", string.Join(" ", notes));
+        ToolHintText.Text = CommentTools["editartudo"].Hint;
+        if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(editing.Surface, force: true); // blocos da página nova
     }
 
     /// <summary>"Texto · Times New Roman 11 pt, negrito · 3 linhas: “Primeira linha…”" ou "Imagem · 5,6 × 2,8 cm".</summary>

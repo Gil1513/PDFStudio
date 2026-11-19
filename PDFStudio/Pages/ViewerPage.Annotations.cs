@@ -301,7 +301,7 @@ public sealed partial class ViewerPage
             "Arraste sobre a área que vai virar link (ex.: um texto). Clique num link existente (contorno azul) para editar ou excluir.",
             UsesColor: false, UsesWidth: false),
         new CommentTool("editartudo", "Editar tudo", AnnotationKind.Other, DrawMode.EditAll,
-            "Os textos (azul) e as imagens (verde) da página aparecem contornados. Clique num deles para ver os detalhes.",
+            "Textos (azul) e imagens (verde) aparecem contornados. Clique num texto para selecionar e clique de novo para editar.",
             UsesColor: false, UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
@@ -480,6 +480,7 @@ public sealed partial class ViewerPage
         if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
         RemoveStampGhost();
         RemoveLinkOutlines();
+        if (_blockEditor is not null) _ = FinishBlockEditorAsync(commit: keepPendingInk);
         RemoveBlockOutlines();
         ToolTipService.SetToolTip(ToolHintText, null);
         CancelImageDrag();
@@ -581,9 +582,10 @@ public sealed partial class ViewerPage
         }
         if (_tool.Mode == DrawMode.EditAll)
         {
+            if (_blockEditor is not null) { await FinishBlockEditorAsync(commit: true); return; } // clicar fora aplica
             await BlocksOfPage(slot.Index); // a leitura pode ter começado agora há pouco (mouse chegando)
             await ShowBlockOutlinesAsync(surface);
-            SelectBlock(slot, point.Position);
+            ClickBlock(surface, slot, point.Position);
             return;
         }
         if (_tool.Mode == DrawMode.Link && LinkAt(slot, point.Position) is { } existing)

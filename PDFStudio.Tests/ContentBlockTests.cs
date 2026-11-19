@@ -9,7 +9,7 @@ public class ContentBlockTests
     private static readonly AnnotationColor Blue = new(20, 60, 200);
 
     /// <summary>Página de exemplo (os rótulos "topo" e "1" dela são ignorados), com título, parágrafo, duas colunas e uma imagem.</summary>
-    private static string Sample(string dir, int rotation = 0)
+    internal static string Sample(string dir, int rotation = 0)
     {
         string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1, prefix: "");
         if (rotation != 0) PdfOperations.Reorganize(input, [new(0, rotation)], input);
