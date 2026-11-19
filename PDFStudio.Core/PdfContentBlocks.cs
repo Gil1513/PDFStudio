@@ -47,38 +47,43 @@ public static class PdfContentBlocks
         {
             using var doc = Pig.PdfDocument.Open(File.ReadAllBytes(path));
             if (pageIndex < 0 || pageIndex >= doc.NumberOfPages) return [];
-            var page = doc.GetPage(pageIndex + 1);
-            double pageHeight = page.Height;
-
-            var words = new List<Word>();
-            foreach (var w in page.GetWords())
-            {
-                if (string.IsNullOrWhiteSpace(w.Text) || w.Letters.Count == 0) continue;
-                if (w.TextOrientation != Pig.Content.TextOrientation.Horizontal) continue;
-                var first = w.Letters[0];
-                double size = w.Letters.Max(l => l.PointSize);
-                if (size <= 0) continue;
-                double x1 = first.StartBaseLine.X, x2 = w.Letters[^1].EndBaseLine.X;
-                if (x2 <= x1) continue;
-                double baseline = pageHeight - first.StartBaseLine.Y;
-                words.Add(new Word(w.Text, x1, baseline - Ascent * size, x2 - x1, (Ascent + Descent) * size, baseline,
-                    first.FontName ?? "", Math.Round(size, 1), ColorOf(first)));
-            }
-
-            var blocks = TextBlocks(words);
-            foreach (var image in page.GetImages())
-            {
-                var b = image.Bounds;
-                double w = b.Width, h = b.Height;
-                if (w < 1 || h < 1) continue;
-                blocks.Add(new ContentBlock(BlockKind.Image, b.Left, pageHeight - b.Top, w, h, []));
-            }
-            return blocks.OrderBy(b => b.Y).ThenBy(b => b.X).ToList();
+            return Detect(doc.GetPage(pageIndex + 1));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return [];
         }
+    }
+
+    /// <summary>Blocos de uma página já aberta (para quem percorre o documento inteiro, como o PDF→Word).</summary>
+    internal static List<ContentBlock> Detect(Pig.Content.Page page)
+    {
+        double pageHeight = page.Height;
+
+        var words = new List<Word>();
+        foreach (var w in page.GetWords())
+        {
+            if (string.IsNullOrWhiteSpace(w.Text) || w.Letters.Count == 0) continue;
+            if (w.TextOrientation != Pig.Content.TextOrientation.Horizontal) continue;
+            var first = w.Letters[0];
+            double size = w.Letters.Max(l => l.PointSize);
+            if (size <= 0) continue;
+            double x1 = first.StartBaseLine.X, x2 = w.Letters[^1].EndBaseLine.X;
+            if (x2 <= x1) continue;
+            double baseline = pageHeight - first.StartBaseLine.Y;
+            words.Add(new Word(w.Text, x1, baseline - Ascent * size, x2 - x1, (Ascent + Descent) * size, baseline,
+                first.FontName ?? "", Math.Round(size, 1), ColorOf(first)));
+        }
+
+        var blocks = TextBlocks(words);
+        foreach (var image in page.GetImages())
+        {
+            var b = image.Bounds;
+            double w = b.Width, h = b.Height;
+            if (w < 1 || h < 1) continue;
+            blocks.Add(new ContentBlock(BlockKind.Image, b.Left, pageHeight - b.Top, w, h, []));
+        }
+        return blocks.OrderBy(b => b.Y).ThenBy(b => b.X).ToList();
     }
 
     /// <summary>Palavras → linhas (mesma altura, sem buraco grande) → parágrafos (linhas próximas, mesmo estilo).</summary>

@@ -74,7 +74,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["converter"] =
         [
-            new("\uE8A5", "Para Word"), new("\uEB9F", "Para imagem", "paraimagem", NeedsFile: true), new("\uE8C4", "Para texto"), Sep,
+            new("\uE8A5", "Para Word", "paraword", NeedsFile: true),new("\uEB9F", "Para imagem", "paraimagem", NeedsFile: true), new("\uE8C4", "Para texto"), Sep,
             new("\uE91B", "Imagem para PDF", "imagemparapdf"), new("\uE8E9", "OCR", "ocr", NeedsFile: true),
         ],
         ["ver"] =
@@ -364,6 +364,8 @@ public sealed partial class ViewerPage : Page
             case "fontes": await ShowFontsAsync(); break;
             case "paraimagem": await ExportImagesAsync(); break;
             case "comprimir": await CompressAsync(); break;
+            case "paraword": await ConvertToWordAsync(); break;
+            case "converter": ShowConverterTab(); break;
             case "ocr": await OcrAsync(); break;
             case "imagemparapdf":
                 // Cria o PDF a partir de imagens e abre (OpenAsync pergunta antes se há alterações não salvas).
