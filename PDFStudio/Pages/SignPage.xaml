@@ -94,7 +94,13 @@
                     x:Name="VisibleOptions"
                     Spacing="12"
                     Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal" Spacing="12">
+                <ComboBox
+                    x:Name="FieldBox"
+                    MinWidth="332"
+                    Header="Onde assinar"
+                    SelectionChanged="FieldBox_SelectionChanged"
+                    Visibility="Collapsed" />
+                <StackPanel x:Name="PlacePanel" Orientation="Horizontal" Spacing="12">
                     <NumberBox
                         x:Name="PageBox"
                         MinWidth="120"

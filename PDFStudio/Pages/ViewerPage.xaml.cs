@@ -103,7 +103,8 @@ public sealed partial class ViewerPage : Page
         ],
         ["proteger"] =
         [
-            new("\uEE56", "Assinar digitalmente", "assinar", NeedsFile: true), Sep,
+            new("\uEE56", "Assinar digitalmente", "assinar", NeedsFile: true),
+            new("\uE8AC", "Campo de assinatura", "campoassinatura", NeedsFile: true), Sep,
             new("\uE72E", "Colocar senha", "colocarsenha", NeedsFile: true), new("\uE785", "Remover senha", "removersenha", NeedsFile: true), Sep,
             new("\uE7B3", "Redigir", "redigir", NeedsFile: true), new("\uE81E", "Achatar", "achatar", NeedsFile: true),
         ],

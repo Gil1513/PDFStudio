@@ -91,7 +91,7 @@ public class SigningTests
     }
 
     /// <summary>Retorna (índice da página, /Rect) do widget da assinatura.</summary>
-    private static (int Page, double[] Rect) FindSignatureWidget(string pdfPath)
+    internal static (int Page, double[] Rect) FindSignatureWidget(string pdfPath)
     {
         using var doc = PdfReader.Open(pdfPath, PdfDocumentOpenMode.Import);
         for (int p = 0; p < doc.PageCount; p++)
@@ -105,6 +105,8 @@ public class SigningTests
                 bool isSig = annot.Elements.GetName("/FT") == "/Sig"
                              || annot.Elements.GetDictionary("/Parent")?.Elements.GetName("/FT") == "/Sig";
                 if (!isSig) continue;
+                // Campo "Assinar aqui" ainda vazio (Etapa 6.4) não é a assinatura procurada.
+                if (!annot.Elements.ContainsKey("/V") && annot.Elements.GetDictionary("/Parent")?.Elements.ContainsKey("/V") != true) continue;
                 var rect = annot.Elements.GetArray("/Rect")!;
                 return (p, Enumerable.Range(0, 4).Select(k => rect.Elements.GetReal(k)).ToArray());
             }

@@ -40,7 +40,9 @@ public sealed partial class SignPage : Page
     {
         try
         {
-            var (count, signed) = await Task.Run(() => (PdfOperations.GetPageCount(path), PdfSigning.HasSignatures(path)));
+            var (count, signed, fields) = await Task.Run(() => (PdfOperations.GetPageCount(path), PdfSigning.HasSignatures(path),
+                PdfSignatureFields.List(path).Where(f => !f.Signed).ToList()));
+            ShowFields(fields);
             _pdf = path;
             PdfText.Text = $"{Path.GetFileName(path)} · {count} {(count == 1 ? "página" : "páginas")}";
             PageBox.Maximum = count;
@@ -54,6 +56,35 @@ public sealed partial class SignPage : Page
         }
         UpdateState();
     }
+
+    // ---------- Campos de assinatura vazios (Etapa 6.4) ----------
+
+    private List<SignatureField> _emptyFields = [];
+
+    /// <summary>Se o PDF tem campos "Assinar aqui" vazios, oferece assinar dentro de um deles (já escolhe o primeiro).</summary>
+    private void ShowFields(List<SignatureField> fields)
+    {
+        _emptyFields = fields;
+        FieldBox.Items.Clear();
+        if (fields.Count == 0)
+        {
+            FieldBox.Visibility = Visibility.Collapsed;
+            PlacePanel.Visibility = Visibility.Visible;
+            return;
+        }
+        FieldBox.Items.Add("Escolher a página e o canto");
+        foreach (var f in fields) FieldBox.Items.Add($"Campo “{f.Name}” (página {f.Page + 1})");
+        FieldBox.Visibility = Visibility.Visible;
+        FieldBox.SelectedIndex = 1;
+        KindRadios.SelectedIndex = 1; // campo de assinatura = assinatura visível
+    }
+
+    private void FieldBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        PlacePanel.Visibility = SelectedField is null ? Visibility.Visible : Visibility.Collapsed;
+
+    private SignatureField? SelectedField =>
+        FieldBox.Visibility == Visibility.Visible && FieldBox.SelectedIndex >= 1 && FieldBox.SelectedIndex <= _emptyFields.Count
+            ? _emptyFields[FieldBox.SelectedIndex - 1] : null;
 
     // ---------- Certificado ----------
 
@@ -179,6 +210,7 @@ public sealed partial class SignPage : Page
             Visible = KindRadios.SelectedIndex == 1,
             PageNumber = double.IsNaN(PageBox.Value) ? 1 : (int)PageBox.Value,
             Position = (SignaturePosition)PositionBox.SelectedIndex,
+            FieldName = KindRadios.SelectedIndex == 1 ? SelectedField?.Name : null,
             Reason = NullIfEmpty(ReasonBox.Text),
             Location = NullIfEmpty(LocationBox.Text),
             ContactInfo = NullIfEmpty(ContactBox.Text),
@@ -195,7 +227,7 @@ public sealed partial class SignPage : Page
         {
             var cert = await Task.Run(() => PdfSigning.SignAsync(request));
             ShowStatus(InfoBarSeverity.Success, "Documento assinado",
-                $"Assinado por {cert.Name} ({(request.Visible ? $"visível, página {request.PageNumber}" : "invisível")}). Salvo em {output}.",
+                $"Assinado por {cert.Name} ({(request.FieldName is { } field ? $"no campo “{field}”" : request.Visible ? $"visível, página {request.PageNumber}" : "invisível")}). Salvo em {output}.",
                 "Abrir no visualizador", () => App.MainWindow!.OpenInViewer(output));
         }
         catch (Exception ex)

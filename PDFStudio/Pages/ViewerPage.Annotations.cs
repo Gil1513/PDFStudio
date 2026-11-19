@@ -276,6 +276,8 @@ public sealed partial class ViewerPage
         EditAll,
         /// <summary>Etapa 6.2: arrastar marca uma área a redigir; clicar numa marca a desfaz. Aplica tudo de uma vez.</summary>
         Redact,
+        /// <summary>Etapa 6.4: arrastar (ou clicar) cria um campo de assinatura; clicar num campo vazio oferece excluir.</summary>
+        SignField,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -316,6 +318,9 @@ public sealed partial class ViewerPage
             UsesColor: false, UsesWidth: false),
         new CommentTool("redigir", "Redigir", AnnotationKind.Other, DrawMode.Redact,
             "Arraste sobre o que deve sumir (pode marcar várias áreas, em várias páginas). Depois clique em Aplicar redação.",
+            UsesColor: false, UsesWidth: false),
+        new CommentTool("campoassinatura", "Campo de assinatura", AnnotationKind.Other, DrawMode.SignField,
+            "Arraste (ou clique) onde a pessoa deve assinar. Clique num campo vazio para excluí-lo.",
             UsesColor: false, UsesWidth: false),
     }.ToDictionary(t => t.Key);
 
@@ -611,6 +616,11 @@ public sealed partial class ViewerPage
             ShowRedactMarks(surface);
             if (RedactMarkAt(slot, point.Position) is { } mark) { CancelDrawing(); RemoveRedactMark(mark); return; }
         }
+        if (_tool.Mode == DrawMode.SignField && await ClickSignFieldAsync(slot, point.Position))
+        {
+            CancelDrawing();
+            return;
+        }
         if (_tool.Mode == DrawMode.Link && LinkAt(slot, point.Position) is { } existing)
         {
             CancelDrawing();
@@ -653,7 +663,7 @@ public sealed partial class ViewerPage
                 _preview = _tool.Kind == AnnotationKind.Oval ? new Shapes.Ellipse() : new Shapes.Rectangle();
                 PlaceBox(_drawStart);
                 break;
-            case DrawMode.Text or DrawMode.Link or DrawMode.Redact:
+            case DrawMode.Text or DrawMode.Link or DrawMode.Redact or DrawMode.SignField:
                 _preview = new Shapes.Rectangle { StrokeDashArray = [4, 3] };
                 thickness = 1;
                 PlaceBox(_drawStart);
@@ -680,7 +690,7 @@ public sealed partial class ViewerPage
         }
         _preview!.Stroke = _tool.Mode switch
         {
-            DrawMode.Link => (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+            DrawMode.Link or DrawMode.SignField => (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
             DrawMode.Redact => RedactStroke,
             _ => ToolBrush(),
         };
@@ -721,7 +731,7 @@ public sealed partial class ViewerPage
         var current = Clamp(e.GetCurrentPoint(_drawSurface).Position);
         switch (_tool.Mode)
         {
-            case DrawMode.Box or DrawMode.Text or DrawMode.Link or DrawMode.Redact:
+            case DrawMode.Box or DrawMode.Text or DrawMode.Link or DrawMode.Redact or DrawMode.SignField:
                 PlaceBox(current);
                 break;
             case DrawMode.Segment when _preview is Shapes.Line line:
@@ -788,6 +798,16 @@ public sealed partial class ViewerPage
             var slot = _drawSlot;
             CancelDrawing();
             if (w >= 4 && h >= 4) AddRedactMark(surface, slot, new Rect(x, y, w, h));
+            return;
+        }
+
+        if (tool.Mode == DrawMode.SignField)
+        {
+            var (x, y, w, h) = BoxBetween(_drawStart, current);
+            var surface = _drawSurface;
+            var slot = _drawSlot;
+            CancelDrawing();
+            await CreateSignFieldAsync(surface, slot, new Rect(x, y, w, h));
             return;
         }
 

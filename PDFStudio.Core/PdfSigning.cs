@@ -24,6 +24,11 @@ public sealed class SignatureRequest
     /// <summary>Página do carimbo visível (1 em diante).</summary>
     public int PageNumber { get; init; } = 1;
     public SignaturePosition Position { get; init; } = SignaturePosition.BottomRight;
+    /// <summary>
+    /// Etapa 6.4: assinar dentro deste campo vazio (nome). O carimbo fica no lugar e no tamanho do campo;
+    /// PageNumber e Position são ignorados.
+    /// </summary>
+    public string? FieldName { get; init; }
 
     public string? Reason { get; init; }
     public string? Location { get; init; }
@@ -128,11 +133,22 @@ public static class PdfSigning
             IAnnotationAppearanceHandler? appearance = null;
             if (request.Visible)
             {
-                if (request.PageNumber < 1 || request.PageNumber > doc.PageCount)
+                if (request.FieldName is null && (request.PageNumber < 1 || request.PageNumber > doc.PageCount))
                     throw new ArgumentOutOfRangeException(nameof(request), $"A página deve estar entre 1 e {doc.PageCount}.");
-                pageIndex = request.PageNumber - 1;
-                var page = doc.Pages[pageIndex];
-                rectangle = StampRectangle(page.Width.Point, page.Height.Point, request.Position);
+                if (!string.IsNullOrWhiteSpace(request.FieldName))
+                {
+                    // O campo vazio sai e a assinatura nova ocupa o mesmo lugar.
+                    if (!PdfSignatureFields.RemoveField(doc, request.FieldName.Trim(), out var place))
+                        throw new InvalidOperationException($"O campo de assinatura “{request.FieldName}” não existe mais neste PDF.");
+                    pageIndex = place.Page;
+                    rectangle = new XRect(place.X, place.Y, place.Width, place.Height);
+                }
+                else
+                {
+                    pageIndex = request.PageNumber - 1;
+                    var page = doc.Pages[pageIndex];
+                    rectangle = StampRectangle(page.Width.Point, page.Height.Point, request.Position);
+                }
                 appearance = new StampAppearance(
                     string.IsNullOrWhiteSpace(request.StampTitle) ? DefaultStampTitle : request.StampTitle.Trim(),
                     string.IsNullOrWhiteSpace(request.StampSignerName) ? summary.Name : request.StampSignerName.Trim(),
