@@ -56,14 +56,17 @@ public static class FontLibrary
     /// <summary>Registra (uma vez) as fontes da pasta do app e as baixadas. Chamado antes de listar ou usar fontes.</summary>
     public static void EnsureRegistered()
     {
+        // Tudo dentro da trava: outra thread não pode ver "já registrado" antes de as fontes estarem
+        // registradas (senão ela guardaria uma lista de fontes sem as gêmeas).
         lock (Gate)
         {
             if (_scanned) return;
+            foreach (var folder in new[] { AppFontsFolder, DownloadedFontsFolder })
+                if (Directory.Exists(folder))
+                    foreach (var file in Directory.EnumerateFiles(folder, "*.ttf")) Register(file);
+            _available = null;
             _scanned = true;
         }
-        foreach (var folder in new[] { AppFontsFolder, DownloadedFontsFolder })
-            if (Directory.Exists(folder))
-                foreach (var file in Directory.EnumerateFiles(folder, "*.ttf")) Register(file);
     }
 
     /// <summary>Deixa a fonte do arquivo disponível só para este programa. Devolve false se o Windows recusar.</summary>
