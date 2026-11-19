@@ -813,6 +813,99 @@
                 </StackPanel>
             </Grid>
 
+            <!--  Etapa 7.2: marcadores (sumário)  -->
+            <Grid
+                x:Name="BookmarksPanel"
+                Grid.Row="1"
+                Padding="8,0,8,8"
+                RowSpacing="6"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button
+                        AutomationProperties.Name="Adicionar marcador"
+                        Click="AddBookmark_Click"
+                        ToolTipService.ToolTip="Adicionar marcador para o ponto que está na tela (depois do selecionado)">
+                        <FontIcon FontSize="14" Glyph="&#xE710;" />
+                    </Button>
+                    <Button
+                        x:Name="RenameBookmarkButton"
+                        AutomationProperties.Name="Renomear marcador"
+                        Click="RenameBookmark_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Renomear (F2)">
+                        <FontIcon FontSize="14" Glyph="&#xE8AC;" />
+                    </Button>
+                    <Button
+                        x:Name="RetargetBookmarkButton"
+                        AutomationProperties.Name="Levar para este ponto"
+                        Click="RetargetBookmark_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Fazer o marcador levar ao ponto que está na tela agora">
+                        <FontIcon FontSize="14" Glyph="&#xE81D;" />
+                    </Button>
+                    <Button
+                        x:Name="DeleteBookmarkButton"
+                        AutomationProperties.Name="Excluir marcador"
+                        Click="DeleteBookmark_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Excluir (Delete). Os marcadores de dentro saem junto">
+                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                    </Button>
+                    <Button
+                        x:Name="BookmarkMoreButton"
+                        AutomationProperties.Name="Mover marcador"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Mover">
+                        <FontIcon FontSize="14" Glyph="&#xE8AB;" />
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Click="BookmarkUp_Click" Text="Subir">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE74A;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Click="BookmarkDown_Click" Text="Descer">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE74B;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Click="BookmarkIndent_Click" Text="Colocar dentro do de cima">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE72A;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Click="BookmarkOutdent_Click" Text="Tirar de dentro">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE72B;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+                <TextBlock
+                    x:Name="BookmarkCountText"
+                    Grid.Row="1"
+                    Margin="4,0"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap" />
+                <TreeView
+                    x:Name="BookmarkTree"
+                    Grid.Row="2"
+                    AutomationProperties.Name="Lista de marcadores"
+                    CanDragItems="False"
+                    CanReorderItems="False"
+                    ItemInvoked="BookmarkTree_ItemInvoked"
+                    KeyDown="BookmarkTree_KeyDown"
+                    SelectionChanged="BookmarkTree_SelectionChanged"
+                    SelectionMode="Single" />
+            </Grid>
+
             <!--  Etapa 7.1: pesquisar no documento  -->
             <Grid
                 x:Name="SearchPanel"
@@ -1013,14 +1106,15 @@
                     ToolTipService.ToolTip="Miniaturas das páginas">
                     <FontIcon FontSize="16" Glyph="&#xE8A9;" />
                 </ToggleButton>
-                <Button
+                <ToggleButton
+                    x:Name="BookmarksToggle"
                     AutomationProperties.Name="Marcadores"
-                    Click="Soon_Click"
-                    Style="{StaticResource IconButtonStyle}"
-                    Tag="Marcadores"
-                    ToolTipService.ToolTip="Marcadores (em breve)">
-                    <FontIcon FontSize="16" Glyph="&#xE8A4;" Opacity="0.45" />
-                </Button>
+                    Checked="BookmarksToggle_Changed"
+                    Unchecked="BookmarksToggle_Changed"
+                    Style="{StaticResource RailToggleStyle}"
+                    ToolTipService.ToolTip="Marcadores (sumário do documento)">
+                    <FontIcon FontSize="16" Glyph="&#xE8A4;" />
+                </ToggleButton>
                 <ToggleButton
                     x:Name="CommentsToggle"
                     AutomationProperties.Name="Comentários"

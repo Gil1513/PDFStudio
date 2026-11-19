@@ -110,6 +110,7 @@ public sealed partial class ViewerPage
         _ = RefreshCommentListAsync();
         _ = RefreshAttachmentListAsync();
         _ = RefreshSearchAfterEditAsync();
+        _ = RefreshBookmarksAsync();
     }
 
     /// <summary>Grava as alterações no arquivo original. Retorna false se não conseguiu.</summary>

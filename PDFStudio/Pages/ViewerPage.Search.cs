@@ -35,7 +35,7 @@ public sealed partial class ViewerPage
     private void SearchToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (!_commentPanelReady) return;
-        if (SearchToggle.IsChecked == true) ThumbnailsToggle.IsChecked = CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = false; // um painel por vez
+        if (SearchToggle.IsChecked == true) ThumbnailsToggle.IsChecked = CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = BookmarksToggle.IsChecked = false; // um painel por vez
         UpdateSidePanel();
     }
 

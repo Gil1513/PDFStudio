@@ -212,6 +212,7 @@ public sealed partial class ViewerPage : Page
             CommentsToggle.IsChecked = false;
             AttachmentsToggle.IsChecked = false;
             SearchToggle.IsChecked = false;
+            BookmarksToggle.IsChecked = false;
             SidePanelColumn.Width = new GridLength(0);
             App.MainWindow!.SetSubtitle("Visualizar");
         }
@@ -529,7 +530,7 @@ public sealed partial class ViewerPage : Page
 
     private void ThumbnailsToggle_Click(object sender, RoutedEventArgs e)
     {
-        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = SearchToggle.IsChecked = false; // um painel por vez
+        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = SearchToggle.IsChecked = BookmarksToggle.IsChecked = false; // um painel por vez
         UpdateSidePanel();
     }
 
@@ -539,19 +540,23 @@ public sealed partial class ViewerPage : Page
         CommentsToggle.IsChecked = false;
         AttachmentsToggle.IsChecked = false;
         SearchToggle.IsChecked = false;
+        BookmarksToggle.IsChecked = false;
         UpdateSidePanel();
     }
 
     /// <summary>Mostra o painel lateral escolhido no trilho (miniaturas ou comentários), ou o esconde.</summary>
     private void UpdateSidePanel()
     {
-        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; AttachmentsToggle.IsChecked = false; SearchToggle.IsChecked = false; }
+        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; AttachmentsToggle.IsChecked = false; SearchToggle.IsChecked = false; BookmarksToggle.IsChecked = false; }
         bool thumbs = ThumbnailsToggle.IsChecked == true, comments = CommentsToggle.IsChecked == true;
         bool attachments = AttachmentsToggle.IsChecked == true && !comments;
         bool search = SearchToggle.IsChecked == true && !comments && !attachments;
-        SidePanelColumn.Width = new GridLength(comments || attachments || search ? 300 : thumbs ? 196 : 0);
-        SidePanelTitle.Text = comments ? "Comentários" : attachments ? "Anexos" : search ? "Pesquisar" : "Páginas";
-        ThumbnailList.Visibility = comments || attachments || search ? Visibility.Collapsed : Visibility.Visible;
+        bool bookmarks = BookmarksToggle.IsChecked == true && !comments && !attachments && !search;
+        SidePanelColumn.Width = new GridLength(comments || attachments || search || bookmarks ? 300 : thumbs ? 196 : 0);
+        SidePanelTitle.Text = comments ? "Comentários" : attachments ? "Anexos" : search ? "Pesquisar" : bookmarks ? "Marcadores" : "Páginas";
+        ThumbnailList.Visibility = comments || attachments || search || bookmarks ? Visibility.Collapsed : Visibility.Visible;
+        BookmarksPanel.Visibility = bookmarks ? Visibility.Visible : Visibility.Collapsed;
+        if (bookmarks) _ = RefreshBookmarksAsync();
         CommentsPanel.Visibility = comments ? Visibility.Visible : Visibility.Collapsed;
         AttachmentsPanel.Visibility = attachments ? Visibility.Visible : Visibility.Collapsed;
         SearchPanel.Visibility = search ? Visibility.Visible : Visibility.Collapsed;
