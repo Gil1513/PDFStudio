@@ -211,6 +211,7 @@ public sealed partial class ViewerPage : Page
             ThumbnailsToggle.IsChecked = false;
             CommentsToggle.IsChecked = false;
             AttachmentsToggle.IsChecked = false;
+            SearchToggle.IsChecked = false;
             SidePanelColumn.Width = new GridLength(0);
             App.MainWindow!.SetSubtitle("Visualizar");
         }
@@ -478,6 +479,9 @@ public sealed partial class ViewerPage : Page
     // ---------- Atalhos ----------
 
     private async void Accel_Open(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; await PickAndOpenAsync(); }
+    private void Accel_Search(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; OpenSearch(); }
+    private void Accel_SearchNext(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; StepHit(+1); }
+    private void Accel_SearchPrev(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; StepHit(-1); }
     private async void Accel_Properties(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; await ShowPropertiesAsync(); }
     private async void Accel_SaveCopy(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; await SaveCopyAsync(); }
     private void Accel_ZoomIn(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a) { a.Handled = true; if (_path is not null) SetZoom(Scroller.ZoomFactor * 1.25f); }
@@ -491,6 +495,7 @@ public sealed partial class ViewerPage : Page
     private async void PagesRepeater_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
         if (_document is null || args.Index >= _slots.Count) return;
+        ShowSearchMarks(args.Element, args.Index); // a página reaproveitada recebe os destaques da pesquisa dela
         var slot = _slots[args.Index];
         if (slot.Image is not null || slot.IsRendering) return;
 
@@ -524,7 +529,7 @@ public sealed partial class ViewerPage : Page
 
     private void ThumbnailsToggle_Click(object sender, RoutedEventArgs e)
     {
-        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = false; // um painel por vez
+        if (ThumbnailsToggle.IsChecked == true) CommentsToggle.IsChecked = AttachmentsToggle.IsChecked = SearchToggle.IsChecked = false; // um painel por vez
         UpdateSidePanel();
     }
 
@@ -533,20 +538,24 @@ public sealed partial class ViewerPage : Page
         ThumbnailsToggle.IsChecked = false;
         CommentsToggle.IsChecked = false;
         AttachmentsToggle.IsChecked = false;
+        SearchToggle.IsChecked = false;
         UpdateSidePanel();
     }
 
     /// <summary>Mostra o painel lateral escolhido no trilho (miniaturas ou comentários), ou o esconde.</summary>
     private void UpdateSidePanel()
     {
-        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; AttachmentsToggle.IsChecked = false; }
+        if (_path is null) { ThumbnailsToggle.IsChecked = false; CommentsToggle.IsChecked = false; AttachmentsToggle.IsChecked = false; SearchToggle.IsChecked = false; }
         bool thumbs = ThumbnailsToggle.IsChecked == true, comments = CommentsToggle.IsChecked == true;
         bool attachments = AttachmentsToggle.IsChecked == true && !comments;
-        SidePanelColumn.Width = new GridLength(comments || attachments ? 300 : thumbs ? 196 : 0);
-        SidePanelTitle.Text = comments ? "Comentários" : attachments ? "Anexos" : "Páginas";
-        ThumbnailList.Visibility = comments || attachments ? Visibility.Collapsed : Visibility.Visible;
+        bool search = SearchToggle.IsChecked == true && !comments && !attachments;
+        SidePanelColumn.Width = new GridLength(comments || attachments || search ? 300 : thumbs ? 196 : 0);
+        SidePanelTitle.Text = comments ? "Comentários" : attachments ? "Anexos" : search ? "Pesquisar" : "Páginas";
+        ThumbnailList.Visibility = comments || attachments || search ? Visibility.Collapsed : Visibility.Visible;
         CommentsPanel.Visibility = comments ? Visibility.Visible : Visibility.Collapsed;
         AttachmentsPanel.Visibility = attachments ? Visibility.Visible : Visibility.Collapsed;
+        SearchPanel.Visibility = search ? Visibility.Visible : Visibility.Collapsed;
+        SearchPanelChanged(search);
         if (attachments) _ = RefreshAttachmentListAsync();
         if (thumbs) SyncThumbnailSelection((int)Math.Max(1, PageNumberBox.Value) - 1);
         if (comments) _ = RefreshCommentListAsync();

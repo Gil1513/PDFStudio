@@ -40,27 +40,53 @@ public static class PdfTextLayout
         {
             using var doc = Pig.PdfDocument.Open(File.ReadAllBytes(path));
             if (pageIndex < 0 || pageIndex >= doc.NumberOfPages) return [];
-            var page = doc.GetPage(pageIndex + 1);
-            // O PdfPig já devolve as posições como a página aparece (com recorte e rotação aplicados),
-            // com origem embaixo à esquerda; basta inverter o eixo y.
-            var geometry = new PageGeometry(0, 0, page.Width, page.Height, 0);
-
-            var raw = new List<(string Text, double X, double Y, double W, double H)>();
-            foreach (var word in page.GetWords())
-            {
-                if (string.IsNullOrWhiteSpace(word.Text) || word.Letters.Count == 0) continue;
-                var corners = Corners(word);
-                var view = corners.Select(c => geometry.PdfToView(c.X, c.Y)).ToList();
-                double x1 = view.Min(p => p.X), y1 = view.Min(p => p.Y), x2 = view.Max(p => p.X), y2 = view.Max(p => p.Y);
-                if (x2 - x1 < 0.1 || y2 - y1 < 0.1) continue;
-                raw.Add((word.Text, x1, y1, x2 - x1, y2 - y1));
-            }
-            return InReadingOrder(raw);
+            return PageWords(doc.GetPage(pageIndex + 1));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return []; // PDF protegido ou que o PdfPig não consegue ler: simplesmente sem texto selecionável
         }
+    }
+
+    /// <summary>
+    /// Etapa 7.1: as palavras de todas as páginas (abre o arquivo uma vez só). Página que não dá para ler fica vazia;
+    /// <paramref name="cancel"/> interrompe a leitura (pesquisa trocada no meio).
+    /// </summary>
+    public static List<IReadOnlyList<TextWord>> AllWords(string path, CancellationToken cancel = default)
+    {
+        var pages = new List<IReadOnlyList<TextWord>>();
+        Pig.PdfDocument doc;
+        try { doc = Pig.PdfDocument.Open(File.ReadAllBytes(path)); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return pages; }
+        using (doc)
+        {
+            for (int i = 1; i <= doc.NumberOfPages; i++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                try { pages.Add(PageWords(doc.GetPage(i))); }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { pages.Add([]); }
+            }
+        }
+        return pages;
+    }
+
+    private static List<TextWord> PageWords(Pig.Content.Page page)
+    {
+        // O PdfPig já devolve as posições como a página aparece (com recorte e rotação aplicados),
+        // com origem embaixo à esquerda; basta inverter o eixo y.
+        var geometry = new PageGeometry(0, 0, page.Width, page.Height, 0);
+
+        var raw = new List<(string Text, double X, double Y, double W, double H)>();
+        foreach (var word in page.GetWords())
+        {
+            if (string.IsNullOrWhiteSpace(word.Text) || word.Letters.Count == 0) continue;
+            var corners = Corners(word);
+            var view = corners.Select(c => geometry.PdfToView(c.X, c.Y)).ToList();
+            double x1 = view.Min(p => p.X), y1 = view.Min(p => p.Y), x2 = view.Max(p => p.X), y2 = view.Max(p => p.Y);
+            if (x2 - x1 < 0.1 || y2 - y1 < 0.1) continue;
+            raw.Add((word.Text, x1, y1, x2 - x1, y2 - y1));
+        }
+        return InReadingOrder(raw);
     }
 
     /// <summary>

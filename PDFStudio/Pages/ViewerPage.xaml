@@ -16,6 +16,9 @@
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="O" Invoked="Accel_Open" Modifiers="Control" />
         <KeyboardAccelerator Key="D" Invoked="Accel_Properties" Modifiers="Control" />
+        <KeyboardAccelerator Key="F" Invoked="Accel_Search" Modifiers="Control" />
+        <KeyboardAccelerator Key="F3" Invoked="Accel_SearchNext" />
+        <KeyboardAccelerator Key="F3" Invoked="Accel_SearchPrev" Modifiers="Shift" />
         <KeyboardAccelerator Key="S" Invoked="Accel_SaveCopy" Modifiers="Control,Shift" />
         <KeyboardAccelerator Key="S" Invoked="Accel_Save" Modifiers="Control" />
         <KeyboardAccelerator Key="Z" Invoked="Accel_Undo" Modifiers="Control" />
@@ -810,6 +813,83 @@
                 </StackPanel>
             </Grid>
 
+            <!--  Etapa 7.1: pesquisar no documento  -->
+            <Grid
+                x:Name="SearchPanel"
+                Grid.Row="1"
+                Padding="8,0,8,8"
+                RowSpacing="6"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox
+                        x:Name="SearchBox"
+                        AutomationProperties.Name="Texto a pesquisar"
+                        KeyDown="SearchBox_KeyDown"
+                        PlaceholderText="Pesquisar no documento"
+                        TextChanged="SearchBox_TextChanged" />
+                    <Button
+                        x:Name="SearchPrevButton"
+                        Grid.Column="1"
+                        AutomationProperties.Name="Resultado anterior"
+                        Click="SearchPrev_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Anterior (Shift+Enter)">
+                        <FontIcon FontSize="12" Glyph="&#xE70E;" />
+                    </Button>
+                    <Button
+                        x:Name="SearchNextButton"
+                        Grid.Column="2"
+                        AutomationProperties.Name="Próximo resultado"
+                        Click="SearchNext_Click"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Próximo (Enter ou F3)">
+                        <FontIcon FontSize="12" Glyph="&#xE70D;" />
+                    </Button>
+                </Grid>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4">
+                    <CheckBox
+                        x:Name="SearchCaseCheck"
+                        MinWidth="0"
+                        Click="SearchOption_Click"
+                        Content="Aa"
+                        ToolTipService.ToolTip="Diferenciar maiúsculas e minúsculas" />
+                    <CheckBox
+                        x:Name="SearchWordCheck"
+                        MinWidth="0"
+                        Click="SearchOption_Click"
+                        Content="Palavra inteira" />
+                    <CheckBox
+                        x:Name="SearchAccentCheck"
+                        MinWidth="0"
+                        Click="SearchOption_Click"
+                        Content="Acentos"
+                        ToolTipService.ToolTip="Diferenciar acentos (sem marcar, &quot;acao&quot; acha &quot;ação&quot;)" />
+                </StackPanel>
+                <TextBlock
+                    x:Name="SearchCountText"
+                    Grid.Row="2"
+                    Margin="4,0"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap" />
+                <ListView
+                    x:Name="SearchResultList"
+                    Grid.Row="3"
+                    IsItemClickEnabled="True"
+                    ItemClick="SearchResultList_ItemClick"
+                    SelectionMode="Single" />
+            </Grid>
+
             <!--  Anexos: arquivos guardados dentro do PDF  -->
             <Grid
                 x:Name="AttachmentsPanel"
@@ -959,14 +1039,15 @@
                     ToolTipService.ToolTip="Arquivos anexados ao documento">
                     <FontIcon FontSize="16" Glyph="&#xE723;" />
                 </ToggleButton>
-                <Button
+                <ToggleButton
+                    x:Name="SearchToggle"
                     AutomationProperties.Name="Pesquisar"
-                    Click="Soon_Click"
-                    Style="{StaticResource IconButtonStyle}"
-                    Tag="Pesquisar no documento"
-                    ToolTipService.ToolTip="Pesquisar no documento (em breve)">
-                    <FontIcon FontSize="16" Glyph="&#xE721;" Opacity="0.45" />
-                </Button>
+                    Checked="SearchToggle_Changed"
+                    Unchecked="SearchToggle_Changed"
+                    Style="{StaticResource RailToggleStyle}"
+                    ToolTipService.ToolTip="Pesquisar no documento (Ctrl+F)">
+                    <FontIcon FontSize="16" Glyph="&#xE721;" />
+                </ToggleButton>
                 <Button
                     x:Name="SignaturesButton"
                     AutomationProperties.Name="Assinaturas"

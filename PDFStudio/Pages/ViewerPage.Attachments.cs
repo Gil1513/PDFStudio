@@ -16,7 +16,7 @@ public sealed partial class ViewerPage
     private void AttachmentsToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (!_commentPanelReady) return;
-        if (AttachmentsToggle.IsChecked == true) ThumbnailsToggle.IsChecked = CommentsToggle.IsChecked = false; // um painel por vez
+        if (AttachmentsToggle.IsChecked == true) ThumbnailsToggle.IsChecked = CommentsToggle.IsChecked = SearchToggle.IsChecked = false; // um painel por vez
         UpdateSidePanel();
     }
 
