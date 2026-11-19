@@ -66,7 +66,7 @@ public static class PdfPageContent
         return (image.PointWidth, image.PointHeight);
     }
 
-    private static XImage OpenImage(string path)
+    internal static XImage OpenImage(string path)
     {
         if (!File.Exists(path)) throw new FileNotFoundException("A imagem não foi encontrada.", path);
         if (!ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()))
@@ -166,7 +166,6 @@ public static class PdfPageContent
     /// </param>
     internal static void DrawInView(PdfPage page, Action<XGraphics> draw, bool behind = false, ArtifactKind? artifact = null)
     {
-        if (!behind) IsolateExistingContent(page);
         var before = ContentItems(page);
         var geometry = PageGeometry.Of(page);
         var media = page.MediaBox;
@@ -196,7 +195,7 @@ public static class PdfPageContent
         if (artifact is { } kind)
             foreach (var added in ContentItems(page).Except(before))
                 if (added is PdfDictionary stream)
-                    SetContent(stream, Encoding.ASCII.GetBytes(ArtifactPrefix(kind) + "\n").Concat(Content(stream)).Concat(Encoding.ASCII.GetBytes("\nEMC\n")).ToArray());
+                    SetContent(stream, Encoding.Latin1.GetBytes(ArtifactPrefix(kind) + "\n").Concat(Content(stream)).Concat(Encoding.Latin1.GetBytes(ArtifactEnd)).ToArray());
     }
 
     // ---------------- Trechos do conteúdo da página ----------------
@@ -205,6 +204,7 @@ public static class PdfPageContent
     public enum ArtifactKind { Watermark, Header, Footer, PageNumber, Background }
 
     private const string Signature = "/PDFStudio";
+    private const string ArtifactEnd = "\nEMC\n";
 
     /// <summary>Início do trecho marcado: <c>/Artifact &lt;&lt;/PDFStudio /Watermark /Type /Pagination /Subtype /Watermark&gt;&gt; BDC</c>.</summary>
     private static string ArtifactPrefix(ArtifactKind kind)
@@ -224,42 +224,43 @@ public static class PdfPageContent
     internal static int CountArtifacts(PdfPage page, ArtifactKind kind) =>
         ContentItems(page).OfType<PdfDictionary>().Count(s => IsArtifact(s, kind));
 
-    /// <summary>Remove da página os trechos do tipo <paramref name="kind"/> colocados pelo PDF Studio.</summary>
+    /// <summary>
+    /// Remove da página os trechos do tipo <paramref name="kind"/> colocados pelo PDF Studio.
+    /// Só o pedaço marcado ("/Artifact … BDC" até "EMC") sai. Ao desenhar de novo na página, o PDFsharp isola o
+    /// conteúdo antigo colando "q" no começo do primeiro trecho e "Q" no fim do último; esses ficam, senão a
+    /// página ficaria com "q"/"Q" desequilibrados.
+    /// </summary>
     internal static int RemoveArtifacts(PdfPage page, ArtifactKind kind)
     {
         if (page.Elements["/Contents"] is null) return 0;
         var contents = page.Contents.Elements;
         int removed = 0;
         for (int i = contents.Count - 1; i >= 0; i--)
-            if (contents.GetDictionary(i) is { } stream && IsArtifact(stream, kind))
-            {
-                contents.RemoveAt(i);
-                removed++;
-            }
+        {
+            if (contents.GetDictionary(i) is not { } stream || FindArtifact(stream, kind) is not var (text, from, to)) continue;
+            string rest = text[..from] + text[to..];
+            if (rest.Trim().Length == 0) contents.RemoveAt(i);
+            else SetContent(stream, Encoding.Latin1.GetBytes(rest));
+            removed++;
+        }
         return removed;
     }
 
-    private static bool IsArtifact(PdfDictionary stream, ArtifactKind kind)
-    {
-        if (stream.Stream is null) return false;
-        byte[] start = Content(stream);
-        string prefix = $"/Artifact <<{Signature} /{kind} ";
-        return start.Length >= prefix.Length && Encoding.ASCII.GetString(start, 0, prefix.Length) == prefix;
-    }
+    private static bool IsArtifact(PdfDictionary stream, ArtifactKind kind) => FindArtifact(stream, kind) is not null;
 
     /// <summary>
-    /// Fecha o conteúdo original entre "q … Q" (uma vez por página), para que um PDF que deixou o estado gráfico
-    /// alterado no fim (escala, deslocamento) não desloque o que o app desenha por cima.
+    /// Onde está o trecho marcado: ele abre o conteúdo (antes dele só pode haver "q" e espaços) e vai até o
+    /// último "EMC" que o app escreveu.
     /// </summary>
-    private static void IsolateExistingContent(PdfPage page)
+    private static (string Text, int From, int To)? FindArtifact(PdfDictionary stream, ArtifactKind kind)
     {
-        if (page.Elements["/Contents"] is null) return;
-        var contents = page.Contents.Elements;
-        if (contents.Count == 0) return;
-        if (contents.GetDictionary(0) is { Stream: not null } first && Encoding.ASCII.GetString(Content(first)).StartsWith("q % PDFStudio")) return;
-        // O PDFsharp exige objetos PdfContent na lista /Contents (dicionários comuns quebram o XGraphics).
-        page.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q % PDFStudio\n"));
-        page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("\nQ % PDFStudio\n"));
+        if (stream.Stream is null) return null;
+        string text = Encoding.Latin1.GetString(Content(stream));
+        int from = text.IndexOf($"/Artifact <<{Signature} /{kind} ", StringComparison.Ordinal);
+        if (from < 0 || text[..from].Any(c => c != 'q' && !char.IsWhiteSpace(c))) return null;
+        int end = text.LastIndexOf(ArtifactEnd, StringComparison.Ordinal);
+        if (end < from) return null;
+        return (text, from, end + ArtifactEnd.Length);
     }
 
     private static List<PdfItem> ContentItems(PdfPage page)

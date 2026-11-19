@@ -81,7 +81,8 @@ public static class PdfRenderer
     }
 
     /// <param name="scale">Resolução relativa ao tamanho real (2 = nítido com zoom).</param>
-    public static async Task<BitmapImage> RenderAsync(PdfDocument doc, int index, double scale)
+    /// <param name="transparent">true = sem o papel branco por trás (para mostrar um fundo embaixo da página).</param>
+    public static async Task<BitmapImage> RenderAsync(PdfDocument doc, int index, double scale, bool transparent = false)
     {
         using var page = doc.GetPage((uint)index);
         using var stream = new InMemoryRandomAccessStream();
@@ -90,6 +91,7 @@ public static class PdfRenderer
             DestinationWidth = (uint)Math.Max(1, Math.Round(page.Size.Width * scale)),
             DestinationHeight = (uint)Math.Max(1, Math.Round(page.Size.Height * scale)),
         };
+        if (transparent) options.BackgroundColor = Windows.UI.Color.FromArgb(0, 255, 255, 255);
         await page.RenderToStreamAsync(stream, options);
 
         var bitmap = new BitmapImage();
