@@ -17,6 +17,7 @@
         <KeyboardAccelerator Key="O" Invoked="Accel_Open" Modifiers="Control" />
         <KeyboardAccelerator Key="D" Invoked="Accel_Properties" Modifiers="Control" />
         <KeyboardAccelerator Key="F" Invoked="Accel_Search" Modifiers="Control" />
+        <KeyboardAccelerator Key="P" Invoked="Accel_Print" Modifiers="Control" />
         <KeyboardAccelerator Key="F3" Invoked="Accel_SearchNext" />
         <KeyboardAccelerator Key="F3" Invoked="Accel_SearchPrev" Modifiers="Shift" />
         <KeyboardAccelerator Key="S" Invoked="Accel_SaveCopy" Modifiers="Control,Shift" />
@@ -143,6 +144,15 @@
                             Text="Salvar uma cópia…">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE792;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem
+                            x:Name="PrintMenuItem"
+                            Click="Print_Click"
+                            KeyboardAcceleratorTextOverride="Ctrl+P"
+                            Text="Imprimir…">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE749;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
@@ -336,12 +346,13 @@
                         <FontIcon FontSize="16" Glyph="&#xE792;" />
                     </Button>
                     <Button
+                        x:Name="QuickPrintButton"
                         AutomationProperties.Name="Imprimir"
-                        Click="Soon_Click"
+                        Click="Print_Click"
+                        IsEnabled="False"
                         Style="{StaticResource IconButtonStyle}"
-                        Tag="Imprimir"
-                        ToolTipService.ToolTip="Imprimir (em breve)">
-                        <FontIcon FontSize="16" Glyph="&#xE749;" Opacity="0.45" />
+                        ToolTipService.ToolTip="Imprimir (Ctrl+P)">
+                        <FontIcon FontSize="16" Glyph="&#xE749;" />
                     </Button>
                     <Button
                         x:Name="QuickPropertiesButton"

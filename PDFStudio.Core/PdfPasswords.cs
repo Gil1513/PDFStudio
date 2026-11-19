@@ -114,6 +114,26 @@ public static class PdfPasswords
     }
 
     /// <summary>O arquivo tem o dicionário /Encrypt (criptografia, com ou sem senha para abrir).</summary>
+    /// <summary>
+    /// Etapa 7.3: o autor permite imprimir? PDF sem proteção sempre permite. <paramref name="password"/>: a senha
+    /// usada para abrir, se houver.
+    /// </summary>
+    public static bool AllowsPrinting(string path, string? password = null)
+    {
+        if (!HasEncryptDictionary(path)) return true;
+        try
+        {
+            using var doc = string.IsNullOrEmpty(password)
+                ? PdfReader.Open(path, PdfDocumentOpenMode.Import)
+                : PdfReader.Open(path, password, PdfDocumentOpenMode.Import);
+            return doc.SecuritySettings.PermitPrint;
+        }
+        catch (PdfReaderException ex) when (IsPasswordError(ex))
+        {
+            return true; // não deu para conferir; o próprio Windows recusaria abrir sem a senha
+        }
+    }
+
     private static bool HasEncryptDictionary(string path) =>
         System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(path)).Contains("/Encrypt", StringComparison.Ordinal);
 

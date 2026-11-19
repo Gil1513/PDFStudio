@@ -202,7 +202,7 @@ public sealed partial class ViewerPage : Page
     {
         EmptyState.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
         Scroller.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        QuickSaveCopyButton.IsEnabled = QuickPropertiesButton.IsEnabled = QuickFolderButton.IsEnabled = SignaturesButton.IsEnabled = open;
+        QuickSaveCopyButton.IsEnabled = QuickPrintButton.IsEnabled = QuickPropertiesButton.IsEnabled = QuickFolderButton.IsEnabled = SignaturesButton.IsEnabled = open;
         PageNav.IsHitTestVisible = open;
         PageNav.Opacity = open ? 1 : 0.5;
         if (!open)
@@ -371,7 +371,7 @@ public sealed partial class ViewerPage : Page
     private void FileMenu_Opening(object sender, object e)
     {
         bool open = _path is not null;
-        SaveCopyMenuItem.IsEnabled = PropertiesMenuItem.IsEnabled = ShowInFolderMenuItem.IsEnabled = open;
+        SaveCopyMenuItem.IsEnabled = PrintMenuItem.IsEnabled = PropertiesMenuItem.IsEnabled = ShowInFolderMenuItem.IsEnabled = open;
 
         RecentSubMenu.Items.Clear();
         var recent = App.Recent.Entries.Where(r => File.Exists(r.Path)).Take(10).ToList();
