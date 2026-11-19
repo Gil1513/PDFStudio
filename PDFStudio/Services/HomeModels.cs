@@ -46,7 +46,7 @@ public static class ToolCatalog
     public static readonly ToolInfo Split = new("dividir", "Dividir PDF", "Separe as páginas em vários arquivos.", "", Cyan, true);
     public static readonly ToolInfo Organize = new("organizar", "Organizar páginas", "Gire e reordene as páginas do documento.", "", Purple, true);
     public static readonly ToolInfo Sign = new("assinar", "Assinar PDF", "Assinatura digital com certificado .pfx.", "", Pink, true);
-    public static readonly ToolInfo Compress = new("comprimir", "Comprimir PDF", "Reduza o tamanho do arquivo.", "", Amber, false);
+    public static readonly ToolInfo Compress = new("comprimir", "Comprimir PDF", "Reduza o tamanho do arquivo.", "", Amber, true);
     public static readonly ToolInfo Form = new("formulario", "Preencher formulário", "Preencha campos e marque opções.", "", Green, false);
     public static readonly ToolInfo Batch = new("lote", "PDFs em lote", "Aplique uma ação em vários arquivos de uma vez.", "", Slate, false);
 

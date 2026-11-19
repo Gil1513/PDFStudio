@@ -132,6 +132,12 @@ public sealed partial class HomePage : Page
             return;
         }
         if (tool.Key == "viewer") await App.MainWindow!.PickAndOpenAsync();
+        else if (tool.Key == "comprimir")
+        {
+            // Etapa 7.6: escolhe o PDF, abre no visualizador e já mostra a janela de comprimir.
+            if (await FilePickers.PickPdfAsync() is { } pdf)
+                App.MainWindow!.OpenTool("viewer", new ViewerRequest(pdf, "comprimir"));
+        }
         else if (tool.Key == "criarimagem")
         {
             // Etapa 7.5: cria o PDF a partir de imagens e já abre no visualizador.
