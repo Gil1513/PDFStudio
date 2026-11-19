@@ -68,7 +68,7 @@ public sealed partial class ViewerPage : Page
         ["editar"] =
         [
             new("\uE70F", "Editar tudo"), new("\uE8D2", "Adicionar texto", "adicionartexto", NeedsFile: true), new("\uEB9F", "Imagem", "imagem", NeedsFile: true), new("\uE71B", "Link", "link", NeedsFile: true), Sep,
-            new("\uE790", "Marca d'água", "marcadagua", NeedsFile: true), new("\uE8EF", "Número de página"), new("\uE8A5", "Cabeçalho e rodapé"), new("\uE771", "Fundo"),
+            new("\uE790", "Marca d'água", "marcadagua", NeedsFile: true), new("\uE8EF", "Número de página", "numeropagina", NeedsFile: true), new("\uE8A5", "Cabeçalho e rodapé", "cabecalho", NeedsFile: true), new("\uE771", "Fundo"),
         ],
         ["converter"] =
         [
@@ -329,6 +329,8 @@ public sealed partial class ViewerPage : Page
             case "recortar": await CropPagesAsync(); break;
             case "redimensionar": await ResizePagesAsync(); break;
             case "marcadagua": await WatermarkAsync(); break;
+            case "numeropagina": await HeaderFooterAsync(true); break;
+            case "cabecalho": await HeaderFooterAsync(false); break;
             // Ferramentas que trabalham com o arquivo aberto recebem o caminho dele.
             case "organizar" or "assinar": App.MainWindow!.OpenTool(key, _path); break;
             default: App.MainWindow!.OpenTool(key); break;
