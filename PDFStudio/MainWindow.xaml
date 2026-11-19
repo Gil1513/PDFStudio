@@ -9,7 +9,12 @@
     Title="PDF Studio"
     mc:Ignorable="d">
 
-    <Grid x:Name="RootGrid" Background="{ThemeResource ShellBackgroundBrush}">
+    <!--  KeyboardAcceleratorPlacementMode="Hidden": o atalho vale na janela toda, mas sem a dica "Ctrl+O"
+          aparecendo sempre que o mouse para em qualquer lugar  -->
+    <Grid
+        x:Name="RootGrid"
+        Background="{ThemeResource ShellBackgroundBrush}"
+        KeyboardAcceleratorPlacementMode="Hidden">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />

@@ -128,7 +128,7 @@
                     Grid.Column="2"
                     VerticalAlignment="Center"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="{x:Bind ModifiedText}" />
+                    Text="{x:Bind OpenedText}" />
                 <TextBlock
                     Grid.Column="3"
                     VerticalAlignment="Center"
@@ -216,7 +216,7 @@
                     Grid.Row="2"
                     FontSize="12"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="{x:Bind ModifiedText}" />
+                    Text="{x:Bind OpenedText}" />
             </Grid>
         </DataTemplate>
 
@@ -558,7 +558,7 @@
                         Click="SortByDate_Click"
                         Style="{StaticResource ColumnHeaderButtonStyle}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock x:Name="DateHeaderText" Text="Data de modificação" />
+                            <TextBlock x:Name="DateHeaderText" Text="Aberto em" />
                             <FontIcon x:Name="DateSortIcon" FontSize="10" Glyph="&#xE8CB;" />
                         </StackPanel>
                     </Button>

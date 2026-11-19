@@ -45,15 +45,16 @@ public sealed partial class ViewerPage
 
     // ---------------- Sem ferramenta: mãozinha e seguir o link ----------------
 
-    private bool _overLink;
+    private InputSystemCursorShape? _plainCursor; // cursor atual sem ferramenta: mãozinha (link), I (texto) ou seta
 
     private void UpdateLinkCursor(DrawingSurface surface, Point p)
     {
         if (SlotOf(surface) is not { } slot) return;
-        bool over = LinkAt(slot, p) is { Target: not null };
-        if (over == _overLink) return;
-        _overLink = over;
-        surface.SetCursor(over ? InputSystemCursorShape.Hand : null);
+        InputSystemCursorShape? cursor = LinkAt(slot, p) is { Target: not null } ? InputSystemCursorShape.Hand
+            : IsOverText(slot, p) ? InputSystemCursorShape.IBeam : null;
+        if (cursor == _plainCursor) return;
+        _plainCursor = cursor;
+        surface.SetCursor(cursor);
     }
 
     /// <summary>Segue o link sob o clique. Devolve false se não havia link ali.</summary>

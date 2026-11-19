@@ -92,7 +92,8 @@ public sealed partial class RecentItem : INotifyPropertyChanged
     public int FileCount { get; init; }
 
     public string Folder => System.IO.Path.GetDirectoryName(Path) ?? "";
-    public string ModifiedText => !Exists ? (IsFolder ? "Pasta não encontrada" : "Arquivo não encontrado") : FriendlyDate(Modified);
+    /// <summary>Quando o usuário abriu o arquivo (ou usou a pasta) pela última vez, e não quando o arquivo foi alterado.</summary>
+    public string OpenedText => !Exists ? (IsFolder ? "Pasta não encontrada" : "Arquivo não encontrado") : FriendlyDate(LastOpened);
     public string SizeText => IsFolder ? $"{FileCount} {(FileCount == 1 ? "arquivo" : "arquivos")}" : Exists ? DocumentPropertiesService.FormatSize(Size) : "—";
     public string Glyph => IsFolder ? "" : "";
     public double RowOpacity => Exists ? 1.0 : 0.5;

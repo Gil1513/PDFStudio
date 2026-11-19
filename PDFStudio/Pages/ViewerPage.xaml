@@ -11,7 +11,9 @@
     AllowDrop="True"
     DragOver="Page_DragOver"
     Drop="Page_Drop"
+    KeyboardAcceleratorPlacementMode="Hidden"
     mc:Ignorable="d">
+    <!--  Hidden: os atalhos valem na página toda, sem a dica (ex.: "Ctrl+O") aparecer onde o mouse parar  -->
 
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="O" Invoked="Accel_Open" Modifiers="Control" />
@@ -22,6 +24,7 @@
         <KeyboardAccelerator Key="F3" Invoked="Accel_SearchPrev" Modifiers="Shift" />
         <KeyboardAccelerator Key="S" Invoked="Accel_SaveCopy" Modifiers="Control,Shift" />
         <KeyboardAccelerator Key="S" Invoked="Accel_Save" Modifiers="Control" />
+        <KeyboardAccelerator Key="C" Invoked="Accel_Copy" Modifiers="Control" />
         <KeyboardAccelerator Key="Z" Invoked="Accel_Undo" Modifiers="Control" />
         <KeyboardAccelerator Key="Y" Invoked="Accel_Redo" Modifiers="Control" />
         <KeyboardAccelerator Key="Add" Invoked="Accel_ZoomIn" Modifiers="Control" />

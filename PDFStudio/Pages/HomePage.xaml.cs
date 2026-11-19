@@ -107,7 +107,7 @@ public sealed partial class HomePage : Page
             _ => "Arquivos recentes",
         };
         SearchBox.PlaceholderText = _section == Section.Folders ? "Buscar pastas" : "Buscar arquivos";
-        DateHeaderText.Text = _section == Section.Folders ? "Último uso" : "Data de modificação";
+        DateHeaderText.Text = _section == Section.Folders ? "Último uso" : "Aberto em";
         Refresh();
     }
 
@@ -165,8 +165,9 @@ public sealed partial class HomePage : Page
             (SortColumn.Name, true) => items.OrderByDescending(i => i.Name, StringComparer.CurrentCultureIgnoreCase),
             (SortColumn.Size, false) => items.OrderBy(i => i.IsFolder ? i.FileCount : i.Size),
             (SortColumn.Size, true) => items.OrderByDescending(i => i.IsFolder ? i.FileCount : i.Size),
-            (SortColumn.Date, false) => items.OrderBy(i => i.Modified),
-            _ => items.OrderByDescending(i => i.Modified),
+            // Data = quando foi aberto pela última vez (a mesma mostrada na lista).
+            (SortColumn.Date, false) => items.OrderBy(i => i.LastOpened),
+            _ => items.OrderByDescending(i => i.LastOpened),
         };
 
         var list = items.ToList();

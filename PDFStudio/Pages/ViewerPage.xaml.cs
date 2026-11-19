@@ -255,7 +255,17 @@ public sealed partial class ViewerPage : Page
 
     private string SelectedCategory => (CategoryList.SelectedItem as ViewerCategory)?.Key ?? "inicio";
 
-    private void CategoryList_SelectionChanged(object sender, SelectionChangedEventArgs e) => BuildToolbar(SelectedCategory);
+    private void CategoryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Trocar de aba desliga a ferramenta que não é dela (ex.: "Editar tudo" não fica ligado escondido
+        // enquanto o usuário usa "Ajustar à largura" na aba Ver).
+        if (_tool is not null && !CategoryTools[SelectedCategory].Any(c => c.Key == _tool.Key))
+        {
+            SetTool(null); // já remonta a barra
+            return;
+        }
+        BuildToolbar(SelectedCategory);
+    }
 
     private void BuildToolbar(string category)
     {
@@ -523,6 +533,7 @@ public sealed partial class ViewerPage : Page
         // Libera a imagem quando a página sai da área visível.
         int index = sender.GetElementIndex(args.Element);
         if (index >= 0 && index < _slots.Count) _slots[index].Image = null;
+        if (index == _copyPage) ClearCopySelection(); // o elemento vai ser reaproveitado por outra página
     }
 
     // =====================================================================

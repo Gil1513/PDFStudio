@@ -499,6 +499,7 @@ public sealed partial class ViewerPage
     private void SetTool(string? key, bool keepPendingInk = true)
     {
         if (_textEditor is not null) _ = FinishTextEditorAsync(commit: keepPendingInk);
+        ClearCopySelection();
         RemoveStampGhost();
         RemoveLinkOutlines();
         if (_blockEditor is not null) _ = FinishBlockEditorAsync(commit: keepPendingInk);
@@ -559,14 +560,18 @@ public sealed partial class ViewerPage
     private void Surface_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
         var surface = (DrawingSurface)sender;
-        _overLink = false;
+        _plainCursor = null;
         surface.SetCursor(_tool is null ? null
             : _tool.Mode is DrawMode.TextSelect or DrawMode.PageText ? InputSystemCursorShape.IBeam : InputSystemCursorShape.Cross);
         if (_tool?.Mode == DrawMode.Link) _ = ShowLinkOutlinesAsync(surface);
         else if (_tool?.Mode == DrawMode.EditAll) { surface.SetCursor(null); _ = ShowBlockOutlinesAsync(surface); }
         else if (_tool?.Mode == DrawMode.Redact) ShowRedactMarks(surface);
-        // Já lê os links da página, para a "mãozinha" aparecer sem atraso.
-        else if (_tool is null && DisplayPath is not null && SlotOf(surface) is { } slot) _ = LinksOfPage(slot.Index);
+        // Já lê os links e as palavras da página, para a "mãozinha" e a seleção de texto não terem atraso.
+        else if (_tool is null && DisplayPath is not null && SlotOf(surface) is { } slot)
+        {
+            _ = LinksOfPage(slot.Index);
+            _ = WordsOfPage(slot.Index);
+        }
     }
 
     private SolidColorBrush ToolBrush()
@@ -579,11 +584,19 @@ public sealed partial class ViewerPage
     {
         if (sender is not DrawingSurface surface || SlotOf(surface) is not { } slot) return;
         var point = e.GetCurrentPoint(surface);
+        if (point.Properties.IsRightButtonPressed && _tool is null && HasCopySelection && ReferenceEquals(surface, _copySurface))
+        {
+            e.Handled = true;
+            ShowCopyMenu(surface, point.Position);
+            return;
+        }
         if (!point.Properties.IsLeftButtonPressed) return;
         if (_tool is null)
         {
-            // Sem ferramenta: clicar num link segue o link.
-            if (LinkAt(slot, point.Position) is not null) { e.Handled = true; await FollowLinkAsync(slot, point.Position); }
+            // Sem ferramenta: clicar num link segue o link; arrastar sobre o texto seleciona (para copiar).
+            e.Handled = true;
+            if (LinkAt(slot, point.Position) is not null) { ClearCopySelection(); await FollowLinkAsync(slot, point.Position); }
+            else StartCopySelection(surface, slot, e);
             return;
         }
         e.Handled = true;
@@ -714,7 +727,8 @@ public sealed partial class ViewerPage
         }
         if (_tool is null && sender is DrawingSurface plain)
         {
-            UpdateLinkCursor(plain, e.GetCurrentPoint(plain).Position);
+            if (_copyDragging && ReferenceEquals(plain, _copySurface)) MoveCopySelection(e.GetCurrentPoint(plain).Position);
+            else UpdateLinkCursor(plain, e.GetCurrentPoint(plain).Position);
             return;
         }
         if (_tool?.Mode == DrawMode.Stamp && sender is DrawingSurface hovered)
@@ -752,6 +766,12 @@ public sealed partial class ViewerPage
 
     private async void Surface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool is null && _copyDragging && sender is DrawingSurface copySurface && ReferenceEquals(copySurface, _copySurface))
+        {
+            e.Handled = true;
+            await FinishCopySelectionAsync(e.GetCurrentPoint(copySurface).Position);
+            return;
+        }
         if (_tool?.Mode == DrawMode.Image && sender is DrawingSurface imageSurface)
         {
             await FinishImageDragAsync(imageSurface, e);
