@@ -105,8 +105,8 @@ public class TextEditTests
 
     [Theory]
     [InlineData("Arial", "Arial")]
-    [InlineData("Helvetica", "Arial")]
-    [InlineData("Times", "Times New Roman")]
+    [InlineData("Helvetica", "Liberation Sans")] // gêmea de mesmas medidas (Etapa 5.10)
+    [InlineData("Times", "Liberation Serif")]
     [InlineData("CourierStd", "Courier New")]
     [InlineData("Fonte Que Nao Existe", "Arial")]
     public void ChooseFont_UsesInstalledOrSimilar(string original, string expected)

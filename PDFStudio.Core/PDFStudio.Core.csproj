@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -13,6 +13,11 @@
     <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="PDFsharp" Version="[6.2.4]" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Etapa 5.10: fontes "gêmeas" (Liberation, Carlito, Caladea; licença SIL OFL 1.1, textos em Fonts/OFL-*.txt). -->
+    <None Include="Fonts\**" CopyToOutputDirectory="PreserveNewest" LinkBase="Fonts" />
   </ItemGroup>
 
 </Project>

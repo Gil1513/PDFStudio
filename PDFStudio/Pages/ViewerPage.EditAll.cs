@@ -108,12 +108,12 @@ public sealed partial class ViewerPage
     }
 
     /// <summary>Clique no modo "Editar tudo": seleciona o bloco; clicar de novo num texto já selecionado abre a edição.</summary>
-    private void ClickBlock(DrawingSurface surface, PageSlot slot, Point p)
+    private async Task ClickBlockAsync(DrawingSurface surface, PageSlot slot, Point p)
     {
         var block = BlockAt(slot, p);
         if (block is { Kind: BlockKind.Text } && ReferenceEquals(block, _selectedBlock))
         {
-            OpenBlockEditor(surface, slot, block);
+            await OpenBlockEditorAsync(surface, slot, block);
             return;
         }
         _selectedBlock = block;
@@ -128,16 +128,17 @@ public sealed partial class ViewerPage
     private TextBox? _blockEditor;
     private (DrawingSurface Surface, PageSlot Slot, ContentBlock Block, string Font)? _blockEditing;
 
-    private void OpenBlockEditor(DrawingSurface surface, PageSlot slot, ContentBlock block)
+    private async Task OpenBlockEditorAsync(DrawingSurface surface, PageSlot slot, ContentBlock block)
     {
-        string font = PdfTextEditor.ChooseFont(block.FontFamily);
+        string font = await ChooseEditFontAsync(block.FontFamily);
+        if (_tool?.Mode != DrawMode.EditAll || _blockEditor is not null) return; // o usuário saiu do modo enquanto isso
         var c = block.Color;
         var editor = new TextBox
         {
             Text = block.Text,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
-            FontFamily = new FontFamily(font),
+            FontFamily = EditorFontFamily(font),
             FontSize = Math.Max(4, block.FontSize * DipsPerPoint),
             FontWeight = block.Bold ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal,
             FontStyle = block.Italic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
@@ -153,7 +154,8 @@ public sealed partial class ViewerPage
             editor.Resources[key] = new SolidColorBrush(Microsoft.UI.Colors.White);
         foreach (var key in new[] { "TextControlForegroundPointerOver", "TextControlForegroundFocused" })
             editor.Resources[key] = editor.Foreground;
-        editor.KeyDown += async (s, e) =>
+        // PreviewKeyDown: a caixa com AcceptsReturn "engole" o Enter antes do KeyDown.
+        editor.PreviewKeyDown += async (s, e) =>
         {
             if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; await FinishBlockEditorAsync(commit: false); }
             else if (e.Key == Windows.System.VirtualKey.Enter
@@ -187,7 +189,7 @@ public sealed partial class ViewerPage
         }
         int page = editing.Slot.Index;
         TextEditResult? result = null;
-        if (!await ApplyEditAsync((input, output) => result = PdfTextEditor.Replace(input, page, block, text, output))) return;
+        if (!await ApplyEditAsync((input, output) => result = PdfTextEditor.Replace(input, page, block, text, output, editing.Font))) return;
         var notes = new List<string>();
         if (result is { } r && !r.FontUsed.Equals(block.FontFamily, StringComparison.OrdinalIgnoreCase))
             notes.Add($"Original: {block.FontFamily} → usando: {r.FontUsed}.");
@@ -211,4 +213,61 @@ public sealed partial class ViewerPage
         if (first.Length > 40 || b.Lines.Count > 1) first = first[..Math.Min(40, first.Length)] + "…";
         return $"Texto · {string.Join(", ", style)} · {Plural(b.Lines.Count, "linha", "linhas")}: “{first}”";
     }
+
+    // ---------------- Etapa 5.10: fonte para editar (gêmeas e Google Fonts) ----------------
+
+    private static readonly HttpClient FontHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private readonly HashSet<string> _fontDownloadDeclined = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A fonte para editar o texto. Se o app não tem a original nem uma gêmea, pergunta se pode procurá-la no
+    /// Google Fonts (uma vez por fonte nesta sessão) e baixa só com o "sim" do usuário.
+    /// </summary>
+    private async Task<string> ChooseEditFontAsync(string original)
+    {
+        var choice = await Task.Run(() => FontLibrary.Resolve(original));
+        if (!choice.CanTryDownload || _fontDownloadDeclined.Contains(original)) return choice.Use;
+
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Fonte que não está no computador",
+            Content = new TextBlock
+            {
+                Text = $"O texto usa a fonte “{original}”, que não está neste computador.\n\n" +
+                       "O PDF Studio pode procurá-la no Google Fonts (fontes gratuitas, com licença livre) e baixá-la para " +
+                       $"{FontLibrary.DownloadedFontsFolder}. Ela não é instalada no Windows; só o PDF Studio a usa.\n\n" +
+                       $"Sem baixar, o texto será escrito com “{choice.Use}”.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Procurar e baixar",
+            CloseButtonText = $"Usar {choice.Use}",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            _fontDownloadDeclined.Add(original);
+            return choice.Use;
+        }
+        ToolHintText.Text = $"Procurando “{original}” no Google Fonts…";
+        try
+        {
+            var files = await GoogleFonts.DownloadAsync(original, FontHttp);
+            if (files.Count > 0 && await Task.Run(() => FontLibrary.Resolve(original)) is { Source: FontSource.Original } found)
+            {
+                ShowStatus(InfoBarSeverity.Success, "Fonte baixada", $"“{original}” ({Plural(files.Count, "estilo", "estilos")}) agora pode ser usada pelo PDF Studio.");
+                return found.Use;
+            }
+            ShowStatus(InfoBarSeverity.Informational, "Fonte não encontrada no Google Fonts", $"O texto será escrito com “{choice.Use}”.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or InvalidDataException)
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Não foi possível baixar a fonte", $"{ex.Message} O texto será escrito com “{choice.Use}”.");
+        }
+        _fontDownloadDeclined.Add(original); // não pergunta de novo nesta sessão
+        return choice.Use;
+    }
+
+    /// <summary>Fonte da caixa de edição: as do app (gêmeas/baixadas) são lidas do arquivo, as do Windows pelo nome.</summary>
+    private static FontFamily EditorFontFamily(string family) =>
+        FontLibrary.FileOf(family) is { } file ? new FontFamily($"{file}#{family}") : new FontFamily(family);
 }

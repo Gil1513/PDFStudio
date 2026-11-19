@@ -17,6 +17,7 @@ public static class PdfFonts
     /// <summary>Instala o localizador de fontes (uma vez só, antes de qualquer uso de fonte do PDFsharp).</summary>
     public static void Ensure()
     {
+        FontLibrary.EnsureRegistered(); // fontes gêmeas e baixadas (Etapa 5.10), só para este programa
         lock (Gate)
         {
             if (_done) return;

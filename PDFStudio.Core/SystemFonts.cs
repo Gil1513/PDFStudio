@@ -13,6 +13,7 @@ public static class SystemFonts
     {
         var names = new SortedSet<string>(StringComparer.CurrentCultureIgnoreCase);
         if (!OperatingSystem.IsWindows()) return [.. names];
+        FontLibrary.EnsureRegistered(); // as gêmeas e as baixadas entram na lista
         IntPtr dc = GetDC(IntPtr.Zero);
         try
         {

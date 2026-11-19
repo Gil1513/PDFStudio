@@ -71,33 +71,10 @@ public static class PdfTextEditor
             : font.GetHeight();
 
     /// <summary>
-    /// A fonte original se estiver instalada; senão, uma equivalente do Windows (Helvetica → Arial etc.);
-    /// por último, Arial. (Etapa 5.10 vai acrescentar as fontes "gêmeas".)
+    /// A fonte original, se o app a tem (instalada ou baixada); senão, a gêmea que vem com o app
+    /// (Calibri → Carlito…), uma parecida do Windows ou Arial. Veja <see cref="FontLibrary.Resolve"/>.
     /// </summary>
-    public static string ChooseFont(string family)
-    {
-        // Confere na lista do que está instalado: o Windows "aceita" nomes como Helvetica trocando por outra fonte,
-        // e aí o aviso "Original: X → usando: Y" ficaria errado.
-        bool Installed(string name) => InstalledFonts.Value.Contains(name) && PdfPageContent.CanUseFont(name);
-        if (family.Length > 0 && Installed(family)) return family;
-        string lower = family.ToLowerInvariant().Replace(" ", "");
-        string? similar = lower switch
-        {
-            _ when lower.StartsWith("helvetica") || lower.StartsWith("arialmt") || lower.StartsWith("liberationsans") => "Arial",
-            _ when lower.StartsWith("times") || lower.StartsWith("liberationserif") || lower.Contains("roman") => "Times New Roman",
-            _ when lower.StartsWith("courier") || lower.StartsWith("liberationmono") => "Courier New",
-            _ when lower.StartsWith("calibri") || lower.StartsWith("carlito") => "Calibri",
-            _ when lower.StartsWith("cambria") || lower.StartsWith("caladea") => "Cambria",
-            _ when lower.Contains("mono") || lower.Contains("code") => "Consolas",
-            _ when lower.Contains("serif") && !lower.Contains("sans") => "Georgia",
-            _ => null,
-        };
-        if (similar is not null && Installed(similar)) return similar;
-        return "Arial";
-    }
-
-    private static readonly Lazy<HashSet<string>> InstalledFonts =
-        new(() => new HashSet<string>(SystemFonts.Installed(), StringComparer.OrdinalIgnoreCase));
+    public static string ChooseFont(string family) => FontLibrary.Resolve(family).Use;
 
     // ---------------- Tirar os comandos de texto do bloco ----------------
 

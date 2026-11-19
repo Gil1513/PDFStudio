@@ -585,7 +585,7 @@ public sealed partial class ViewerPage
             if (_blockEditor is not null) { await FinishBlockEditorAsync(commit: true); return; } // clicar fora aplica
             await BlocksOfPage(slot.Index); // a leitura pode ter começado agora há pouco (mouse chegando)
             await ShowBlockOutlinesAsync(surface);
-            ClickBlock(surface, slot, point.Position);
+            await ClickBlockAsync(surface, slot, point.Position);
             return;
         }
         if (_tool.Mode == DrawMode.Link && LinkAt(slot, point.Position) is { } existing)
