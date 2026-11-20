@@ -22,6 +22,26 @@ public partial class App : Application
         InitializeComponent();
     }
 
+    /// <summary>Arquivo onde os erros inesperados são anotados (para descobrir o que aconteceu depois).</summary>
+    public static string ErrorLogPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDFStudio", "erros.log");
+
+    /// <summary>Anota um erro inesperado em erros.log (só no computador; o arquivo fica pequeno).</summary>
+    public static void LogError(string where, Exception ex)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ErrorLogPath)!);
+            if (File.Exists(ErrorLogPath) && new FileInfo(ErrorLogPath).Length > 512 * 1024)
+                File.Move(ErrorLogPath, ErrorLogPath + ".old", overwrite: true);
+            File.AppendAllText(ErrorLogPath, $"[{DateTime.Now:dd/MM/yyyy HH:mm:ss}] {where}: {ex}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (Exception)
+        {
+            // Não conseguir anotar o erro não pode causar outro erro.
+        }
+    }
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         // Permite "Abrir com > PDF Studio" ou PDFStudio.exe arquivo.pdf

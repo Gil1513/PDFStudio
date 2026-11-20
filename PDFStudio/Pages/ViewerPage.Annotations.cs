@@ -229,6 +229,8 @@ public sealed partial class ViewerPage
     public async Task<bool> ConfirmDiscardAsync()
     {
         if (!HasUnsavedChanges) return true;
+        // Outra janela de diálogo já aberta: não dá para perguntar agora, então não descarta nada.
+        if (DialogGuard.AnyOpen(App.MainWindow!.Content.XamlRoot)) return false;
         var dialog = new ContentDialog
         {
             XamlRoot = App.MainWindow!.Content.XamlRoot,

@@ -48,23 +48,44 @@ public sealed partial class MainWindow : Window
     }
 
     private bool _closeConfirmed;
+    private bool _closeAsking;
 
-    /// <summary>Ao fechar com alterações não salvas no visualizador, pergunta antes (Salvar / Não salvar / Cancelar).</summary>
+    /// <summary>
+    /// Ao fechar com alterações não salvas no visualizador, pergunta antes (Salvar / Não salvar / Cancelar).
+    /// O WinUI só deixa uma janela de diálogo aberta por vez: se já houver uma (impressão, propriedades, a própria
+    /// pergunta de salvar…), o fechamento é cancelado em vez de abrir outra e derrubar o app.
+    /// </summary>
     private async void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
-        var viewer = ViewerPage.Instance;
-        if (_closeConfirmed || viewer is not { HasUnsavedChanges: true })
+        if (_closeAsking) { args.Cancel = true; return; } // clicou no X de novo enquanto a pergunta está aberta
+        try
         {
-            viewer?.DiscardWork(); // apaga a cópia de trabalho temporária
-            return;
-        }
+            var viewer = ViewerPage.Instance;
+            if (_closeConfirmed || viewer is not { HasUnsavedChanges: true })
+            {
+                viewer?.DiscardWork(); // apaga a cópia de trabalho temporária
+                return;
+            }
 
-        args.Cancel = true;
-        if (ContentFrame.CurrentSourcePageType != typeof(ViewerPage)) ContentFrame.Navigate(typeof(ViewerPage));
-        if (!await viewer.ConfirmDiscardAsync()) return;
-        viewer.DiscardWork();
-        _closeConfirmed = true;
-        Close();
+            args.Cancel = true;
+            if (DialogGuard.AnyOpen(Content.XamlRoot)) return; // já há uma janela de diálogo aberta: termine-a primeiro
+            _closeAsking = true;
+            if (ContentFrame.CurrentSourcePageType != typeof(ViewerPage)) ContentFrame.Navigate(typeof(ViewerPage));
+            if (!await viewer.ConfirmDiscardAsync()) return;
+            viewer.DiscardWork();
+            _closeConfirmed = true;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            // Nunca derrubar o app ao fechar: o trabalho não salvo continua aberto.
+            args.Cancel = !_closeConfirmed;
+            App.LogError("Fechar a janela", ex);
+        }
+        finally
+        {
+            _closeAsking = false;
+        }
     }
 
     // ---------- Navegação ----------
