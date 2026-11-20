@@ -93,7 +93,7 @@ public sealed partial class ViewerPage
             {
                 ShowStatus(InfoBarSeverity.Informational, "Convertendo para imagem…", $"Página {index + 1} ({saved.Count + 1} de {pages.Count})");
                 string path = PageImages.FreePath(folder, PageImages.FileName(name, index + 1, pageCount, format));
-                await SavePageImageAsync(doc, index, dpi, format, path);
+                await PdfRenderer.SavePageImageAsync(doc, index, dpi, format, path);
                 saved.Add(path);
             }
             string first = saved[0];
@@ -112,24 +112,5 @@ public sealed partial class ViewerPage
         {
             LoadingBar.Visibility = Visibility.Collapsed;
         }
-    }
-
-    /// <summary>Desenha a página já no formato do arquivo (o motor do Windows codifica o PNG/JPG) e grava.</summary>
-    private static async Task SavePageImageAsync(PdfDocument doc, int index, int dpi, PageImageFormat format, string path)
-    {
-        using var page = doc.GetPage((uint)index);
-        var (width, height) = PageImages.PixelSize(page.Size.Width, page.Size.Height, dpi);
-        var options = new PdfPageRenderOptions
-        {
-            DestinationWidth = width,
-            DestinationHeight = height,
-            BitmapEncoderId = format == PageImageFormat.Png ? BitmapEncoder.PngEncoderId : BitmapEncoder.JpegEncoderId,
-        };
-        using var stream = new InMemoryRandomAccessStream();
-        await page.RenderToStreamAsync(stream, options);
-        stream.Seek(0);
-        using var input = stream.AsStreamForRead();
-        await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
-        await input.CopyToAsync(output);
     }
 }

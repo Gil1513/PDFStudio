@@ -166,7 +166,7 @@
                                     <FontIcon
                                         VerticalAlignment="Center"
                                         Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                        Glyph="&#xEA90;" />
+                                        Glyph="{x:Bind FileGlyph}" />
                                     <StackPanel Grid.Column="1">
                                         <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock

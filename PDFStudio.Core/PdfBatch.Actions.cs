@@ -67,6 +67,26 @@ public static partial class PdfBatch
         return template.Visible ? $"assinado (página {pageNumber})" : "assinado";
     };
 
+    // ---------------- Converter e criar (Etapa 8.3) ----------------
+
+    /// <summary>Operação "PDF para Word" (use com extension ".docx").</summary>
+    public static Func<string, string, string?> ToWord() => (input, output) =>
+    {
+        var r = PdfToWord.Convert(input, output);
+        return $"{r.Pages} {(r.Pages == 1 ? "página" : "páginas")}" + (r.Images > 0 ? $", {r.Images} {(r.Images == 1 ? "imagem" : "imagens")}" : "");
+    };
+
+    /// <summary>Operação "imagem para PDF": cada imagem vira um PDF de uma página.</summary>
+    public static Func<string, string, string?> ImageToPdf(ImagePageSize size, ImageMargin margin) => (input, output) =>
+    {
+        ImagesToPdf.Create([input], size, margin, output);
+        return null;
+    };
+
+    /// <summary>A entrada é uma imagem que dá para pôr num PDF (pela extensão)?</summary>
+    public static bool IsImage(string path) =>
+        ImagesToPdf.Extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
     // ---------------- Imprimir ----------------
 
     /// <summary>Por que o arquivo não pode ir para a impressão (null = pode).</summary>

@@ -1,3 +1,4 @@
+using PDFStudio.Core;
 using System.ComponentModel;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Data.Pdf;
@@ -67,6 +68,28 @@ public static class PdfRenderer
         return string.IsNullOrEmpty(password)
             ? await PdfDocument.LoadFromStreamAsync(stream)
             : await PdfDocument.LoadFromStreamAsync(stream, password);
+    }
+
+    /// <summary>
+    /// Etapa 7.4: desenha a página já no formato do arquivo (o motor do Windows codifica o PNG/JPG) e grava em
+    /// <paramref name="path"/> (que não pode existir). Usado pelo visualizador e pelo lote.
+    /// </summary>
+    public static async Task SavePageImageAsync(PdfDocument doc, int index, int dpi, PageImageFormat format, string path)
+    {
+        using var page = doc.GetPage((uint)index);
+        var (width, height) = PageImages.PixelSize(page.Size.Width, page.Size.Height, dpi);
+        var options = new PdfPageRenderOptions
+        {
+            DestinationWidth = width,
+            DestinationHeight = height,
+            BitmapEncoderId = format == PageImageFormat.Png ? Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId : Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId,
+        };
+        using var stream = new InMemoryRandomAccessStream();
+        await page.RenderToStreamAsync(stream, options);
+        stream.Seek(0);
+        using var input = stream.AsStreamForRead();
+        await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+        await input.CopyToAsync(output);
     }
 
     public static List<PageSlot> CreateSlots(PdfDocument doc)

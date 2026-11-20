@@ -192,6 +192,93 @@ public class BatchTests
         Assert.Equal(TestPdfs.Labels(two)[0], labels[6]);
     }
 
+    // ---------------- Etapa 8.3: converter, criar, OCR ----------------
+
+    [Fact]
+    public void ToWord_MakesADocxPerPdf_WithoutNeedingASuffix()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 2);
+
+        Assert.False(PdfBatch.NeedsSuffix([a], null, "", ".docx")); // a.docx não tem o nome do original
+        var r = Assert.Single(PdfBatch.Run([a], null, "", PdfBatch.ToWord(), extension: ".docx"));
+
+        Assert.True(r.Ok, r.Error);
+        Assert.Equal(Path.Combine(dir, "a.docx"), r.Output);
+        Assert.Equal("2 páginas", r.Detail);
+        using var zip = System.IO.Compression.ZipFile.OpenRead(r.Output!);
+        Assert.NotNull(zip.GetEntry("word/document.xml"));
+    }
+
+    [Fact]
+    public void Images_BecomeOnePdfEach()
+    {
+        string dir = TestPdfs.TempDir();
+        string png = TestImages.Png(Path.Combine(dir, "foto.png"), 300, 200);
+        Assert.True(PdfBatch.IsImage(png));
+        Assert.False(PdfBatch.IsImage(Path.Combine(dir, "x.pdf")));
+
+        var r = Assert.Single(PdfBatch.Run([png], null, "", PdfBatch.ImageToPdf(ImagePageSize.A4, ImageMargin.None)));
+
+        Assert.True(r.Ok, r.Error);
+        Assert.Equal(Path.Combine(dir, "foto.pdf"), r.Output);
+        Assert.Equal(1, PdfOperations.GetPageCount(r.Output!));
+    }
+
+    [Fact]
+    public void Skipped_WhenTheOperationWritesNothing()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 1);
+        var r = Assert.Single(PdfBatch.Run([a], Path.Combine(dir, "s"), "-x", (_, _) => "já tem texto"));
+        Assert.True(r.Ok);
+        Assert.Null(r.Output);
+        Assert.Equal("já tem texto", r.Detail);
+    }
+
+    [Fact]
+    public async Task ManyFilesPerInput_GoToTheFolder_WithoutOverwriting_AndNothingStaysOnError()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 1), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 1);
+        string outDir = Path.Combine(dir, "imagens");
+        Directory.CreateDirectory(outDir);
+        File.WriteAllText(Path.Combine(outDir, "a-pagina-01.png"), "do usuário");
+
+        var results = await PdfBatch.RunToFolderAsync([a, b], outDir, async (input, folder, _) =>
+        {
+            string name = Path.GetFileNameWithoutExtension(input);
+            await File.WriteAllTextAsync(Path.Combine(folder, $"{name}-pagina-01.png"), "1");
+            await File.WriteAllTextAsync(Path.Combine(folder, $"{name}-pagina-02.png"), "2");
+            if (name == "b") throw new IOException("disco cheio");
+            return "2 imagens";
+        });
+
+        Assert.True(results[0].Ok);
+        Assert.Equal(Path.Combine(outDir, "a-pagina-01 (2).png"), results[0].Output);
+        Assert.Equal("do usuário", File.ReadAllText(Path.Combine(outDir, "a-pagina-01.png")));
+        Assert.False(results[1].Ok);
+        Assert.Equal(["a-pagina-01 (2).png", "a-pagina-01.png", "a-pagina-02.png"],
+            Directory.GetFileSystemEntries(outDir).Select(Path.GetFileName).Order()); // nada de "b", nem pasta temporária
+    }
+
+    [Fact]
+    public async Task StopInTheMiddleOfAFile_SavesNothingOfIt()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 1);
+        using var cancel = new CancellationTokenSource();
+        var r = Assert.Single(await PdfBatch.RunAsync([a], Path.Combine(dir, "s"), "-x", (input, output, token) =>
+        {
+            File.Copy(input, output);
+            cancel.Cancel();
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult<string?>(null);
+        }, cancel: cancel.Token));
+        Assert.Contains("Parado no meio", r.Error);
+        Assert.Empty(Directory.GetFiles(Path.Combine(dir, "s")));
+    }
+
     /// <summary>IProgress que chama na hora (o Progress padrão chama depois, em outra thread).</summary>
     private sealed class SyncProgress<T>(Action<T> report) : IProgress<T>
     {

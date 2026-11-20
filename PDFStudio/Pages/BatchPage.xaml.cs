@@ -14,8 +14,13 @@ using Windows.Storage;
 namespace PDFStudio.Pages;
 
 /// <summary>Uma ação que dá para aplicar em lote (item da lista da esquerda).</summary>
-public sealed class BatchAction(string key, string glyph, string title, string description, string suffix)
+/// <paramref name="forImages"/>: a ação trabalha com imagens (PNG/JPG), não com PDFs. <paramref name="extension"/>: tipo
+/// do arquivo criado ("" = vários arquivos por entrada, ex.: uma imagem por página).
+public sealed class BatchAction(string key, string glyph, string title, string description, string suffix,
+    bool forImages = false, string extension = ".pdf")
 {
+    public bool ForImages { get; } = forImages;
+    public string Extension { get; } = extension;
     public string Key { get; } = key;
     public string Glyph { get; } = glyph;
     public string Title { get; } = title;
@@ -38,7 +43,11 @@ public sealed partial class BatchFileEntry(string path, int pageCount) : INotify
     public int PageCount { get; } = pageCount;
     public string? Output { get; set; }
     public string Name => System.IO.Path.GetFileName(Path);
-    public string Details => (PageCount < 0 ? "com senha" : $"{PageCount} {(PageCount == 1 ? "página" : "páginas")}") +
+    /// <summary>É uma imagem (para "Imagens para PDF"), não um PDF.</summary>
+    public bool IsImage => PdfBatch.IsImage(Path);
+    /// <summary>Ícone da linha: imagem ou PDF.</summary>
+    public string FileGlyph => IsImage ? "" : "";
+    public string Details => (IsImage ? "imagem" : PageCount < 0 ? "com senha" : $"{PageCount} {(PageCount == 1 ? "página" : "páginas")}") +
                              $" · {System.IO.Path.GetDirectoryName(Path)}";
     public string StatusText => _statusText;
     public string StatusGlyph => _statusGlyph;
@@ -63,7 +72,8 @@ public sealed partial class BatchFileEntry(string path, int pageCount) : INotify
 /// Etapa 8: PDFs em lote. A mesma ação em vários arquivos; os originais não mudam e nada é sobrescrito.
 /// 8.1: comprimir, marca d'água, fundo, cabeçalho/rodapé e número de página (as janelas de opções são as mesmas
 /// do visualizador, com a prévia do primeiro arquivo). 8.2: colocar/remover senha, assinar (o mesmo .pfx) e imprimir
-/// (todos juntos numa só janela de impressão).
+/// (todos juntos numa só janela de impressão). 8.3: converter para Word e para imagem, OCR e imagens para PDF (a lista
+/// aceita imagens; cada ação usa só os arquivos do tipo dela).
 /// </summary>
 public sealed partial class BatchPage : Page
 {
@@ -80,6 +90,10 @@ public sealed partial class BatchPage : Page
         new("removersenha", "", "Remover senha", "Tira a senha (a mesma em todos).", "-sem-senha"),
         new("assinar", "", "Assinar", "O mesmo certificado .pfx em todos.", "-assinado"),
         new("imprimir", "", "Imprimir", "Todos de uma vez, numa só janela de impressão.", ""),
+        new("paraword", "", "Converter para Word", "Um arquivo .docx editável por PDF.", "", extension: ".docx"),
+        new("paraimagem", "", "Converter para imagem", "Cada página vira um PNG ou JPG.", "", extension: ""),
+        new("ocr", "", "Reconhecer texto (OCR)", "Texto pesquisável nos PDFs escaneados.", "-ocr"),
+        new("imagemparapdf", "", "Imagens para PDF", "Cada imagem (PNG ou JPG) vira um PDF.", "", forImages: true),
     ];
 
     private string? _outputFolder;           // null = a mesma pasta de cada arquivo
@@ -120,6 +134,8 @@ public sealed partial class BatchPage : Page
         CompressLevelBox.Visibility = action.Key == "comprimir" ? Visibility.Visible : Visibility.Collapsed;
         SaveOptions.Visibility = action.Key == "imprimir" ? Visibility.Collapsed : Visibility.Visible; // imprimir não cria arquivos
         StartButton.Content = action.Key == "imprimir" ? "Imprimir…" : "Iniciar";
+        SuffixBox.Visibility = action.Extension.Length == 0 ? Visibility.Collapsed : Visibility.Visible; // imagens: nome por página
+        AddFilesButton.Label = action.ForImages ? "Adicionar imagens" : "Adicionar PDFs";
         if (SuffixBox.Text == _autoSuffix) SuffixBox.Text = action.Suffix; // o usuário não trocou: segue a ação
         _autoSuffix = action.Suffix;
         foreach (var f in Files) f.SetStatus("", "", "TextFillColorSecondaryBrush"); // nova ação: situação zerada
@@ -127,18 +143,25 @@ public sealed partial class BatchPage : Page
 
     // ---------------- Arquivos ----------------
 
-    private async void AddFiles_Click(object sender, RoutedEventArgs e) => await AddFilesAsync(await FilePickers.PickPdfsAsync());
+    private async void AddFiles_Click(object sender, RoutedEventArgs e) => await AddFilesAsync(SelectedAction.ForImages
+        ? await FilePickers.PickFilesAsync(ImagesToPdf.Extensions)
+        : await FilePickers.PickPdfsAsync());
 
     private async void AddFolder_Click(object sender, RoutedEventArgs e)
     {
         if (await FilePickers.PickFolderAsync() is not { } folder) return;
-        await AddFilesAsync(PdfsIn(folder));
+        await AddFilesAsync(FilesIn(folder));
     }
 
-    /// <summary>Os PDFs de uma pasta (só ela, sem as subpastas), em ordem alfabética.</summary>
-    private static IEnumerable<string> PdfsIn(string folder)
+    /// <summary>O arquivo é do tipo da ação escolhida (PDF, ou imagem para "Imagens para PDF")?</summary>
+    private bool FitsAction(string path) => SelectedAction.ForImages
+        ? PdfBatch.IsImage(path)
+        : Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Os arquivos de uma pasta (só ela, sem as subpastas) do tipo da ação escolhida, em ordem alfabética.</summary>
+    private IEnumerable<string> FilesIn(string folder)
     {
-        try { return Directory.GetFiles(folder, "*.pdf").Order(StringComparer.CurrentCultureIgnoreCase).ToList(); }
+        try { return Directory.GetFiles(folder).Where(FitsAction).Order(StringComparer.CurrentCultureIgnoreCase).ToList(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
     }
 
@@ -149,6 +172,12 @@ public sealed partial class BatchPage : Page
         foreach (var path in paths)
         {
             if (Files.Any(f => SamePath(f.Path, path))) continue; // já está na lista
+            if (PdfBatch.IsImage(path))
+            {
+                Files.Add(new BatchFileEntry(path, 0)); // imagem: vira uma página
+                added++;
+                continue;
+            }
             try
             {
                 int count = await Task.Run(() => PdfOperations.GetPageCount(path));
@@ -191,8 +220,8 @@ public sealed partial class BatchPage : Page
         var paths = new List<string>();
         foreach (var item in await e.DataView.GetStorageItemsAsync())
         {
-            if (item is StorageFolder folder) paths.AddRange(PdfsIn(folder.Path));
-            else if (item is StorageFile file && file.FileType.Equals(".pdf", StringComparison.OrdinalIgnoreCase)) paths.Add(file.Path);
+            if (item is StorageFolder folder) paths.AddRange(FilesIn(folder.Path));
+            else if (item is StorageFile file && FitsAction(file.Path)) paths.Add(file.Path);
         }
         await AddFilesAsync(paths);
     }
@@ -225,6 +254,7 @@ public sealed partial class BatchPage : Page
         if (!busy)
             SummaryText.Text = Files.Count == 0 ? "" :
                 $"{Files.Count} {(Files.Count == 1 ? "arquivo" : "arquivos")}, {Files.Sum(f => Math.Max(0, f.PageCount))} páginas no total" +
+                (Files.Count(f => f.IsImage) is > 0 and var images ? $", {images} {(images == 1 ? "imagem" : "imagens")}" : "") +
                 (Files.Any(f => f.PageCount < 0) ? " (sem contar os que têm senha)" : "");
     }
 
@@ -240,28 +270,36 @@ public sealed partial class BatchPage : Page
             await PrintAllAsync();
             return;
         }
-        string suffix = SuffixBox.Text.Trim();
-        var inputs = Files.Select(f => f.Path).ToList();
-        if (PdfBatch.NeedsSuffix(inputs, _outputFolder, suffix))
+        var action = SelectedAction;
+        var entries = Files.Where(f => f.IsImage == action.ForImages).ToList(); // cada ação usa só os arquivos do tipo dela
+        if (entries.Count == 0)
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Nenhum arquivo serve para esta ação",
+                action.ForImages ? "Adicione imagens (PNG ou JPG)." : "Adicione PDFs.");
+            return;
+        }
+        string suffix = action.Extension.Length == 0 ? "" : SuffixBox.Text.Trim();
+        var inputs = entries.Select(f => f.Path).ToList();
+        if (action.Extension.Length > 0 && PdfBatch.NeedsSuffix(inputs, _outputFolder, suffix, action.Extension))
         {
             ShowStatus(InfoBarSeverity.Warning, "Escreva algo em \"Acrescentar ao nome\"",
                 "Os arquivos novos vão para a mesma pasta dos originais e precisam de um nome diferente (ex.: \"-novo\").");
             return;
         }
 
-        var action = SelectedAction;
-        var operation = await AskOptionsAsync(action);
-        if (operation is null) return;
+        var runner = await AskRunnerAsync(action);
+        if (runner is null) return;
 
         var cancel = _cancel = new CancellationTokenSource();
-        foreach (var f in Files) { f.Output = null; f.SetStatus("Na fila", "", "TextFillColorSecondaryBrush"); }
+        foreach (var f in Files.Except(entries))
+            f.SetStatus(action.ForImages ? "Fica de fora: não é imagem" : "Fica de fora: não é PDF", "", "TextFillColorSecondaryBrush");
+        foreach (var f in entries) { f.Output = null; f.SetStatus("Na fila", "", "TextFillColorSecondaryBrush"); }
         StatusBar.IsOpen = false;
         Progress.Visibility = Visibility.Visible;
         Progress.Value = 0;
         Progress.Maximum = inputs.Count;
         UpdateState();
 
-        var entries = Files.ToList();
         var progress = new Progress<BatchProgress>(p =>
         {
             Progress.Value = p.Done;
@@ -276,7 +314,7 @@ public sealed partial class BatchPage : Page
         try
         {
             string? folder = _outputFolder;
-            results = await Task.Run(() => PdfBatch.Run(inputs, folder, suffix, operation, progress, cancel.Token));
+            results = await runner(inputs, folder, suffix, progress, cancel.Token);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -295,7 +333,8 @@ public sealed partial class BatchPage : Page
             if (i >= results.Count) { entries[i].SetStatus("Não processado", "", "TextFillColorSecondaryBrush"); continue; }
             var r = results[i];
             entries[i].Output = r.Output;
-            if (r.Ok) entries[i].SetStatus(r.Detail is { Length: > 0 } d ? $"Pronto · {d}" : "Pronto", "", "SystemFillColorSuccessBrush");
+            if (r.Ok && r.Output is null) entries[i].SetStatus($"Pulado · {r.Detail}", "", "TextFillColorSecondaryBrush");
+            else if (r.Ok) entries[i].SetStatus(r.Detail is { Length: > 0 } d ? $"Pronto · {d}" : "Pronto", "", "SystemFillColorSuccessBrush");
             else entries[i].SetStatus(r.Error!, "", "SystemFillColorCriticalBrush");
         }
         UpdateState();
@@ -304,16 +343,40 @@ public sealed partial class BatchPage : Page
 
     private void ShowResult(List<BatchItemResult> results, int total)
     {
-        int ok = results.Count(r => r.Ok), failed = results.Count - ok;
+        int ok = results.Count(r => r.Output is not null), skipped = results.Count(r => r.Ok && r.Output is null);
+        int failed = results.Count(r => !r.Ok);
         bool stopped = results.Count < total;
-        string? folder = _outputFolder ?? (results.FirstOrDefault(r => r.Ok)?.Output is { } first ? Path.GetDirectoryName(first) : null);
+        string? folder = _outputFolder ?? (results.FirstOrDefault(r => r.Output is not null)?.Output is { } first ? Path.GetDirectoryName(first) : null);
         Action? open = folder is null ? null : () => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
-        string message = $"{ok} {(ok == 1 ? "arquivo criado" : "arquivos criados")}" +
+        string made = SelectedAction.Key == "paraimagem"
+            ? $"{ok} {(ok == 1 ? "PDF convertido" : "PDFs convertidos")} em imagens"
+            : $"{ok} {(ok == 1 ? "arquivo criado" : "arquivos criados")}";
+        string message = made + (skipped > 0 ? $", {skipped} {(skipped == 1 ? "pulado" : "pulados")} (nada a fazer)" : "") +
                          (failed > 0 ? $", {failed} com erro (veja na lista)" : "") +
                          (stopped ? $", {total - results.Count} não processados" : "") + ".";
         var severity = failed > 0 || stopped ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
         ShowStatus(severity, stopped ? "Lote parado" : "Lote concluído", message, open is null ? null : "Abrir pasta", open);
     }
+
+    /// <summary>Roda a ação nos arquivos (em segundo plano) e devolve o resultado de cada um.</summary>
+    private delegate Task<List<BatchItemResult>> BatchRunner(IReadOnlyList<string> inputs, string? folder, string suffix,
+        IProgress<BatchProgress> progress, CancellationToken cancel);
+
+    /// <summary>Opções da ação e o jeito de rodar (um arquivo por entrada, ou várias imagens por PDF). null = cancelado.</summary>
+    private async Task<BatchRunner?> AskRunnerAsync(BatchAction action)
+    {
+        switch (action.Key)
+        {
+            case "paraword": return Sync(PdfBatch.ToWord(), ".docx");
+            case "imagemparapdf": return await AskImagesToPdfAsync() is { } op ? Sync(op, ".pdf") : null;
+            case "paraimagem": return await AskPageImagesAsync();
+            case "ocr": return await AskOcrAsync();
+            default: return await AskOptionsAsync(action) is { } operation ? Sync(operation, ".pdf") : null;
+        }
+    }
+
+    private static BatchRunner Sync(Func<string, string, string?> operation, string extension) =>
+        (inputs, folder, suffix, progress, cancel) => Task.Run(() => PdfBatch.Run(inputs, folder, suffix, operation, progress, cancel, extension));
 
     /// <summary>
     /// Mostra as opções da ação (as mesmas janelas do visualizador, com a prévia do primeiro arquivo) e devolve
@@ -389,6 +452,154 @@ public sealed partial class BatchPage : Page
                 return (i, o) => PagesText(PdfHeaderFooter.Add(i, options, ranges, o), "alteradas");
             }
         }
+    }
+
+    // ---------------- Converter, OCR e imagens para PDF (Etapa 8.3) ----------------
+
+    /// <summary>Erro claro para PDF com senha (o motor do Windows daria uma mensagem confusa).</summary>
+    private static void RefuseLocked(string input)
+    {
+        if (SafeInspect(input) == PasswordState.OpenPassword)
+            throw new PdfPasswordException("Tem senha para abrir: remova a senha antes.");
+    }
+
+    private async Task<Func<string, string, string?>?> AskImagesToPdfAsync()
+    {
+        // Mesma ordem dos valores de ImagePageSize e ImageMargin.
+        var size = new ComboBox { Header = "Tamanho da página", MinWidth = 200, Items = { "Tamanho da imagem", "A4", "Carta" }, SelectedIndex = 1 };
+        var margin = new ComboBox { Header = "Margem", MinWidth = 160, Items = { "Sem margem", "Pequena (1 cm)", "Grande (2 cm)" }, SelectedIndex = 0 };
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Imagens para PDF",
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Cada imagem vira um PDF de uma página, com o mesmo nome (foto.jpg → foto.pdf). Para juntar várias imagens num PDF só, use \"Imagem para PDF\" na tela inicial.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { size, margin } },
+                },
+            },
+            PrimaryButtonText = "Criar PDFs",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        return PdfBatch.ImageToPdf((ImagePageSize)size.SelectedIndex, (ImageMargin)margin.SelectedIndex);
+    }
+
+    /// <summary>PDF→imagem: formato e qualidade; todas as páginas de cada PDF, com o nome "contrato-pagina-01.png".</summary>
+    private async Task<BatchRunner?> AskPageImagesAsync()
+    {
+        var png = new RadioButton { Content = "PNG (sem perda, melhor para texto)", IsChecked = true, GroupName = "loteformato" };
+        var jpg = new RadioButton { Content = "JPG (arquivo menor, melhor para fotos)", GroupName = "loteformato" };
+        var resolution = new ComboBox { Header = "Qualidade", MinWidth = 260, Items = { "Tela (96 dpi)", "Padrão (150 dpi)", "Impressão (300 dpi)" }, SelectedIndex = 1 };
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Converter para imagem",
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Todas as páginas de cada PDF viram imagens, com nomes como \"contrato-pagina-01.png\". Nenhum arquivo existente é substituído.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    png, jpg, resolution,
+                },
+            },
+            PrimaryButtonText = "Converter",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        var format = jpg.IsChecked == true ? PageImageFormat.Jpeg : PageImageFormat.Png;
+        int dpi = PageImages.Resolutions[Math.Max(0, resolution.SelectedIndex)];
+
+        return (inputs, folder, _, progress, cancel) => Task.Run(() => PdfBatch.RunToFolderAsync(inputs, folder, async (input, temp, token) =>
+        {
+            RefuseLocked(input);
+            var doc = await PdfRenderer.LoadAsync(input);
+            int count = (int)doc.PageCount;
+            string name = Path.GetFileName(input);
+            for (int i = 0; i < count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                await PdfRenderer.SavePageImageAsync(doc, i, dpi, format, Path.Combine(temp, PageImages.FileName(name, i + 1, count, format)));
+            }
+            return $"{count} {(count == 1 ? "imagem" : "imagens")}";
+        }, progress, cancel));
+    }
+
+    /// <summary>OCR em lote: idioma e quais páginas. Cada PDF ganha uma cópia com o texto (arquivo já com texto é pulado).</summary>
+    private async Task<BatchRunner?> AskOcrAsync()
+    {
+        var languages = OcrService.Languages;
+        if (languages.Count == 0)
+        {
+            ShowStatus(InfoBarSeverity.Warning, "O Windows não tem o reconhecimento de texto instalado",
+                "Em Configurações → Hora e idioma → Idioma e região, abra as opções de Português (Brasil) e instale " +
+                "\"Reconhecimento óptico de caracteres\". Depois tente de novo.");
+            return null;
+        }
+        var language = new ComboBox { Header = "Idioma do texto", MinWidth = 260 };
+        foreach (var l in languages) language.Items.Add(l.DisplayName);
+        string? preferred = OcrService.DefaultLanguage?.LanguageTag;
+        language.SelectedIndex = Math.Max(0, languages.ToList().FindIndex(l => l.LanguageTag == preferred));
+        var onlyScanned = new RadioButton { GroupName = "loteocr", Content = "Só as páginas sem texto (recomendado)", IsChecked = true };
+        var all = new RadioButton { GroupName = "loteocr", Content = "Todas as páginas" };
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Reconhecer texto (OCR)",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "O texto das páginas escaneadas passa a poder ser pesquisado, selecionado e copiado; a aparência não muda. " +
+                               "O reconhecimento é feito no seu computador. PDFs que já têm texto em todas as páginas são pulados.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 440, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    language, onlyScanned, all,
+                },
+            },
+            PrimaryButtonText = "Reconhecer",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        string tag = languages[Math.Max(0, language.SelectedIndex)].LanguageTag;
+        bool onlyMissing = onlyScanned.IsChecked == true;
+
+        return (inputs, folder, suffix, progress, cancel) => Task.Run(() => PdfBatch.RunAsync(inputs, folder, suffix, async (input, output, token) =>
+        {
+            RefuseLocked(input);
+            var pages = onlyMissing ? PdfOcr.PagesWithoutText(input) : Enumerable.Range(0, PdfOperations.GetPageCount(input)).ToList();
+            if (pages.Count == 0) return "já tem texto em todas as páginas";
+            var engine = Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language(tag))
+                ?? throw new InvalidOperationException("O Windows não abriu o reconhecimento para esse idioma.");
+            var doc = await PdfRenderer.LoadAsync(input);
+            var found = new Dictionary<int, IReadOnlyList<OcrWord>>();
+            int words = 0;
+            foreach (int page in pages)
+            {
+                token.ThrowIfCancellationRequested();
+                var list = await OcrService.RecognizeAsync(doc, page, engine);
+                if (list.Count > 0) found[page] = list;
+                words += list.Count;
+            }
+            if (words == 0) return "nenhum texto encontrado";
+            PdfOcr.AddTextLayer(input, found, output);
+            return $"{words} palavras em {found.Count} {(found.Count == 1 ? "página" : "páginas")}";
+        }, progress, cancel));
     }
 
     // ---------------- Senha, assinatura e impressão (Etapa 8.2) ----------------
