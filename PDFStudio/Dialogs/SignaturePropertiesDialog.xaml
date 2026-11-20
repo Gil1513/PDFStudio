@@ -74,7 +74,6 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <TextBlock Style="{StaticResource LabelStyle}" Text="Assinado por:" />
                 <TextBlock
@@ -85,7 +84,7 @@
                 <TextBlock
                     Grid.Row="1"
                     Style="{StaticResource LabelStyle}"
-                    Text="Motivo:" />
+                    Text="Razão:" />
                 <TextBlock
                     x:Name="ReasonText"
                     Grid.Row="1"
@@ -103,23 +102,14 @@
                 <TextBlock
                     Grid.Row="3"
                     Style="{StaticResource LabelStyle}"
-                    Text="Local:" />
+                    Text="Localização:" />
                 <TextBlock
                     x:Name="LocationText"
                     Grid.Row="3"
                     Grid.Column="1"
                     Style="{StaticResource ValueStyle}" />
-                <TextBlock
-                    Grid.Row="4"
-                    Style="{StaticResource LabelStyle}"
-                    Text="Contato:" />
-                <TextBlock
-                    x:Name="ContactText"
-                    Grid.Row="4"
-                    Grid.Column="1"
-                    Style="{StaticResource ValueStyle}" />
                 <StackPanel
-                    Grid.Row="5"
+                    Grid.Row="4"
                     Grid.Column="1"
                     Margin="0,4,0,0"
                     Orientation="Horizontal"

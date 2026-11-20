@@ -201,7 +201,7 @@ public static class PdfSigning
         return new XRect(left, bottom, StampWidth, StampHeight);
     }
 
-    /// <summary>Desenha o carimbo visível: borda, nome do signatário, data, motivo e local.</summary>
+    /// <summary>Desenha o carimbo visível: borda, nome do signatário, data, razão e localização.</summary>
     private sealed class StampAppearance(string title, string signer, string? reason, string? location, string? contact, DateTime? when) : IAnnotationAppearanceHandler
     {
         public void DrawAppearance(XGraphics gfx, XRect rect)
@@ -227,12 +227,12 @@ public static class PdfSigning
             if (!string.IsNullOrWhiteSpace(reason))
             {
                 y += 10;
-                gfx.DrawString(Fit(gfx, $"Motivo: {reason}", bodyFont, rect.Width - 16), bodyFont, XBrushes.Black, x, y);
+                gfx.DrawString(Fit(gfx, $"Razão: {reason}", bodyFont, rect.Width - 16), bodyFont, XBrushes.Black, x, y);
             }
             if (!string.IsNullOrWhiteSpace(location))
             {
                 y += 10;
-                gfx.DrawString(Fit(gfx, $"Local: {location}", bodyFont, rect.Width - 16), bodyFont, XBrushes.Black, x, y);
+                gfx.DrawString(Fit(gfx, $"Localização: {location}", bodyFont, rect.Width - 16), bodyFont, XBrushes.Black, x, y);
             }
             if (!string.IsNullOrWhiteSpace(contact))
             {

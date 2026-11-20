@@ -7,7 +7,7 @@ namespace PDFStudio.Dialogs;
 
 /// <summary>
 /// Propriedades de uma assinatura digital do documento: se é válida, desconhecida ou inválida, quem assinou,
-/// motivo, data, local, contato, o certificado e um resumo explicando cada ponto. "Confiar neste certificado"
+/// razão, data, localização, o certificado e um resumo explicando cada ponto. "Confiar neste certificado"
 /// guarda a impressão digital nas preferências (vale só no PDF Studio deste computador).
 /// </summary>
 public sealed partial class SignaturePropertiesDialog : ContentDialog
@@ -57,12 +57,10 @@ public sealed partial class SignaturePropertiesDialog : ContentDialog
             ? $"Campo “{sig.FieldName}”, na página {page}"
             : $"Campo “{sig.FieldName}” (assinatura invisível)";
 
-        SignerText.Text = cert is { Email: { } email } ? $"{sig.Signer ?? cert.Name} <{email}>" : sig.Signer ?? cert?.Name ?? "(desconhecido)";
+        SignerText.Text = sig.Signer ?? cert?.Name ?? "(desconhecido)";
         ReasonText.Text = sig.Reason ?? "Não informado";
         DateText.Text = sig.SignedAt is { } at ? at.ToString("dd/MM/yyyy HH:mm:ss") : "Não informada";
         LocationText.Text = sig.Location ?? "Não informado";
-        ContactText.Text = sig.ContactInfo
-            ?? (cert?.Email is { } certEmail ? $"{certEmail} (e-mail do certificado)" : "Não informado");
 
         TrustButton.IsEnabled = cert is not null && !cert.IsTrustedBySystem;
         TrustButton.Content = IsTrusted(cert) ? "Deixar de confiar" : "Confiar neste certificado";

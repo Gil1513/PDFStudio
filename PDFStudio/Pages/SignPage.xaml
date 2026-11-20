@@ -141,7 +141,7 @@
                     TextChanged="StampText_Changed" />
                 <StackPanel Orientation="Horizontal" Spacing="24">
                     <CheckBox x:Name="StampDateCheck" Content="Mostrar data e hora" IsChecked="True" Click="StampOption_Click" />
-                    <CheckBox x:Name="StampDetailsCheck" Content="Mostrar motivo, local e contato" IsChecked="True" Click="StampOption_Click" />
+                    <CheckBox x:Name="StampDetailsCheck" Content="Mostrar razão e localização" IsChecked="True" Click="StampOption_Click" />
                 </StackPanel>
                 <StackPanel Spacing="4">
                     <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Prévia" />
@@ -164,10 +164,19 @@
 
             <!--  4. Detalhes  -->
             <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="4. Detalhes (opcional)" />
-                <TextBox x:Name="ReasonBox" TextChanged="StampText_Changed" Header="Motivo" PlaceholderText="Ex.: Aprovação do documento" />
-                <TextBox x:Name="LocationBox" TextChanged="StampText_Changed" Header="Local" PlaceholderText="Ex.: São Paulo, SP" />
-                <TextBox x:Name="ContactBox" TextChanged="StampText_Changed" Header="Contato" PlaceholderText="Ex.: e-mail ou telefone (aparece só no carimbo visível)" />
+                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="4. Dados da assinatura" />
+                <TextBox
+                    x:Name="SignerBox"
+                    Header="Assinado por"
+                    IsReadOnly="True"
+                    PlaceholderText="Vem do certificado (escolha e verifique o certificado acima)" />
+                <TextBox x:Name="ReasonBox" TextChanged="StampText_Changed" Header="Razão" PlaceholderText="Ex.: Aprovação do documento" />
+                <TextBox
+                    x:Name="DateBox"
+                    Header="Data"
+                    IsReadOnly="True"
+                    Text="Preenchida sozinha com a data e a hora em que você assinar" />
+                <TextBox x:Name="LocationBox" TextChanged="StampText_Changed" Header="Localização" PlaceholderText="Ex.: São Paulo, SP" />
                 <Expander
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"

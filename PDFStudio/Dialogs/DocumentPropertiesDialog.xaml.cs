@@ -124,9 +124,8 @@ public sealed partial class DocumentPropertiesDialog : ContentDialog
         var lines = new List<string>();
         if (sig.Issuer is { } issuer) lines.Add($"Emitido por: {issuer}");
         if (sig.SignedAt is { } at) lines.Add($"Data: {at:dd/MM/yyyy HH:mm:ss}");
-        if (sig.Reason is { } reason) lines.Add($"Motivo: {reason}");
-        if (sig.Location is { } location) lines.Add($"Local: {location}");
-        if (sig.ContactInfo is { } contact) lines.Add($"Contato: {contact}");
+        if (sig.Reason is { } reason) lines.Add($"Razão: {reason}");
+        if (sig.Location is { } location) lines.Add($"Localização: {location}");
         lines.Add(sig.PageNumber is { } page ? $"Campo: {sig.FieldName} (página {page})" : $"Campo: {sig.FieldName} (invisível)");
         lines.Add(status);
 

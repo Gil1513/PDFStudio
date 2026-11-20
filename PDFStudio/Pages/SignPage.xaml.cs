@@ -110,7 +110,6 @@ public sealed partial class SignPage : Page
         _cert = null;
         PfxText.Text = Path.GetFileName(path);
         PasswordInput.Password = dialog.Password;
-        if (string.IsNullOrWhiteSpace(ContactBox.Text) && dialog.Email is { } email) ContactBox.Text = email;
         UpdateState();
         if (await CheckCertificateAsync())
             CertBar.Message += "\nCertificado criado agora e já escolhido. Guarde o arquivo .pfx e a senha.";
@@ -177,7 +176,7 @@ public sealed partial class SignPage : Page
     /// <summary>Atualiza a prévia do carimbo com o mesmo texto que será desenhado no PDF.</summary>
     private void UpdatePreview()
     {
-        if (PreviewTitle is null || ContactBox is null) return; // durante InitializeComponent
+        if (PreviewTitle is null || LocationBox is null) return; // durante InitializeComponent
         PreviewTitle.Text = string.IsNullOrWhiteSpace(StampTitleBox.Text) ? PdfSigning.DefaultStampTitle : StampTitleBox.Text.Trim();
         PreviewName.Text = !string.IsNullOrWhiteSpace(StampNameBox.Text) ? StampNameBox.Text.Trim()
             : _cert?.Name ?? "(nome do certificado)";
@@ -186,15 +185,16 @@ public sealed partial class SignPage : Page
         if (StampDateCheck.IsChecked == true) lines.Add($"Data: {DateTime.Now:dd/MM/yyyy HH:mm:ss zzz}");
         if (StampDetailsCheck.IsChecked == true)
         {
-            if (NullIfEmpty(ReasonBox.Text) is { } r) lines.Add($"Motivo: {r}");
-            if (NullIfEmpty(LocationBox.Text) is { } l) lines.Add($"Local: {l}");
-            if (NullIfEmpty(ContactBox.Text) is { } c) lines.Add($"Contato: {c}");
+            if (NullIfEmpty(ReasonBox.Text) is { } r) lines.Add($"Razão: {r}");
+            if (NullIfEmpty(LocationBox.Text) is { } l) lines.Add($"Localização: {l}");
         }
         PreviewLines.Text = string.Join("\n", lines);
     }
 
     private void UpdateState()
     {
+        // "Assinado por" sempre vem do certificado (não dá para digitar outro nome).
+        SignerBox.Text = _cert?.Name ?? "";
         CheckCertButton.IsEnabled = _pfx is not null;
         SignButton.IsEnabled = _pdf is not null && _pfx is not null && !SignProgress.IsActive;
     }
@@ -229,7 +229,6 @@ public sealed partial class SignPage : Page
             FieldName = KindRadios.SelectedIndex == 1 ? SelectedField?.Name : null,
             Reason = NullIfEmpty(ReasonBox.Text),
             Location = NullIfEmpty(LocationBox.Text),
-            ContactInfo = NullIfEmpty(ContactBox.Text),
             TimestampUrl = NullIfEmpty(tsa),
             StampTitle = NullIfEmpty(StampTitleBox.Text),
             StampSignerName = NullIfEmpty(StampNameBox.Text),
