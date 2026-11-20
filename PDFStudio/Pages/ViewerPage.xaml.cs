@@ -173,6 +173,8 @@ public sealed partial class ViewerPage : Page
             _document = doc;
             _password = string.IsNullOrEmpty(password) ? null : password;
             _path = path;
+            _rememberPage = false; // até voltar à página guardada, a rolagem não deve sobrescrevê-la
+            int resumePage = App.Recent.LastPageOf(path);
             App.Recent.Add(path);
             _slots = PdfRenderer.CreateSlots(doc);
             PagesRepeater.ItemsSource = _slots;
@@ -185,9 +187,10 @@ public sealed partial class ViewerPage : Page
             SetDocumentState(true);
             UpdateEditState();
 
-            // Ajusta à largura depois que o layout estiver pronto (o ScrollViewer acabou de ficar visível).
+            // Ajusta à largura depois que o layout estiver pronto (o ScrollViewer acabou de ficar visível)
+            // e volta à página em que o arquivo estava da última vez.
             Scroller.ChangeView(0, 0, null, true);
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => FitWidth(disableAnimation: true));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, resumePage - 1));
         }
         catch (Exception ex)
         {
@@ -661,6 +664,42 @@ public sealed partial class ViewerPage : Page
     private void FitWidth_Click(object sender, RoutedEventArgs e) => FitWidth(false);
     private void FitPage_Click(object sender, RoutedEventArgs e) => FitPage();
 
+    /// <summary>
+    /// Ao abrir: ajusta à largura já na página guardada. Se a rolagem ainda não alcançou a página (o layout
+    /// das páginas ainda estava sendo montado), tenta de novo algumas vezes.
+    /// </summary>
+    private void OpenAtPage(string path, int index, int attempt = 0)
+    {
+        if (!string.Equals(_path, path, StringComparison.OrdinalIgnoreCase) || _slots.Count == 0) return;
+        if (Scroller.ViewportWidth <= 0 && attempt < 10)
+        {
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, index, attempt + 1));
+            return;
+        }
+        index = Math.Clamp(index, 0, _slots.Count - 1);
+        double widest = _slots.Max(s => s.Width) + 2 * ContentMargin + 2;
+        float zoom = Math.Clamp((float)(Scroller.ViewportWidth / widest), Scroller.MinZoomFactor, Scroller.MaxZoomFactor);
+        double target = index == 0 ? 0 : Math.Max(0, (PageTop(index) - PageSpacing) * zoom);
+        Scroller.ChangeView(null, target, zoom, true);
+        UpdateZoomDisplay(zoom);
+        SetPageBox(index + 1);
+        SyncThumbnailSelection(index);
+        if (index > 0 && Math.Abs(Scroller.VerticalOffset - target) > 4 && attempt < 10)
+        {
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, index, attempt + 1));
+            return;
+        }
+        // Terminou: depois que a tela assentar, acerta o número da página pela posição real.
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!string.Equals(_path, path, StringComparison.OrdinalIgnoreCase) || _slots.Count == 0) return;
+            _rememberPage = true;
+            int page = PageAtCenter();
+            SetPageBox(page);
+            SyncThumbnailSelection(page - 1);
+        });
+    }
+
     private void FitWidth(bool disableAnimation)
     {
         if (_slots.Count == 0 || Scroller.ViewportWidth <= 0) return;
@@ -752,22 +791,31 @@ public sealed partial class ViewerPage : Page
     private void Scroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         UpdateZoomDisplay(Scroller.ZoomFactor);
-        if (_slots.Count == 0) return;
+        // Enquanto o arquivo volta à página guardada, avisos atrasados da rolagem inicial (ainda no topo)
+        // trocariam o número da página para 1: ignora até terminar (OpenAtPage acerta o número no fim).
+        if (_slots.Count == 0 || !_rememberPage) return;
 
-        // A página atual é a que ocupa o centro da tela.
-        double center = (Scroller.VerticalOffset + Scroller.ViewportHeight / 2) / Scroller.ZoomFactor;
-        double y = ContentMargin;
-        int current = _slots.Count;
-        for (int i = 0; i < _slots.Count; i++)
-        {
-            y += _slots[i].Height + 2 + PageSpacing;
-            if (center < y) { current = i + 1; break; }
-        }
+        int current = PageAtCenter();
         if ((int)PageNumberBox.Value != current)
         {
             SetPageBox(current);
             if (!e.IsIntermediate) SyncThumbnailSelection(current - 1);
         }
+        // Guarda a página do arquivo quando a rolagem para (para abrir nela da próxima vez).
+        if (!e.IsIntermediate && _rememberPage && _path is not null) App.Recent.SetLastPage(_path, current);
+    }
+
+    /// <summary>A página atual é a que ocupa o centro da tela (começa em 1).</summary>
+    private int PageAtCenter()
+    {
+        double center = (Scroller.VerticalOffset + Scroller.ViewportHeight / 2) / Scroller.ZoomFactor;
+        double y = ContentMargin;
+        for (int i = 0; i < _slots.Count; i++)
+        {
+            y += _slots[i].Height + 2 + PageSpacing;
+            if (center < y) return i + 1;
+        }
+        return _slots.Count;
     }
 
     private void SetPageBox(int page)
@@ -791,6 +839,9 @@ public sealed partial class ViewerPage : Page
         SetPageBox(index + 1);
         if (!_updatingThumbSelection) SyncThumbnailSelection(index);
     }
+
+    /// <summary>false enquanto o arquivo está abrindo (a rolagem inicial não deve trocar a página guardada).</summary>
+    private bool _rememberPage;
 
     private int CurrentIndex => Math.Clamp((int)PageNumberBox.Value - 1, 0, Math.Max(0, _slots.Count - 1));
     private void PrevPage_Click(object sender, RoutedEventArgs e) => GoToPage(CurrentIndex - 1);

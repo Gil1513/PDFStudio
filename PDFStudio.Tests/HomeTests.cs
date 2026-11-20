@@ -26,6 +26,23 @@ public class RecentFilesTests
     }
 
     [Fact]
+    public void LastPage_IsRemembered_AndSurvivesReopen()
+    {
+        var (store, storePath, dir) = NewStore();
+        string a = Path.Combine(dir, "a.pdf");
+        Assert.Equal(1, store.LastPageOf(a)); // arquivo nunca aberto: página 1
+        store.Add(a);
+        Assert.Equal(1, store.LastPageOf(a));
+        store.SetLastPage(a, 7);
+        store.SetLastPage(a, 0); // inválida: ignorada
+        store.Add(a); // abrir de novo não perde a página
+        Assert.Equal(7, new RecentFilesStore(storePath).LastPageOf(a.ToUpperInvariant()));
+
+        store.SetLastPage(Path.Combine(dir, "nao-aberto.pdf"), 3); // fora da lista: nada acontece
+        Assert.Single(store.Entries);
+    }
+
+    [Fact]
     public void Paths_AreCaseInsensitive()
     {
         var (store, _, dir) = NewStore();

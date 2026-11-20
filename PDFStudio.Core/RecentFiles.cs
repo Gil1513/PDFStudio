@@ -8,6 +8,8 @@ public sealed class RecentFileEntry
     public required string Path { get; set; }
     public DateTime LastOpened { get; set; }
     public bool Starred { get; set; }
+    /// <summary>Última página vista (começa em 1; 0 = nunca guardada). O arquivo volta a abrir nela.</summary>
+    public int LastPage { get; set; }
 }
 
 /// <summary>Uma pasta de onde arquivos foram abertos recentemente.</summary>
@@ -71,6 +73,21 @@ public sealed class RecentFilesStore
         Save();
     }
 
+    /// <summary>
+    /// Guarda a página em que o arquivo está (para abrir nela da próxima vez). Grava só se mudou e não
+    /// avisa "Changed": a lista de recentes na tela não muda por causa disso.
+    /// </summary>
+    public void SetLastPage(string path, int page)
+    {
+        var entry = Find(System.IO.Path.GetFullPath(path));
+        if (entry is null || page < 1 || entry.LastPage == page) return;
+        entry.LastPage = page;
+        Save(notify: false);
+    }
+
+    /// <summary>A página onde o arquivo estava da última vez (1 se não houver).</summary>
+    public int LastPageOf(string path) => Math.Max(1, Find(System.IO.Path.GetFullPath(path))?.LastPage ?? 1);
+
     public void SetStarred(string path, bool starred)
     {
         var entry = Find(path);
@@ -123,7 +140,7 @@ public sealed class RecentFilesStore
         }
     }
 
-    private void Save()
+    private void Save(bool notify = true)
     {
         try
         {
@@ -136,6 +153,6 @@ public sealed class RecentFilesStore
         {
             // Não conseguir gravar a lista de recentes não deve atrapalhar o uso do app.
         }
-        Changed?.Invoke(this, EventArgs.Empty);
+        if (notify) Changed?.Invoke(this, EventArgs.Empty);
     }
 }
