@@ -111,7 +111,7 @@ public sealed partial class ViewerPage
         if (PdfAttachments.IsRisky(info.Name))
         {
             ShowStatus(InfoBarSeverity.Warning, "Este anexo não é aberto pelo PDF Studio",
-                $"\"{info.Name}\" é um programa ou script e pode prejudicar o computador. Se confiar nele, use \"Salvar anexo como\".");
+                $"\"{info.Name}\" pode ser um programa, script ou outro tipo que pode prejudicar o computador. Se confiar nele, use \"Salvar anexo como\".");
             return;
         }
         var dialog = Prepare(new ContentDialog
@@ -130,7 +130,7 @@ public sealed partial class ViewerPage
         try
         {
             // Cada abertura numa pasta própria em %TEMP%\PDFStudio\anexos (o nome do arquivo é preservado).
-            string folder = Path.Combine(Path.GetTempPath(), "PDFStudio", "anexos", Guid.NewGuid().ToString("N")[..8]);
+            string folder = Path.Combine(PdfAttachments.OpenedCopiesRoot, Guid.NewGuid().ToString("N")[..8]);
             Directory.CreateDirectory(folder);
             string target = Path.Combine(folder, info.Name);
             await Task.Run(() => PdfAttachments.SaveTo(path, info, target));

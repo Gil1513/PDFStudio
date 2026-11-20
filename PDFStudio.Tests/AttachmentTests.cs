@@ -134,5 +134,70 @@ public class AttachmentTests
     [InlineData("instalar.exe", true)]
     [InlineData("script.PS1", true)]
     [InlineData("planilha.xlsm", true)]
+    [InlineData("pagina.html", true)]
+    [InlineData("desenho.svg", true)]
+    [InlineData("pacote.zip", true)]
+    [InlineData("sem-extensao", true)]
+    [InlineData("tipo-novo.xyz123", true)]
+    [InlineData("texto.docx", false)]
     public void IsRisky_FlagsProgramsAndScripts(string name, bool risky) => Assert.Equal(risky, PdfAttachments.IsRisky(name));
+
+    [Fact]
+    public void SafeFileName_RemovesHiddenReversingCharacters_AndReservedNames()
+    {
+        // "foto" + inverter texto + "gpj.exe" aparece na tela como "fotoexe.jpg", mas é um programa.
+        string disguised = "foto" + (char)0x202E + "gpj.exe";
+        string safe = PdfAttachments.SafeFileName(disguised);
+        Assert.Equal("fotogpj.exe", safe);
+        Assert.True(PdfAttachments.IsRisky(safe));
+        Assert.Equal("_CON.txt", PdfAttachments.SafeFileName("CON.txt"));
+        Assert.Equal("perigo.txt", PdfAttachments.SafeFileName(@"..\..\Windows\perigo.txt"));
+        Assert.Equal("anexo", PdfAttachments.SafeFileName(" . "));
+        Assert.Equal("a_b.txt", PdfAttachments.SafeFileName("a:b.txt"));
+    }
+
+    [Fact]
+    public void SaveTo_MarksTheFileAsComingFromElsewhere()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string file = Path.Combine(dir, "nota.txt");
+        File.WriteAllText(file, "oi");
+        PdfAttachments.Add(input, file, "", input);
+
+        string target = Path.Combine(dir, "salvo.txt");
+        PdfAttachments.SaveTo(input, PdfAttachments.List(input)[0], target);
+        Assert.Equal("oi", File.ReadAllText(target));
+        Assert.Contains("ZoneId=3", File.ReadAllText(target + ":Zone.Identifier"));
+    }
+
+    [Fact]
+    public void Read_StopsAtTheLimit_ForAttachmentsThatGrowHugeWhenUnpacked()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 1);
+        string file = Path.Combine(dir, "zeros.txt");
+        File.WriteAllBytes(file, new byte[2 * 1024 * 1024]); // 2 MB que compactam para quase nada
+        PdfAttachments.Add(input, file, "", input);
+        var info = PdfAttachments.List(input)[0];
+
+        Assert.Equal(2 * 1024 * 1024, PdfAttachments.Read(input, info).Length);
+        var ex = Assert.Throws<InvalidOperationException>(() => PdfAttachments.Read(input, info, maxSize: 1024 * 1024));
+        Assert.Contains("grande demais", ex.Message);
+    }
+
+    [Fact]
+    public void CleanupOpenedCopies_DeletesOnlyOldFolders()
+    {
+        string root = Path.Combine(TestPdfs.TempDir(), "anexos");
+        string old = Path.Combine(root, "velha"), recent = Path.Combine(root, "nova");
+        Directory.CreateDirectory(old);
+        Directory.CreateDirectory(recent);
+        File.WriteAllText(Path.Combine(old, "a.txt"), "a");
+        Directory.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+
+        PdfAttachments.CleanupOpenedCopies(root);
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(recent));
+    }
 }

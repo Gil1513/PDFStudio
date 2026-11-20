@@ -17,15 +17,63 @@ public static class PdfAttachments
     /// <summary>Tamanho máximo de um anexo (o PDF inteiro fica na memória ao editar).</summary>
     public const long MaxSize = 200L * 1024 * 1024;
 
-    /// <summary>Extensões de programas e scripts: o app só deixa salvar, nunca abrir direto.</summary>
-    public static readonly string[] RiskyExtensions =
+    /// <summary>
+    /// Tipos que o app abre direto no programa padrão: documentos sem macro, imagens, texto, áudio e vídeo.
+    /// Todo o resto (programas, scripts, páginas da web, atalhos, compactados, tipos desconhecidos…) só pode
+    /// ser salvo. Uma lista do que é permitido não esquece nenhum tipo perigoso novo.
+    /// </summary>
+    public static readonly string[] SafeToOpenExtensions =
     [
-        ".exe", ".com", ".bat", ".cmd", ".msi", ".msix", ".appx", ".scr", ".pif", ".cpl", ".dll", ".sys",
-        ".js", ".jse", ".vbs", ".vbe", ".wsf", ".wsh", ".ps1", ".psm1", ".hta", ".lnk", ".url", ".reg",
-        ".jar", ".application", ".gadget", ".msc", ".inf", ".iso", ".img", ".vhd", ".vhdx", ".chm", ".docm", ".xlsm", ".pptm",
+        ".pdf", ".txt", ".csv", ".md",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".heic",
+        ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt", ".rtf", ".odt", ".ods", ".odp",
+        ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".mp4", ".mov", ".avi", ".mkv", ".wmv",
     ];
 
-    public static bool IsRisky(string name) => RiskyExtensions.Contains(Path.GetExtension(name).ToLowerInvariant());
+    /// <summary>true = o app não abre este anexo direto (só deixa salvar).</summary>
+    public static bool IsRisky(string name) => !SafeToOpenExtensions.Contains(Path.GetExtension(name).ToLowerInvariant());
+
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
+    /// <summary>
+    /// Nome de arquivo seguro para gravar no Windows: só o nome (sem pasta), sem caracteres proibidos, sem
+    /// caracteres invisíveis que invertem o texto (um "foto[inverte]gpj.exe" aparece como "fotoexe.jpg") e
+    /// sem nomes reservados (CON, NUL…).
+    /// </summary>
+    public static string SafeFileName(string? name)
+    {
+        name = (name ?? "").Replace('\\', '/').Split('/').Last();
+        var invalid = Path.GetInvalidFileNameChars();
+        var chars = name
+            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) is not
+                (System.Globalization.UnicodeCategory.Format or System.Globalization.UnicodeCategory.Control))
+            .Select(c => invalid.Contains(c) ? '_' : c);
+        name = new string(chars.ToArray()).Trim(' ', '.');
+        if (name.Length > 150) name = name[..(150 - Path.GetExtension(name).Length)] + Path.GetExtension(name);
+        if (name.Length == 0) return "anexo";
+        if (ReservedNames.Contains(Path.GetFileNameWithoutExtension(name))) name = "_" + name;
+        return name;
+    }
+
+    /// <summary>
+    /// Marca o arquivo como "veio de outro lugar" (como o navegador faz com downloads). Assim o Windows e o
+    /// Office avisam antes de rodar algo dele (Modo de Exibição Protegido, SmartScreen).
+    /// </summary>
+    public static void MarkAsFromElsewhere(string file)
+    {
+        try
+        {
+            File.WriteAllText(file + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Pen drive em FAT32 e afins não guardam essa marca: o arquivo é gravado mesmo assim.
+        }
+    }
 
     /// <summary>Anexos do documento (em ordem de nome) e depois os presos às páginas.</summary>
     public static List<AttachmentInfo> List(string path)
@@ -70,8 +118,8 @@ public static class PdfAttachments
             WriteTree(doc, entries);
         });
 
-    /// <summary>Bytes do anexo (já descompactados).</summary>
-    public static byte[] Read(string path, AttachmentInfo attachment)
+    /// <summary>Bytes do anexo (já descompactados), no máximo <paramref name="maxSize"/> bytes.</summary>
+    public static byte[] Read(string path, AttachmentInfo attachment, long maxSize = MaxSize)
     {
         using var doc = Open(path, PdfDocumentOpenMode.Import);
         var spec = attachment.PageIndex is null
@@ -79,12 +127,74 @@ public static class PdfAttachments
             : PageEntries(doc).ElementAtOrDefault(attachment.Number).Spec;
         if (spec is null || EmbeddedStream(spec) is not { } stream)
             throw new InvalidOperationException("O conteúdo do anexo não foi encontrado no PDF.");
-        return stream.Stream.UnfilteredValue;
+        return Unpack(stream, maxSize);
     }
 
-    /// <summary>Grava o anexo em <paramref name="destination"/>.</summary>
-    public static void SaveTo(string path, AttachmentInfo attachment, string destination) =>
+    /// <summary>
+    /// Descompacta com limite: um anexo pequeno no PDF pode virar gigabytes ao descompactar ("bomba") e
+    /// travar o computador. Passou do limite, para e avisa.
+    /// </summary>
+    private static byte[] Unpack(PdfDictionary stream, long maxSize)
+    {
+        string tooBig = $"O anexo é grande demais para abrir (máximo {Math.Max(1, maxSize / 1024 / 1024)} MB).";
+        var filter = stream.Elements["/Filter"];
+        if (filter is PdfArray { Elements.Count: 1 } single) filter = single.Elements[0];
+        byte[] raw = stream.Stream.Value;
+        if (filter is null)
+            return raw.LongLength <= maxSize ? raw : throw new InvalidOperationException(tooBig);
+        if (filter is PdfName { Value: "/FlateDecode" } && stream.Elements["/DecodeParms"] is null)
+        {
+            try
+            {
+                using var z = new ZLibStream(new MemoryStream(raw), CompressionMode.Decompress);
+                using var output = new MemoryStream();
+                var buffer = new byte[81920];
+                int read;
+                while ((read = z.Read(buffer)) > 0)
+                {
+                    if (output.Length + read > maxSize) throw new InvalidOperationException(tooBig);
+                    output.Write(buffer, 0, read);
+                }
+                return output.ToArray();
+            }
+            catch (InvalidDataException)
+            {
+                // Compactação fora do padrão: tenta pelo leitor da biblioteca, mais tolerante (abaixo).
+            }
+        }
+        // Outros filtros (raros em anexos): só confia se o arquivo compactado já for pequeno.
+        if (raw.LongLength > maxSize / 4) throw new InvalidOperationException(tooBig);
+        var value = stream.Stream.UnfilteredValue;
+        return value.LongLength <= maxSize ? value : throw new InvalidOperationException(tooBig);
+    }
+
+    /// <summary>Grava o anexo em <paramref name="destination"/>, marcado como vindo de outro lugar.</summary>
+    public static void SaveTo(string path, AttachmentInfo attachment, string destination)
+    {
         File.WriteAllBytes(destination, Read(path, attachment));
+        MarkAsFromElsewhere(destination);
+    }
+
+    /// <summary>Pasta das cópias de anexos abertos (cada abertura numa subpasta).</summary>
+    public static string OpenedCopiesRoot => Path.Combine(Path.GetTempPath(), "PDFStudio", "anexos");
+
+    /// <summary>Apaga cópias de anexos abertos há mais de um dia (as que ainda estão abertas ficam).</summary>
+    public static void CleanupOpenedCopies(string? root = null)
+    {
+        root ??= OpenedCopiesRoot;
+        if (!Directory.Exists(root)) return;
+        foreach (var dir in Directory.EnumerateDirectories(root))
+        {
+            try
+            {
+                if (Directory.GetLastWriteTimeUtc(dir) < DateTime.UtcNow.AddDays(-1)) Directory.Delete(dir, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Ainda aberto em outro programa: fica para a próxima.
+            }
+        }
+    }
 
     // ---------------- Leitura ----------------
 
@@ -135,11 +245,7 @@ public static class PdfAttachments
 
     private static AttachmentInfo Describe(PdfDictionary spec, string? key, int? page, int number)
     {
-        string name = FirstNonEmpty(spec.Elements.GetString("/UF"), spec.Elements.GetString("/F"), key, "anexo");
-        // Só o nome do arquivo (nunca uma pasta) e sem caracteres que o Windows não aceita.
-        name = name.Replace('\\', '/').Split('/').Last();
-        name = new string(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray()).Trim(' ', '.');
-        if (name.Length == 0) name = "anexo";
+        string name = SafeFileName(FirstNonEmpty(spec.Elements.GetString("/UF"), spec.Elements.GetString("/F"), key, "anexo"));
         var stream = EmbeddedStream(spec);
         var parameters = stream?.Elements.GetDictionary("/Params");
         long size = parameters?.Elements.GetInteger("/Size") ?? 0;

@@ -110,6 +110,11 @@ public partial class App : Application
         _window.Activate();
 
         // Cópias de trabalho esquecidas (app fechado à força) não ficam ocupando espaço.
-        Task.Run(() => PDFStudio.Core.WorkingCopy.CleanupStale());
+        Task.Run(() =>
+        {
+            PDFStudio.Core.WorkingCopy.CleanupStale();
+            try { PDFStudio.Core.PdfAttachments.CleanupOpenedCopies(); }
+            catch (Exception ex) { LogError("Limpar cópias de anexos", ex); }
+        });
     }
 }
