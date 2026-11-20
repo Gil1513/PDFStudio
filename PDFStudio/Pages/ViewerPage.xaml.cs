@@ -136,8 +136,44 @@ public sealed partial class ViewerPage : Page
         if (e.Parameter is ViewerRequest request)
         {
             if (!string.Equals(request.Path, _path, StringComparison.OrdinalIgnoreCase)) await OpenAsync(request.Path);
+            else await ReloadIfChangedAsync();
             if (string.Equals(request.Path, _path, StringComparison.OrdinalIgnoreCase)) await RunCommandAsync(request.Command);
         }
+        else await ReloadIfChangedAsync();
+    }
+
+    /// <summary>
+    /// Data e tamanho do arquivo aberto quando se saiu do visualizador (ex.: para Organizar páginas).
+    /// null = não havia arquivo, ou havia alterações não salvas (nesse caso não se recarrega nada).
+    /// </summary>
+    private (DateTime, long)? _stampWhenLeft;
+
+    private static (DateTime, long)? FileStamp(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? (info.LastWriteTimeUtc, info.Length) : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Outra tela (Organizar, Assinar…) pode ter gravado por cima do arquivo aberto: ao voltar, mostra a
+    /// versão nova em vez das páginas antigas guardadas na memória.
+    /// </summary>
+    private async Task ReloadIfChangedAsync()
+    {
+        var before = _stampWhenLeft;
+        _stampWhenLeft = null;
+        if (before is null || _path is not { } path || HasUnsavedChanges) return;
+        var now = FileStamp(path);
+        if (now is null || now == before) return;
+        string? password = _password;
+        await OpenAsync(path, password);
     }
 
     // =====================================================================

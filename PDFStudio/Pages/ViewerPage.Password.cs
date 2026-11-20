@@ -40,8 +40,10 @@ public sealed partial class ViewerPage
         {
             string? current = answer.Current ?? _password;
             await Task.Run(() => PdfPasswords.Protect(source, answer.Options, temp, current));
-            if (replacesOpenFile) DiscardWork(); // as alterações não salvas já estão no arquivo protegido
             await Task.Run(() => File.Copy(temp, output, overwrite: true));
+            // Só depois de gravar: as alterações não salvas já estão no arquivo protegido. (Se a gravação
+            // falhar, elas continuam abertas para tentar de novo.)
+            if (replacesOpenFile) DiscardWork();
         }
         catch (Exception ex) when (ex is PdfPasswordException or ArgumentException or IOException or UnauthorizedAccessException)
         {

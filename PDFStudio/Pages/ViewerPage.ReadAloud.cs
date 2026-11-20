@@ -141,6 +141,7 @@ public sealed partial class ViewerPage
     {
         base.OnNavigatedFrom(e);
         StopReadAloud(); // voltou para a tela inicial: a leitura não continua escondida
+        _stampWhenLeft = _path is not null && !HasUnsavedChanges ? FileStamp(_path) : null;
     }
 
     // ---------------- Barra: voz, velocidade, pausar, parar ----------------
