@@ -1,171 +1,105 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Printing;
 using PDFStudio.Core;
+using PDFStudio.Dialogs;
 using Windows.Graphics.Printing;
-using Windows.Graphics.Printing.OptionDetails;
 using WinPdf = Windows.Data.Pdf;
 
 namespace PDFStudio.Services;
 
+/// <summary>O que foi escolhido na tela de impressão.</summary>
+/// <param name="Pages">Páginas (índices de 0), na ordem.</param>
+/// <param name="DevMode">Configuração da impressora (papel, frente e verso) já com as escolhas da tela.</param>
+/// <param name="OutputFile">Impressoras que gravam arquivo (Imprimir em PDF): onde gravar.</param>
+public sealed record PrintChoice(PrinterInfo Printer, PrintDevMode DevMode, IReadOnlyList<int> Pages, int Copies, bool Collate,
+    bool Fit, bool Color, bool Comments, string? OutputFile);
+
 /// <summary>
-/// Etapa 7.3 (separado na 8.2 para servir também à impressão em lote): imprime um PDF pela janela de impressão do
-/// Windows (impressora, cópias, páginas, papel, prévia). Cada página vira uma imagem (motor de PDF do Windows)
-/// posicionada no papel. Opções nossas na janela: "Tamanho" (ajustar à página / tamanho real) e "Comentários".
+/// Imprime um PDF pela tela de impressão do próprio app (<see cref="PrintDialog"/>), sem a janela do Windows:
+/// impressora, cópias, páginas, papel, frente e verso, cor, comentários e prévia. Cada folha vai para a impressora
+/// como uma imagem da página (motor de PDF do Windows), pelas funções de impressão do Windows (GDI).
 /// Uma tarefa por impressão: crie, chame <see cref="ShowAsync"/> e espere <see cref="Ended"/>.
 /// </summary>
 public sealed class PdfPrintJob
 {
-    private const string SizeOption = "PDFStudioTamanho", CommentsOption = "PDFStudioComentarios";
-    private const int PreviewDpi = 110;
-
     private readonly string _path;
     private readonly string? _password;
     private readonly string _title;
+    private readonly int _currentPage;
     private readonly DispatcherQueue _dispatcher;
     private readonly Action<InfoBarSeverity, string, string> _status;
 
-    private PrintDocument? _printDoc;
-    private IPrintDocumentSource? _printSource;
-    private WinPdf.PdfDocument? _printPdf;          // o que vai para o papel (com ou sem comentários)
-    private WinPdf.PdfDocument? _printPdfWithComments;
+    private WinPdf.PdfDocument? _pdf, _pdfNoComments;
     private string? _noCommentsCopy;
-    private bool _fit = true, _comments = true;
-    private List<int> _pages = [];
-    private PrintPageDescription _paper;
     private bool _ended;
-
-    // A prévia só mostra imagens que já estão prontas quando a página é entregue. Por isso a primeira vez
-    // entrega a folha vazia, desenha a página e pede ao Windows para refazer a prévia, agora com a imagem guardada.
-    private readonly Dictionary<string, Microsoft.UI.Xaml.Media.Imaging.BitmapImage> _previewCache = [];
-    private bool _previewRefreshPending;
 
     /// <param name="path">PDF a imprimir.</param>
     /// <param name="password">Senha para abrir, se tiver.</param>
     /// <param name="title">Nome da tarefa na fila da impressora.</param>
     /// <param name="status">Mostra o resultado (enviado, falhou) na barra da tela que pediu.</param>
-    public PdfPrintJob(string path, string? password, string title, DispatcherQueue dispatcher, Action<InfoBarSeverity, string, string> status)
+    /// <param name="currentPage">Página que está na tela (1…), para a opção "Página atual"; 0 = sem essa opção.</param>
+    public PdfPrintJob(string path, string? password, string title, DispatcherQueue dispatcher,
+        Action<InfoBarSeverity, string, string> status, int currentPage = 0)
     {
         _path = path;
         _password = password;
         _title = title;
         _dispatcher = dispatcher;
         _status = status;
+        _currentPage = currentPage;
     }
 
     /// <summary>Terminou (impressa, cancelada ou com erro). Chamado uma vez, na thread da tela.</summary>
     public event Action? Ended;
 
-    /// <summary>Como terminou (null = a janela nem chegou a criar a tarefa, ou deu erro antes).</summary>
+    /// <summary>Como terminou (null = a tela nem chegou a abrir, ou deu erro antes).</summary>
     public PrintTaskCompletion? Completion { get; private set; }
 
-    /// <summary>Abre a janela de impressão do Windows. Erros vão para a barra de situação e terminam a tarefa.</summary>
+    public string Title => _title;
+
+    /// <summary>Abre a tela de impressão. Erros vão para a barra de situação e terminam a tarefa.</summary>
     public async Task ShowAsync()
     {
         try
         {
-            _printPdfWithComments = await PdfRenderer.LoadAsync(_path, _password);
-            _printPdf = _printPdfWithComments;
-
-            _printDoc = new PrintDocument();
-            _printSource = _printDoc.DocumentSource;
-            _printDoc.Paginate += PrintDoc_Paginate;
-            _printDoc.GetPreviewPage += PrintDoc_GetPreviewPage;
-            _printDoc.AddPages += PrintDoc_AddPages;
-
-            nint hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-            var manager = PrintManagerInterop.GetForWindow(hwnd);
-            manager.PrintTaskRequested += PrintManager_PrintTaskRequested;
-            try
+            _pdf = await PdfRenderer.LoadAsync(_path, _password);
+            var printers = await Task.Run(WindowsPrinters.List);
+            if (printers.Count == 0)
             {
-                await PrintManagerInterop.ShowPrintUIForWindowAsync(hwnd);
+                _status(InfoBarSeverity.Error, "Nenhuma impressora instalada",
+                    "Adicione uma impressora no Windows (Configurações → Bluetooth e dispositivos → Impressoras e scanners).");
+                return;
             }
-            finally
+            var dialog = new PrintDialog(this, _pdf, _currentPage, printers)
             {
-                manager.PrintTaskRequested -= PrintManager_PrintTaskRequested;
+                XamlRoot = App.MainWindow?.Content.XamlRoot,
+            };
+            await dialog.ShowAsync();
+            Completion = dialog.Outcome ?? PrintTaskCompletion.Canceled;
+            if (Completion == PrintTaskCompletion.Submitted && dialog.Sent is { } sent)
+            {
+                if (sent.OutputFile is { } file)
+                    _status(InfoBarSeverity.Success, "Arquivo gravado", $"“{Path.GetFileName(file)}” foi criado em {Path.GetDirectoryName(file)}.");
+                else
+                    _status(InfoBarSeverity.Success, "Enviado para a impressora", $"“{_title}” está na fila de “{sent.Printer.Name}”.");
             }
         }
         catch (Exception ex)
         {
+            Completion = PrintTaskCompletion.Failed;
             _status(InfoBarSeverity.Error, "Não foi possível imprimir", ex.Message);
+        }
+        finally
+        {
             End();
         }
     }
 
-    /// <summary>O Windows pede a tarefa de impressão: escolhe as opções que aparecem na janela.</summary>
-    private void PrintManager_PrintTaskRequested(PrintManager sender, PrintTaskRequestedEventArgs args)
+    /// <summary>O documento a imprimir, com ou sem os comentários (a cópia sem eles é feita uma vez só).</summary>
+    internal async Task<WinPdf.PdfDocument> DocumentAsync(bool comments)
     {
-        var source = _printSource;
-        if (source is null) return;
-        var task = args.Request.CreatePrintTask(_title, requested => requested.SetSource(source));
-        task.Options.PageRangeOptions.AllowAllPages = true;
-        task.Options.PageRangeOptions.AllowCustomSetOfPages = true;
-        task.Options.PageRangeOptions.AllowCurrentPage = false;
-
-        var details = PrintTaskOptionDetails.GetFromPrintTaskOptions(task.Options);
-        var shown = details.DisplayedOptions;
-        shown.Clear();
-        shown.Add(StandardPrintTaskOptions.Copies);
-        shown.Add(StandardPrintTaskOptions.CustomPageRanges);
-        shown.Add(StandardPrintTaskOptions.MediaSize);
-        shown.Add(StandardPrintTaskOptions.Orientation);
-        shown.Add(StandardPrintTaskOptions.ColorMode);
-        shown.Add(StandardPrintTaskOptions.Duplex);
-
-        var size = details.CreateItemListOption(SizeOption, "Tamanho");
-        size.AddItem("ajustar", "Ajustar à página");
-        size.AddItem("real", "Tamanho real");
-        size.TrySetValue("ajustar");
-        shown.Add(SizeOption);
-
-        var comments = details.CreateItemListOption(CommentsOption, "Comentários");
-        comments.AddItem("sim", "Imprimir comentários");
-        comments.AddItem("nao", "Só o documento");
-        comments.TrySetValue("sim");
-        shown.Add(CommentsOption);
-
-        details.OptionChanged += PrintOptions_Changed;
-        task.Completed += (_, e) => _dispatcher.TryEnqueue(() =>
-        {
-            Completion = e.Completion;
-            if (e.Completion == PrintTaskCompletion.Failed)
-                _status(InfoBarSeverity.Error, "A impressão falhou", "O Windows não conseguiu imprimir. Confira a impressora e tente de novo.");
-            else if (e.Completion == PrintTaskCompletion.Submitted)
-                _status(InfoBarSeverity.Success, "Enviado para a impressora", $"“{_title}” está na fila de impressão.");
-            End();
-        });
-    }
-
-    private void PrintOptions_Changed(PrintTaskOptionDetails sender, PrintTaskOptionChangedEventArgs args)
-    {
-        string id = args.OptionId?.ToString() ?? "";
-        if (id != SizeOption && id != CommentsOption) return;
-        string value = sender.Options[id].Value?.ToString() ?? "";
-        _dispatcher.TryEnqueue(async () =>
-        {
-            if (_printDoc is null) return;
-            if (id == SizeOption) _fit = value != "real";
-            else
-            {
-                _comments = value != "nao";
-                try
-                {
-                    _printPdf = _comments ? _printPdfWithComments : await NoCommentsDocumentAsync();
-                }
-                catch (Exception ex)
-                {
-                    _status(InfoBarSeverity.Error, "Não foi possível tirar os comentários", ex.Message);
-                    _printPdf = _printPdfWithComments;
-                }
-            }
-            _printDoc?.InvalidatePreview();
-        });
-    }
-
-    /// <summary>Cópia temporária sem os comentários (feita uma vez por impressão).</summary>
-    private async Task<WinPdf.PdfDocument> NoCommentsDocumentAsync()
-    {
+        if (comments || _pdf is null) return _pdf ?? await PdfRenderer.LoadAsync(_path, _password);
+        if (_pdfNoComments is not null) return _pdfNoComments;
         if (_noCommentsCopy is null)
         {
             string copy = Path.Combine(TempFolder(), $"{Guid.NewGuid():N}.pdf");
@@ -173,7 +107,81 @@ public sealed class PdfPrintJob
             await Task.Run(() => PdfAnnotations.CopyWithoutComments(source, copy));
             _noCommentsCopy = copy;
         }
-        return await PdfRenderer.LoadAsync(_noCommentsCopy, _password);
+        return _pdfNoComments = await PdfRenderer.LoadAsync(_noCommentsCopy, _password);
+    }
+
+    /// <summary>
+    /// Manda as folhas para a impressora. Cancelar no meio desiste de tudo (nada fica na fila).
+    /// <paramref name="progress"/> recebe (folhas prontas, total).
+    /// </summary>
+    internal async Task PrintAsync(PrintChoice choice, IProgress<(int Done, int Total)> progress, CancellationToken cancel)
+    {
+        var pdf = await DocumentAsync(choice.Comments);
+        var dm = choice.DevMode.Clone();
+        var sheets = PrintLayout.Sequence(choice.Pages, choice.Copies, choice.Collate, dm.Duplex != 1);
+        dm.Copies = 1; // as cópias são feitas aqui (nem todo driver faz)
+        dm.Color = choice.Color;
+        string title = _title;
+
+        await Task.Run(async () =>
+        {
+            var finalDm = WindowsPrinters.Validate(choice.Printer.Name, dm);
+            using var session = WindowsPrintSession.Start(choice.Printer.Name, finalDm, title, choice.OutputFile);
+            var sheet = session.Sheet;
+            int dpi = Math.Max(72, Math.Min(Math.Min(sheet.DpiX, sheet.DpiY), PrintLayout.Dpi(choice.Pages.Count)));
+            int lastIndex = -1;
+            byte[] pixels = [];
+            int width = 0, height = 0;
+            PrintPlacement place = default;
+            for (int i = 0; i < sheets.Count; i++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                progress.Report((i, sheets.Count));
+                if (sheets[i] is not int index)
+                {
+                    session.AddBlankSheet();
+                    continue;
+                }
+                if (index != lastIndex) // sem agrupar, a mesma página vem várias vezes seguidas: desenha uma vez só
+                {
+                    (pixels, width, height, place) = await RenderForSheetAsync(pdf, index, sheet, dpi, choice.Fit, choice.Color);
+                    lastIndex = index;
+                }
+                session.AddImageSheet(pixels, width, height, (int)Math.Round(place.X), (int)Math.Round(place.Y),
+                    Math.Max(1, (int)Math.Round(place.Width)), Math.Max(1, (int)Math.Round(place.Height)));
+            }
+            cancel.ThrowIfCancellationRequested();
+            session.Finish();
+            progress.Report((sheets.Count, sheets.Count));
+        }, cancel);
+    }
+
+    /// <summary>
+    /// A imagem da página do jeito que vai para a folha: no tamanho certo para <paramref name="dpi"/>, girada se a
+    /// página foi deitada no papel e em cinza se for preto e branco. Também serve para a prévia (com um dpi baixo).
+    /// </summary>
+    internal static async Task<(byte[] Pixels, int Width, int Height, PrintPlacement Place)> RenderForSheetAsync(
+        WinPdf.PdfDocument pdf, int index, SheetMetrics sheet, double dpi, bool fit, bool color)
+    {
+        double pageW, pageH;
+        using (var page = pdf.GetPage((uint)index))
+        {
+            pageW = page.Size.Width / 96.0; // polegadas
+            pageH = page.Size.Height / 96.0;
+        }
+        var place = PrintLayout.PlaceOnSheet(sheet, pageW, pageH, fit);
+        // Tamanho da imagem em pé (antes de girar), na resolução pedida.
+        double inchesW = (place.Rotated ? place.Height / sheet.DpiY : place.Width / sheet.DpiX);
+        double inchesH = (place.Rotated ? place.Width / sheet.DpiX : place.Height / sheet.DpiY);
+        int w = Math.Max(1, (int)Math.Round(inchesW * dpi)), h = Math.Max(1, (int)Math.Round(inchesH * dpi));
+        var pixels = await PdfRenderer.RenderPixelsAsync(pdf, index, w, h);
+        if (!color) PrintBitmap.ToGray(pixels);
+        if (place.Rotated)
+        {
+            pixels = PrintBitmap.Rotate90(pixels, w, h);
+            (w, h) = (h, w);
+        }
+        return (pixels, w, h, place);
     }
 
     /// <summary>Pasta dos arquivos temporários de impressão (%TEMP%\PDFStudio\impressao).</summary>
@@ -184,127 +192,16 @@ public sealed class PdfPrintJob
         return folder;
     }
 
-    private void PrintDoc_Paginate(object sender, PaginateEventArgs e)
-    {
-        if (_printPdf is not { } pdf) return;
-        _paper = e.PrintTaskOptions.GetPageDescription(0);
-        var ranges = e.PrintTaskOptions.CustomPageRanges.Select(r => (r.FirstPageNumber, r.LastPageNumber));
-        _pages = PrintLayout.Pages((int)pdf.PageCount, ranges);
-        ((PrintDocument)sender).SetPreviewPageCount(Math.Max(1, _pages.Count), PreviewPageCountType.Final);
-    }
-
-    private async void PrintDoc_GetPreviewPage(object sender, GetPreviewPageEventArgs e)
-    {
-        var doc = (PrintDocument)sender;
-        if (_printPdf is not { } pdf || _pages.Count == 0)
-        {
-            doc.SetPreviewPage(e.PageNumber, new Canvas { Width = 100, Height = 100 });
-            return;
-        }
-        int index = _pages[Math.Clamp(e.PageNumber - 1, 0, _pages.Count - 1)];
-        var (sheet, image, scale) = PrintSheet(pdf, index, PreviewDpi);
-        string key = $"{index}|{_fit}|{_comments}|{_paper.PageSize.Width:0}x{_paper.PageSize.Height:0}";
-        if (_previewCache.TryGetValue(key, out var ready))
-        {
-            image.Source = ready;
-            doc.SetPreviewPage(e.PageNumber, sheet);
-            return;
-        }
-        doc.SetPreviewPage(e.PageNumber, sheet);
-        try
-        {
-            _previewCache[key] = await PdfRenderer.RenderAsync(pdf, index, scale);
-        }
-        catch
-        {
-            return; // prévia sem a imagem desta página; a impressão tenta de novo
-        }
-        if (_previewRefreshPending || !ReferenceEquals(doc, _printDoc)) return;
-        _previewRefreshPending = true;
-        _dispatcher.TryEnqueue(DispatcherQueuePriority.Low, () =>
-        {
-            _previewRefreshPending = false;
-            _printDoc?.InvalidatePreview();
-        });
-    }
-
-    private async void PrintDoc_AddPages(object sender, AddPagesEventArgs e)
-    {
-        var doc = (PrintDocument)sender;
-        try
-        {
-            if (_printPdf is { } pdf)
-            {
-                int dpi = PrintLayout.Dpi(_pages.Count);
-                foreach (int index in _pages)
-                {
-                    var (sheet, image, scale) = PrintSheet(pdf, index, dpi);
-                    image.Source = await PdfRenderer.RenderAsync(pdf, index, scale);
-                    doc.AddPage(sheet);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _status(InfoBarSeverity.Error, "Não foi possível preparar as páginas", ex.Message);
-        }
-        doc.AddPagesComplete();
-    }
-
-    /// <summary>
-    /// Uma folha do tamanho do papel com a imagem da página no lugar certo. Devolve também a escala para
-    /// renderizar a página na resolução <paramref name="dpi"/>.
-    /// </summary>
-    private (Canvas Sheet, Image Image, double Scale) PrintSheet(WinPdf.PdfDocument pdf, int index, int dpi)
-    {
-        using var page = pdf.GetPage((uint)index);
-        double pageW = page.Size.Width, pageH = page.Size.Height; // DIPs (1/96 pol.)
-        var paper = _paper;
-        var area = paper.ImageableRect;
-        if (area.Width <= 0 || area.Height <= 0) area = new Windows.Foundation.Rect(0, 0, paper.PageSize.Width, paper.PageSize.Height);
-        var place = PrintLayout.Place(pageW, pageH, area.X, area.Y, area.Width, area.Height, _fit);
-
-        // A imagem tem o "em pé" da página; se a página foi girada no papel, a imagem gira 90° no centro do lugar.
-        double imageW = place.Rotated ? place.Height : place.Width, imageH = place.Rotated ? place.Width : place.Height;
-        var image = new Image { Width = imageW, Height = imageH, Stretch = Stretch.Fill };
-        Canvas.SetLeft(image, place.X + (place.Width - imageW) / 2);
-        Canvas.SetTop(image, place.Y + (place.Height - imageH) / 2);
-        if (place.Rotated)
-        {
-            image.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
-            image.RenderTransform = new RotateTransform { Angle = 90 };
-        }
-        var sheet = new Canvas
-        {
-            Width = paper.PageSize.Width,
-            Height = paper.PageSize.Height,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.White),
-            Clip = new RectangleGeometry { Rect = new Windows.Foundation.Rect(0, 0, paper.PageSize.Width, paper.PageSize.Height) },
-        };
-        sheet.Children.Add(image);
-        double scale = imageW / pageW * dpi / 96.0;
-        return (sheet, image, scale);
-    }
-
     private void End()
     {
         if (_ended) return;
         _ended = true;
-        if (_printDoc is not null)
-        {
-            _printDoc.Paginate -= PrintDoc_Paginate;
-            _printDoc.GetPreviewPage -= PrintDoc_GetPreviewPage;
-            _printDoc.AddPages -= PrintDoc_AddPages;
-        }
-        _printDoc = null;
-        _printSource = null;
-        _previewCache.Clear();
-        _printPdf = _printPdfWithComments = null;
+        _pdf = _pdfNoComments = null;
         if (_noCommentsCopy is not null)
         {
             try { File.Delete(_noCommentsCopy); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             _noCommentsCopy = null;
         }
-        Ended?.Invoke();
+        Ended?.Invoke(); // ShowAsync roda na thread da tela
     }
 }

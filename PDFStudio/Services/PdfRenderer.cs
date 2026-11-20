@@ -122,6 +122,34 @@ public static class PdfRenderer
         return ratios;
     }
 
+    /// <summary>
+    /// Desenha a página exatamente em <paramref name="width"/> × <paramref name="height"/> pixels, sobre papel branco,
+    /// e devolve os pixels (BGRA, de cima para baixo). Usado pela impressão e pela prévia dela.
+    /// </summary>
+    public static async Task<byte[]> RenderPixelsAsync(PdfDocument doc, int index, int width, int height)
+    {
+        using var page = doc.GetPage((uint)index);
+        var options = new PdfPageRenderOptions
+        {
+            DestinationWidth = (uint)Math.Max(1, width),
+            DestinationHeight = (uint)Math.Max(1, height),
+            BackgroundColor = Windows.UI.Color.FromArgb(255, 255, 255, 255),
+        };
+        using var stream = new InMemoryRandomAccessStream();
+        await page.RenderToStreamAsync(stream, options);
+        var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+        var transform = new Windows.Graphics.Imaging.BitmapTransform();
+        if (decoder.PixelWidth != options.DestinationWidth || decoder.PixelHeight != options.DestinationHeight)
+        {
+            transform.ScaledWidth = options.DestinationWidth;
+            transform.ScaledHeight = options.DestinationHeight;
+        }
+        var pixels = await decoder.GetPixelDataAsync(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+            Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied, transform,
+            Windows.Graphics.Imaging.ExifOrientationMode.IgnoreExifOrientation, Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage);
+        return pixels.DetachPixelData();
+    }
+
     public static List<PageSlot> CreateSlots(PdfDocument doc)
     {
         var slots = new List<PageSlot>((int)doc.PageCount);

@@ -46,6 +46,8 @@ public sealed class AppSettings
     /// <summary>Etapa 8.4 — o último prefixo da numeração Bates e o último modelo de "Renomear".</summary>
     public string? BatesPrefix { get; set; }
     public string? RenameTemplate { get; set; }
+    /// <summary>Tela de impressão própria: a última impressora usada (volta escolhida na próxima vez).</summary>
+    public string? LastPrinter { get; set; }
 
     public static AppSettings Load()
     {

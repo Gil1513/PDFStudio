@@ -91,7 +91,7 @@ public sealed partial class BatchPage : Page
         new("colocarsenha", "", "Colocar senha", "A mesma senha em todos os arquivos.", "-protegido"),
         new("removersenha", "", "Remover senha", "Tira a senha (a mesma em todos).", "-sem-senha"),
         new("assinar", "", "Assinar", "O mesmo certificado .pfx em todos.", "-assinado"),
-        new("imprimir", "", "Imprimir", "Todos de uma vez, numa só janela de impressão.", ""),
+        new("imprimir", "", "Imprimir", "Todos de uma vez, numa só impressão.", ""),
         new("paraword", "", "Converter para Word", "Um arquivo .docx editável por PDF.", "", extension: ".docx"),
         new("paraimagem", "", "Converter para imagem", "Cada página vira um PNG ou JPG.", "", extension: ""),
         new("ocr", "", "Reconhecer texto (OCR)", "Texto pesquisável nos PDFs escaneados.", "-ocr"),
@@ -1025,11 +1025,6 @@ public sealed partial class BatchPage : Page
     /// </summary>
     private async Task PrintAllAsync()
     {
-        if (!Windows.Graphics.Printing.PrintManager.IsSupported())
-        {
-            ShowStatus(InfoBarSeverity.Error, "Impressão indisponível", "Este Windows não oferece a janela de impressão para o app.");
-            return;
-        }
         var newSheet = new CheckBox { Content = "Cada arquivo começa numa folha nova (para imprimir frente e verso)", IsChecked = true };
         var ask = Prepare(new ContentDialog
         {
@@ -1041,7 +1036,7 @@ public sealed partial class BatchPage : Page
                 {
                     new TextBlock
                     {
-                        Text = "Os arquivos vão juntos, na ordem da lista, para uma só janela de impressão. Lá você escolhe a impressora, as cópias, o papel e frente e verso.",
+                        Text = "Os arquivos vão juntos, na ordem da lista, para uma só impressão. Na tela seguinte você escolhe a impressora, as cópias, o papel e frente e verso.",
                         TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
                     },
                     newSheet,

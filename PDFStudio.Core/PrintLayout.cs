@@ -26,8 +26,8 @@ public static class PrintLayout
     }
 
     /// <summary>
-    /// Resolução da imagem de cada página (pontos por polegada): menor em documentos grandes, porque a janela de
-    /// impressão do Windows guarda todas as páginas na memória até terminar.
+    /// Resolução da imagem de cada página (pontos por polegada): menor em documentos grandes, para a fila da
+    /// impressora não ficar enorme (cada folha vai como uma imagem).
     /// </summary>
     public static int Dpi(int pages) => pages <= 30 ? 200 : pages <= 100 ? 150 : 110;
 
@@ -49,4 +49,75 @@ public static class PrintLayout
         }
         return result;
     }
+
+    /// <summary>Só as páginas de número ímpar (1, 3, 5…) ou par, mantendo a ordem. Índices começam em 0.</summary>
+    public static List<int> Parity(IEnumerable<int> pages, PageParity parity) => parity switch
+    {
+        PageParity.Odd => pages.Where(p => p % 2 == 0).ToList(),
+        PageParity.Even => pages.Where(p => p % 2 == 1).ToList(),
+        _ => pages.ToList(),
+    };
+
+    /// <summary>
+    /// A ordem das folhas a imprimir (índices das páginas; null = lado em branco). As cópias são feitas por nós,
+    /// não pela impressora (nem todo driver faz cópias).
+    /// <paramref name="collate"/> (agrupar): 1,2,3, 1,2,3… Sem agrupar: 1,1, 2,2, 3,3…
+    /// <paramref name="duplex"/>: cada cópia agrupada começa numa folha nova (lado em branco depois de um número
+    /// ímpar de páginas); sem agrupar, cada folha (frente e verso) é repetida, e não cada página.
+    /// </summary>
+    public static List<int?> Sequence(IReadOnlyList<int> pages, int copies, bool collate, bool duplex)
+    {
+        var result = new List<int?>();
+        if (pages.Count == 0 || copies < 1) return result;
+        if (collate || copies == 1)
+        {
+            for (int c = 0; c < copies; c++)
+            {
+                result.AddRange(pages.Select(p => (int?)p));
+                if (duplex && pages.Count % 2 == 1 && c < copies - 1) result.Add(null);
+            }
+            return result;
+        }
+        if (!duplex)
+        {
+            foreach (int p in pages)
+                for (int c = 0; c < copies; c++) result.Add(p);
+            return result;
+        }
+        for (int i = 0; i < pages.Count; i += 2)
+        {
+            bool last = i + 2 >= pages.Count;
+            for (int c = 0; c < copies; c++)
+            {
+                result.Add(pages[i]);
+                if (i + 1 < pages.Count) result.Add(pages[i + 1]);
+                else if (!(last && c == copies - 1)) result.Add(null); // o verso fica em branco
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Onde a página fica na folha da impressora, em pixels da impressora, contados a partir do canto da área
+    /// imprimível (o zero do desenho). <paramref name="fit"/>: ajusta à área imprimível; senão, tamanho real
+    /// centralizado no papel inteiro (pode cortar nas margens que a impressora não alcança).
+    /// </summary>
+    public static PrintPlacement PlaceOnSheet(SheetMetrics sheet, double pageWidthInches, double pageHeightInches, bool fit)
+    {
+        double dx = sheet.DpiX, dy = sheet.DpiY;
+        var p = fit
+            ? Place(pageWidthInches, pageHeightInches, 0, 0, sheet.PrintableWidth / dx, sheet.PrintableHeight / dy, true)
+            : Place(pageWidthInches, pageHeightInches, -sheet.OffsetX / dx, -sheet.OffsetY / dy,
+                sheet.PhysicalWidth / dx, sheet.PhysicalHeight / dy, false);
+        return new PrintPlacement(p.X * dx, p.Y * dy, p.Width * dx, p.Height * dy, p.Rotated);
+    }
 }
+
+public enum PageParity { All, Odd, Even }
+
+/// <summary>
+/// Medidas da folha numa impressora (pixels da impressora): resolução, papel inteiro, onde começa a área
+/// imprimível (margem que a impressora não alcança) e o tamanho dessa área.
+/// </summary>
+public readonly record struct SheetMetrics(int DpiX, int DpiY, int PhysicalWidth, int PhysicalHeight,
+    int OffsetX, int OffsetY, int PrintableWidth, int PrintableHeight);
