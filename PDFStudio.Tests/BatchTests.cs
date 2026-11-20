@@ -104,6 +104,94 @@ public class BatchTests
         Assert.Equal([Path.Combine(dir, "um", "a-marca.pdf"), Path.Combine(dir, "dois", "b-marca.pdf")], results.Select(r => r.Output));
     }
 
+    // ---------------- Etapa 8.2: senha, assinar, imprimir ----------------
+
+    [Fact]
+    public void Password_IsPut_AndRemoved_InEveryFile()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 1), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 2);
+        string locked = Path.Combine(dir, "protegidos"), opened = Path.Combine(dir, "abertos");
+
+        var put = PdfBatch.Run([a, b], locked, "", PdfBatch.Protect(new PasswordOptions("lote123"), null));
+        Assert.All(put, r => Assert.True(r.Ok, r.Error));
+        Assert.All(put, r => Assert.Equal(PasswordState.OpenPassword, PdfPasswords.Inspect(r.Output!)));
+        Assert.Equal(PasswordState.None, PdfPasswords.Inspect(a)); // original sem senha
+
+        string plain = TestPdfs.Create(Path.Combine(dir, "sem.pdf"), 1);
+        var removed = PdfBatch.Run([.. put.Select(r => r.Output!), plain], opened, "", PdfBatch.RemovePassword("lote123"));
+        Assert.All(removed, r => Assert.True(r.Ok, r.Error));
+        Assert.All(removed, r => Assert.Equal(PasswordState.None, PdfPasswords.Inspect(r.Output!)));
+        Assert.Equal(["senha removida", "senha removida", "já estava sem senha (cópia)"], removed.Select(r => r.Detail));
+        Assert.Equal(TestPdfs.Labels(b), TestPdfs.Labels(removed[1].Output!));
+    }
+
+    [Fact]
+    public void Password_WrongOrMissing_IsReportedPerFile()
+    {
+        string dir = TestPdfs.TempDir();
+        string other = Path.Combine(dir, "outra.pdf");
+        PdfPasswords.Protect(TestPdfs.Create(Path.Combine(dir, "x.pdf"), 1), new PasswordOptions("outra"), other);
+        string good = Path.Combine(dir, "certa.pdf");
+        PdfPasswords.Protect(TestPdfs.Create(Path.Combine(dir, "y.pdf"), 1), new PasswordOptions("certa"), good);
+
+        var removed = PdfBatch.Run([other, good], Path.Combine(dir, "s1"), "", PdfBatch.RemovePassword("certa"));
+        Assert.Equal([false, true], removed.Select(r => r.Ok));
+        Assert.Equal("Senha incorreta.", removed[0].Error);
+
+        // Trocar a senha de um arquivo que já tem uma: sem a senha atual, erro explicado.
+        var put = PdfBatch.Run([good], Path.Combine(dir, "s2"), "", PdfBatch.Protect(new PasswordOptions("nova"), null));
+        Assert.Contains("senha", Assert.Single(put).Error);
+        var swapped = PdfBatch.Run([good], Path.Combine(dir, "s3"), "", PdfBatch.Protect(new PasswordOptions("nova"), "certa"));
+        Assert.Equal("proteção trocada", Assert.Single(swapped).Detail);
+    }
+
+    [Fact]
+    public void Sign_EveryFile_OnTheFirstOrLastPage_SkippingSignedOnes()
+    {
+        string dir = TestPdfs.TempDir();
+        string pfx = SigningTests.CreatePfx(dir);
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 1), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 3);
+        var template = new SignatureRequest { InputPath = "", OutputPath = "", PfxPath = pfx, PfxPassword = "senha123", Visible = true, Reason = "Lote" };
+
+        var results = PdfBatch.Run([a, b], Path.Combine(dir, "assinados"), "-assinado", PdfBatch.Sign(template, BatchSignaturePage.Last));
+
+        Assert.All(results, r => Assert.True(r.Ok, r.Error));
+        Assert.Equal(["assinado (página 1)", "assinado (página 3)"], results.Select(r => r.Detail));
+        Assert.All(results, r => SigningTests.VerifySignature(r.Output!));
+        Assert.False(PdfSigning.HasSignatures(a)); // original sem assinatura
+
+        // Assinar de novo o que já está assinado: recusado (estragaria a assinatura).
+        var again = Assert.Single(PdfBatch.Run([results[0].Output!], Path.Combine(dir, "de-novo"), "", PdfBatch.Sign(template, BatchSignaturePage.First)));
+        Assert.Contains("Já tem assinatura", again.Error);
+    }
+
+    [Fact]
+    public void Print_ChecksEachFile_AndMergesWithBlankPagesForDuplex()
+    {
+        string dir = TestPdfs.TempDir();
+        string one = TestPdfs.Create(Path.Combine(dir, "um.pdf"), 1), three = TestPdfs.Create(Path.Combine(dir, "tres.pdf"), 3);
+        string two = TestPdfs.Create(Path.Combine(dir, "dois.pdf"), 2);
+        string locked = Path.Combine(dir, "senha.pdf");
+        PdfPasswords.Protect(TestPdfs.Create(Path.Combine(dir, "x.pdf"), 1), new PasswordOptions("abc"), locked);
+        string noPrint = Path.Combine(dir, "sem-imprimir.pdf");
+        PdfPasswords.Protect(TestPdfs.Create(Path.Combine(dir, "y.pdf"), 1), new PasswordOptions("", "dono", AllowPrint: false), noPrint);
+
+        Assert.Null(PdfBatch.CannotPrint(one));
+        Assert.Contains("senha para abrir", PdfBatch.CannotPrint(locked));
+        Assert.Contains("não permite imprimir", PdfBatch.CannotPrint(noPrint));
+        Assert.Equal("O arquivo não existe mais.", PdfBatch.CannotPrint(Path.Combine(dir, "sumiu.pdf")));
+
+        string merged = Path.Combine(dir, "junto.pdf"), padded = Path.Combine(dir, "folhas.pdf");
+        Assert.Equal(6, PdfBatch.MergeForPrint([one, three, two], merged, eachOnNewSheet: false));
+        // um (1) + branca, tres (3) + branca, dois (2): cada arquivo começa numa folha nova.
+        Assert.Equal(8, PdfBatch.MergeForPrint([one, three, two], padded, eachOnNewSheet: true));
+        var labels = TestPdfs.Labels(padded);
+        Assert.Equal(TestPdfs.Labels(one)[0], labels[0]);
+        Assert.Equal(TestPdfs.Labels(three)[0], labels[2]);
+        Assert.Equal(TestPdfs.Labels(two)[0], labels[6]);
+    }
+
     /// <summary>IProgress que chama na hora (o Progress padrão chama depois, em outra thread).</summary>
     private sealed class SyncProgress<T>(Action<T> report) : IProgress<T>
     {

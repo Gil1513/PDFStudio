@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PDFStudio.Core;
+using PDFStudio.Dialogs;
 using PDFStudio.Services;
 
 namespace PDFStudio.Pages;
@@ -71,105 +72,15 @@ public sealed partial class ViewerPage
     /// <summary>Diálogo: senha para abrir, restrições opcionais e (se o PDF já for protegido) a senha atual.</summary>
     private async Task<ProtectionAnswer?> AskProtectionAsync(PasswordState state)
     {
-        PasswordBox Box(string header) => new() { Header = header, Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
-        var open = Box("Senha para abrir");
-        var confirm = Box("Repita a senha");
-        var limit = new CheckBox { Content = "Também limitar o que pode ser feito sem a senha de permissões" };
-        var print = new CheckBox { Content = "Imprimir", IsChecked = true };
-        var copy = new CheckBox { Content = "Copiar texto e imagens", IsChecked = true };
-        var edit = new CheckBox { Content = "Editar e organizar páginas", IsChecked = false };
-        var comment = new CheckBox { Content = "Comentar e preencher formulários", IsChecked = true };
-        var owner = Box("Senha de permissões (diferente da de abrir)");
-        var limits = new StackPanel
-        {
-            Spacing = 4,
-            Margin = new Thickness(28, 0, 0, 0),
-            Visibility = Visibility.Collapsed,
-            Children =
-            {
-                new TextBlock { Text = "Sem a senha de permissões, quem abrir o PDF pode:", Opacity = 0.8 },
-                print, copy, edit, comment, owner,
-                new TextBlock
-                {
-                    Text = "Os leitores de PDF respeitam essas restrições, mas elas não são uma proteção total. A senha para abrir é a proteção de verdade.",
-                    TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
-                },
-            },
-        };
-        limit.Checked += (_, _) => limits.Visibility = Visibility.Visible;
-        limit.Unchecked += (_, _) => limits.Visibility = Visibility.Collapsed;
-
-        var current = Box(state == PasswordState.Restricted ? "Senha de permissões atual" : "Senha atual (de permissões, se houver)");
         bool askCurrent = state == PasswordState.Restricted || (state == PasswordState.OpenPassword && _password is null);
-        current.Visibility = askCurrent ? Visibility.Visible : Visibility.Collapsed;
-
-        var where = new RadioButtons
-        {
-            Header = "Onde gravar",
-            SelectedIndex = 0,
-            Items =
-            {
-                new RadioButton { Content = "Proteger este arquivo (substitui o original)" },
-                new RadioButton { Content = "Salvar uma cópia protegida…" },
-            },
-        };
-        var error = new TextBlock
-        {
-            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
-            TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
-            Visibility = Visibility.Collapsed,
-        };
-        var panel = new StackPanel
-        {
-            Spacing = 10,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = state == PasswordState.None
-                        ? "O PDF será gravado com criptografia AES de 128 bits."
-                        : "Este PDF já tem proteção; ela será trocada pela nova. O PDF será gravado com criptografia AES de 128 bits.",
-                    TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
-                },
-                current, open, confirm, limit, limits, where, error,
-            },
-        };
-        var dialog = Prepare(new ContentDialog
-        {
-            Title = "Colocar senha",
-            Content = new ScrollViewer { Content = panel },
-            PrimaryButtonText = "Proteger",
-            CloseButtonText = "Cancelar",
-            DefaultButton = ContentDialogButton.Primary,
-        });
-
-        PasswordOptions? options = null;
-        dialog.PrimaryButtonClick += (_, args) =>
-        {
-            bool restrict = limit.IsChecked == true;
-            string? problem = (open.Password, confirm.Password, owner.Password) switch
-            {
-                ("", _, _) when !restrict => "Digite a senha para abrir (ou marque a opção de limitar).",
-                var (o, c, _) when o != c => "As duas senhas para abrir não são iguais.",
-                (_, _, "") when restrict => "Digite a senha de permissões.",
-                var (o, _, w) when restrict && o == w => "A senha de permissões precisa ser diferente da senha para abrir.",
-                _ when restrict && print.IsChecked == true && copy.IsChecked == true && edit.IsChecked == true && comment.IsChecked == true
-                    => "Desmarque pelo menos uma permissão (ou desmarque a opção de limitar).",
-                _ => null,
-            };
-            if (problem is not null)
-            {
-                error.Text = problem;
-                error.Visibility = Visibility.Visible;
-                args.Cancel = true;
-                return;
-            }
-            options = restrict
-                ? new PasswordOptions(open.Password, owner.Password, print.IsChecked == true, copy.IsChecked == true, edit.IsChecked == true, comment.IsChecked == true)
-                : new PasswordOptions(open.Password);
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || options is null) return null;
-        return new ProtectionAnswer(options, askCurrent && current.Password.Length > 0 ? current.Password : null, where.SelectedIndex == 1);
+        var dialog = Prepare(new ProtectDialog(
+            state == PasswordState.None
+                ? "O PDF será gravado com criptografia AES de 128 bits."
+                : "Este PDF já tem proteção; ela será trocada pela nova. O PDF será gravado com criptografia AES de 128 bits.",
+            askCurrent ? (state == PasswordState.Restricted ? "Senha de permissões atual" : "Senha atual (de permissões, se houver)") : null,
+            showWhere: true));
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || dialog.Options is not { } options) return null;
+        return new ProtectionAnswer(options, dialog.CurrentPassword, dialog.SaveCopy);
     }
 
     // ---------------- Remover senha ----------------

@@ -23,6 +23,9 @@ public sealed class BatchAction(string key, string glyph, string title, string d
     public string Suffix { get; } = suffix;
 }
 
+/// <summary>Abrir a tela de lote com um arquivo na lista e uma ação já escolhida (ex.: "Impressão em lote").</summary>
+public sealed record BatchRequest(string? Path, string Action);
+
 /// <summary>Um arquivo do lote, com a situação dele (esperando, processando, pronto, erro).</summary>
 public sealed partial class BatchFileEntry(string path, int pageCount) : INotifyPropertyChanged
 {
@@ -31,10 +34,12 @@ public sealed partial class BatchFileEntry(string path, int pageCount) : INotify
     private Brush? _statusBrush;
 
     public string Path { get; } = path;
+    /// <summary>Número de páginas; -1 = não dá para saber (o arquivo tem senha para abrir).</summary>
     public int PageCount { get; } = pageCount;
     public string? Output { get; set; }
     public string Name => System.IO.Path.GetFileName(Path);
-    public string Details => $"{PageCount} {(PageCount == 1 ? "página" : "páginas")} · {System.IO.Path.GetDirectoryName(Path)}";
+    public string Details => (PageCount < 0 ? "com senha" : $"{PageCount} {(PageCount == 1 ? "página" : "páginas")}") +
+                             $" · {System.IO.Path.GetDirectoryName(Path)}";
     public string StatusText => _statusText;
     public string StatusGlyph => _statusGlyph;
     public Brush? StatusBrush => _statusBrush;
@@ -57,7 +62,8 @@ public sealed partial class BatchFileEntry(string path, int pageCount) : INotify
 /// <summary>
 /// Etapa 8: PDFs em lote. A mesma ação em vários arquivos; os originais não mudam e nada é sobrescrito.
 /// 8.1: comprimir, marca d'água, fundo, cabeçalho/rodapé e número de página (as janelas de opções são as mesmas
-/// do visualizador, com a prévia do primeiro arquivo).
+/// do visualizador, com a prévia do primeiro arquivo). 8.2: colocar/remover senha, assinar (o mesmo .pfx) e imprimir
+/// (todos juntos numa só janela de impressão).
 /// </summary>
 public sealed partial class BatchPage : Page
 {
@@ -70,6 +76,10 @@ public sealed partial class BatchPage : Page
         new("fundo", "", "Fundo", "Cor ou imagem atrás das páginas.", "-fundo"),
         new("cabecalho", "", "Cabeçalho e rodapé", "Texto no alto e no pé das páginas.", "-cabecalho"),
         new("numeropagina", "", "Número de página", "\"Página 1 de 10\" no rodapé.", "-numerado"),
+        new("colocarsenha", "", "Colocar senha", "A mesma senha em todos os arquivos.", "-protegido"),
+        new("removersenha", "", "Remover senha", "Tira a senha (a mesma em todos).", "-sem-senha"),
+        new("assinar", "", "Assinar", "O mesmo certificado .pfx em todos.", "-assinado"),
+        new("imprimir", "", "Imprimir", "Todos de uma vez, numa só janela de impressão.", ""),
     ];
 
     private string? _outputFolder;           // null = a mesma pasta de cada arquivo
@@ -89,8 +99,11 @@ public sealed partial class BatchPage : Page
     {
         base.OnNavigatedTo(e);
         App.MainWindow!.SetSubtitle("PDFs em lote");
-        // Vindo do visualizador: o arquivo aberto já entra na lista.
-        if (e.Parameter is string path && File.Exists(path) && Files.All(f => !SamePath(f.Path, path))) await AddFilesAsync([path]);
+        // Vindo do visualizador: o arquivo aberto já entra na lista (e, se pedido, a ação já fica escolhida).
+        string? path = e.Parameter switch { string p => p, BatchRequest r => r.Path, _ => null };
+        if (e.Parameter is BatchRequest { Action: var key } && Actions.FirstOrDefault(a => a.Key == key) is { } action)
+            ActionList.SelectedItem = action;
+        if (path is not null && File.Exists(path) && Files.All(f => !SamePath(f.Path, path))) await AddFilesAsync([path]);
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -105,6 +118,8 @@ public sealed partial class BatchPage : Page
     {
         var action = SelectedAction;
         CompressLevelBox.Visibility = action.Key == "comprimir" ? Visibility.Visible : Visibility.Collapsed;
+        SaveOptions.Visibility = action.Key == "imprimir" ? Visibility.Collapsed : Visibility.Visible; // imprimir não cria arquivos
+        StartButton.Content = action.Key == "imprimir" ? "Imprimir…" : "Iniciar";
         if (SuffixBox.Text == _autoSuffix) SuffixBox.Text = action.Suffix; // o usuário não trocou: segue a ação
         _autoSuffix = action.Suffix;
         foreach (var f in Files) f.SetStatus("", "", "TextFillColorSecondaryBrush"); // nova ação: situação zerada
@@ -142,13 +157,25 @@ public sealed partial class BatchPage : Page
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                failed.Add($"{Path.GetFileName(path)}: {ex.Message}");
+                // Com senha para abrir não dá para contar as páginas, mas o arquivo entra (ex.: para "Remover senha").
+                if (await Task.Run(() => SafeInspect(path)) == PasswordState.OpenPassword)
+                {
+                    Files.Add(new BatchFileEntry(path, -1));
+                    added++;
+                }
+                else failed.Add($"{Path.GetFileName(path)}: {ex.Message}");
             }
         }
         if (failed.Count > 0)
             ShowStatus(InfoBarSeverity.Warning, "Alguns arquivos não foram adicionados", string.Join("\n", failed.Take(8)));
         else if (added == 0 && paths.Any())
             ShowStatus(InfoBarSeverity.Informational, "Nada novo para adicionar", "Esses arquivos já estão na lista.");
+    }
+
+    private static PasswordState? SafeInspect(string path)
+    {
+        try { return PdfPasswords.Inspect(path); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
     }
 
     private void Files_DragOver(object sender, DragEventArgs e)
@@ -188,16 +215,17 @@ public sealed partial class BatchPage : Page
 
     private void UpdateState()
     {
-        bool busy = _cancel is not null;
+        bool busy = _cancel is not null || _printing;
         EmptyState.Visibility = Files.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RemoveButton.IsEnabled = !busy && FilesList.SelectedItems.Count > 0;
         ClearButton.IsEnabled = !busy && Files.Count > 0;
         AddFilesButton.IsEnabled = AddFolderButton.IsEnabled = ActionList.IsEnabled = !busy;
         StartButton.IsEnabled = !busy && Files.Count > 0;
-        StopButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        StopButton.Visibility = _cancel is not null ? Visibility.Visible : Visibility.Collapsed;
         if (!busy)
             SummaryText.Text = Files.Count == 0 ? "" :
-                $"{Files.Count} {(Files.Count == 1 ? "arquivo" : "arquivos")}, {Files.Sum(f => f.PageCount)} páginas no total";
+                $"{Files.Count} {(Files.Count == 1 ? "arquivo" : "arquivos")}, {Files.Sum(f => Math.Max(0, f.PageCount))} páginas no total" +
+                (Files.Any(f => f.PageCount < 0) ? " (sem contar os que têm senha)" : "");
     }
 
     // ---------------- Executar ----------------
@@ -206,7 +234,12 @@ public sealed partial class BatchPage : Page
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
-        if (Files.Count == 0 || _cancel is not null) return;
+        if (Files.Count == 0 || _cancel is not null || _printing) return;
+        if (SelectedAction.Key == "imprimir")
+        {
+            await PrintAllAsync();
+            return;
+        }
         string suffix = SuffixBox.Text.Trim();
         var inputs = Files.Select(f => f.Path).ToList();
         if (PdfBatch.NeedsSuffix(inputs, _outputFolder, suffix))
@@ -299,9 +332,25 @@ public sealed partial class BatchPage : Page
             };
         }
 
-        var first = Files[0];
+        switch (action.Key)
+        {
+            case "colocarsenha":
+            {
+                var d = Prepare(new ProtectDialog(
+                    "Todos os arquivos serão gravados com esta senha (criptografia AES de 128 bits). Guarde a senha: sem ela não é possível recuperar os arquivos.",
+                    "Senha atual (só para arquivos que já têm proteção)", showWhere: false));
+                if (await d.ShowAsync() != ContentDialogResult.Primary || d.Options is not { } options) return null;
+                return PdfBatch.Protect(options, d.CurrentPassword);
+            }
+            case "removersenha":
+                return await AskRemovalPasswordAsync() is { } password ? PdfBatch.RemovePassword(password) : null;
+            case "assinar":
+                return await AskSignatureAsync() is { } sign ? PdfBatch.Sign(sign.Request, sign.Page) : null;
+        }
+
+        var first = Files.FirstOrDefault(f => f.PageCount >= 0) ?? Files[0]; // prévia: o primeiro que abre sem senha
         var (preview, widthPt, heightPt) = await PreviewAsync(first.Path, transparent: action.Key == "fundo");
-        int pages = Files.Max(f => f.PageCount);
+        int pages = Math.Max(1, Files.Max(f => f.PageCount));
 
         switch (action.Key)
         {
@@ -338,6 +387,252 @@ public sealed partial class BatchPage : Page
                 App.Settings.HeaderFooterFont = options.FontFamily;
                 App.Settings.Save();
                 return (i, o) => PagesText(PdfHeaderFooter.Add(i, options, ranges, o), "alteradas");
+            }
+        }
+    }
+
+    // ---------------- Senha, assinatura e impressão (Etapa 8.2) ----------------
+
+    private async Task<string?> AskRemovalPasswordAsync()
+    {
+        var box = new PasswordBox { Header = "Senha", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Remover senha",
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Digite a senha dos arquivos. Se tiverem também uma senha de permissões, use essa. Ela é tentada em todos; os arquivos com outra senha aparecem com erro na lista.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    box,
+                },
+            },
+            PrimaryButtonText = "Remover",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        dialog.PrimaryButtonClick += (_, args) => args.Cancel = box.Password.Length == 0;
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Password : null;
+    }
+
+    private sealed record SignChoice(SignatureRequest Request, BatchSignaturePage Page);
+
+    /// <summary>Certificado (.pfx e senha, conferidos antes de começar), visível ou não, página, canto, motivo e local.</summary>
+    private async Task<SignChoice?> AskSignatureAsync()
+    {
+        string? pfx = App.Settings.LastPfxPath is { } last && File.Exists(last) ? last : null;
+        var pfxText = new TextBlock { Text = pfx is null ? "Nenhum certificado escolhido" : Path.GetFileName(pfx), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 260 };
+        var pick = new Button { Content = "Escolher .pfx…" };
+        var password = new PasswordBox { Header = "Senha do certificado", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        var kind = new RadioButtons
+        {
+            Header = "Tipo",
+            SelectedIndex = 1,
+            Items = { new RadioButton { Content = "Invisível (só nos dados do PDF)" }, new RadioButton { Content = "Visível (carimbo na página)" } },
+        };
+        var page = new ComboBox { Header = "Página", Items = { "Primeira de cada arquivo", "Última de cada arquivo" }, SelectedIndex = 1, MinWidth = 220 };
+        var corner = new ComboBox { Header = "Canto", Items = { "Inferior direito", "Inferior esquerdo", "Superior direito", "Superior esquerdo" }, SelectedIndex = 0, MinWidth = 180 };
+        var place = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { page, corner } };
+        kind.SelectionChanged += (_, _) => place.Visibility = kind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        var reason = new TextBox { Header = "Motivo (opcional)", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        var location = new TextBox { Header = "Local (opcional)", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        var error = new TextBlock
+        {
+            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+            TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed,
+        };
+        pick.Click += async (_, _) =>
+        {
+            if (await FilePickers.PickFileAsync(".pfx", ".p12") is not { } chosen) return;
+            pfx = chosen;
+            pfxText.Text = Path.GetFileName(chosen);
+            error.Visibility = Visibility.Collapsed;
+        };
+        var panel = new StackPanel
+        {
+            Spacing = 10,
+            Children =
+            {
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { pick, pfxText } },
+                password, kind, place, reason, location,
+                new TextBlock
+                {
+                    Text = "Arquivos que já têm assinatura são pulados: gravá-los de novo invalidaria a assinatura anterior.",
+                    TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                },
+                error,
+            },
+        };
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Assinar em lote",
+            Content = new ScrollViewer { Content = panel },
+            PrimaryButtonText = "Assinar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+
+        CertificateSummary? cert = null;
+        dialog.PrimaryButtonClick += async (_, args) =>
+        {
+            if (pfx is null)
+            {
+                error.Text = "Escolha o arquivo do certificado (.pfx).";
+                error.Visibility = Visibility.Visible;
+                args.Cancel = true;
+                return;
+            }
+            var deferral = args.GetDeferral();
+            string file = pfx, pass = password.Password;
+            try
+            {
+                cert = await Task.Run(() => PdfSigning.InspectCertificate(file, pass));
+                string? problem = !cert.HasPrivateKey ? "Este certificado não contém a chave privada e não pode ser usado para assinar."
+                    : !cert.IsValidNow ? $"O certificado está fora do prazo de validade ({cert.NotBefore:dd/MM/yyyy} a {cert.NotAfter:dd/MM/yyyy})."
+                    : null;
+                if (problem is not null)
+                {
+                    error.Text = problem;
+                    error.Visibility = Visibility.Visible;
+                    args.Cancel = true;
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                error.Text = ex.Message;
+                error.Visibility = Visibility.Visible;
+                args.Cancel = true;
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || cert is null || pfx is null) return null;
+
+        App.Settings.LastPfxPath = pfx;
+        App.Settings.Save();
+        var request = new SignatureRequest
+        {
+            InputPath = "",
+            OutputPath = "",
+            PfxPath = pfx,
+            PfxPassword = password.Password,
+            Visible = kind.SelectedIndex == 1,
+            Position = (SignaturePosition)corner.SelectedIndex,
+            Reason = string.IsNullOrWhiteSpace(reason.Text) ? null : reason.Text.Trim(),
+            Location = string.IsNullOrWhiteSpace(location.Text) ? null : location.Text.Trim(),
+        };
+        return new SignChoice(request, page.SelectedIndex == 0 ? BatchSignaturePage.First : BatchSignaturePage.Last);
+    }
+
+    private bool _printing;
+
+    /// <summary>
+    /// Imprimir em lote: confere cada arquivo (senha, permissão de imprimir), junta os que podem num PDF temporário e
+    /// abre uma única janela de impressão do Windows (impressora, cópias, frente e verso valem para todos).
+    /// </summary>
+    private async Task PrintAllAsync()
+    {
+        if (!Windows.Graphics.Printing.PrintManager.IsSupported())
+        {
+            ShowStatus(InfoBarSeverity.Error, "Impressão indisponível", "Este Windows não oferece a janela de impressão para o app.");
+            return;
+        }
+        var newSheet = new CheckBox { Content = "Cada arquivo começa numa folha nova (para imprimir frente e verso)", IsChecked = true };
+        var ask = Prepare(new ContentDialog
+        {
+            Title = $"Imprimir {Files.Count} {(Files.Count == 1 ? "arquivo" : "arquivos")}",
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Os arquivos vão juntos, na ordem da lista, para uma só janela de impressão. Lá você escolhe a impressora, as cópias, o papel e frente e verso.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    newSheet,
+                    new TextBlock
+                    {
+                        Text = "Com essa opção, um arquivo com número ímpar de páginas ganha uma página em branco no fim (só na impressão).",
+                        TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                },
+            },
+            PrimaryButtonText = "Continuar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await ask.ShowAsync() != ContentDialogResult.Primary) return;
+
+        _printing = true;
+        UpdateState();
+        StatusBar.IsOpen = false;
+        string? merged = null;
+        bool started = false; // a janela de impressão abriu: o fim dela libera a tela e apaga o temporário
+        try
+        {
+            var entries = Files.ToList();
+            var ok = new List<string>();
+            foreach (var f in entries)
+            {
+                string? problem = await Task.Run(() => PdfBatch.CannotPrint(f.Path));
+                if (problem is null)
+                {
+                    ok.Add(f.Path);
+                    f.SetStatus("Na impressão", "", "AccentTextFillColorPrimaryBrush");
+                }
+                else f.SetStatus(problem, "", "SystemFillColorCriticalBrush");
+            }
+            if (ok.Count == 0)
+            {
+                ShowStatus(InfoBarSeverity.Warning, "Nada para imprimir", "Nenhum dos arquivos pode ser impresso (veja o motivo na lista).");
+                return;
+            }
+
+            merged = Path.Combine(PdfPrintJob.TempFolder(), $"lote-{Guid.NewGuid():N}.pdf");
+            bool pad = newSheet.IsChecked == true;
+            string target = merged;
+            int pages = await Task.Run(() => PdfBatch.MergeForPrint(ok, target, pad));
+            SummaryText.Text = $"{ok.Count} {(ok.Count == 1 ? "arquivo" : "arquivos")}, {pages} páginas na impressão";
+
+            int skipped = entries.Count - ok.Count;
+            var job = new PdfPrintJob(merged, null, $"PDFs em lote ({ok.Count} {(ok.Count == 1 ? "arquivo" : "arquivos")})", DispatcherQueue, (severity, title, message) =>
+                ShowStatus(severity, title, skipped > 0 && severity == InfoBarSeverity.Success
+                    ? $"{message} {skipped} {(skipped == 1 ? "arquivo ficou" : "arquivos ficaram")} de fora (veja na lista)." : message));
+            string temp = merged;
+            started = true;
+            var included = entries.Where(f => ok.Contains(f.Path)).ToList();
+            job.Ended += () =>
+            {
+                bool sent = job.Completion == Windows.Graphics.Printing.PrintTaskCompletion.Submitted;
+                foreach (var f in included)
+                    if (sent) f.SetStatus("Enviado para a impressora", "", "SystemFillColorSuccessBrush");
+                    else f.SetStatus("", "", "TextFillColorSecondaryBrush"); // cancelado: nada foi impresso
+                _printing = false;
+                UpdateState();
+                try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            };
+            await job.ShowAsync();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Não foi possível preparar a impressão", ex.Message);
+        }
+        finally
+        {
+            if (!started)
+            {
+                _printing = false;
+                UpdateState();
+                if (merged is not null) try { File.Delete(merged); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
         }
     }

@@ -14,7 +14,7 @@ public readonly record struct BatchProgress(int Done, int Total, string CurrentF
 /// arquivos. Regras de segurança: os originais nunca são alterados, nenhum arquivo existente é sobrescrito
 /// (o nome ganha " (2)", " (3)"…) e um arquivo com problema não interrompe os outros.
 /// </summary>
-public static class PdfBatch
+public static partial class PdfBatch
 {
     /// <summary>
     /// Executa <paramref name="operation"/> (entrada, saída) em cada arquivo. A saída vai para

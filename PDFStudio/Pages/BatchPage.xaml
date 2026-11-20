@@ -32,11 +32,17 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!--  Ações  -->
-            <StackPanel Spacing="8">
+            <!--  Ações (a lista rola quando a janela é baixa)  -->
+            <Grid RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
                 <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Ação" />
                 <ListView
                     x:Name="ActionList"
+                    Grid.Row="1"
                     AutomationProperties.Name="Ação"
                     ItemsSource="{x:Bind Actions}"
                     SelectionChanged="ActionList_SelectionChanged"
@@ -69,6 +75,7 @@
                 </ListView>
                 <ComboBox
                     x:Name="CompressLevelBox"
+                    Grid.Row="2"
                     Margin="0,4,0,0"
                     HorizontalAlignment="Stretch"
                     Header="Nível de compressão"
@@ -77,7 +84,7 @@
                     <x:String>Médio (recomendado)</x:String>
                     <x:String>Forte (arquivo bem menor)</x:String>
                 </ComboBox>
-            </StackPanel>
+            </Grid>
 
             <!--  Arquivos  -->
             <Grid Grid.Column="1" RowSpacing="8">
@@ -190,7 +197,10 @@
                 </Grid>
 
                 <!--  Onde salvar  -->
-                <Grid Grid.Row="2" ColumnSpacing="12">
+                <Grid
+                    x:Name="SaveOptions"
+                    Grid.Row="2"
+                    ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />

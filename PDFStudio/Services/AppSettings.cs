@@ -41,6 +41,8 @@ public sealed class AppSettings
     public bool PageTextItalic { get; set; }
     public string WatermarkFont { get; set; } = "Arial";
     public string HeaderFooterFont { get; set; } = "Arial";
+    /// <summary>Etapa 8.2 — assinar em lote: o último certificado .pfx usado (só o caminho; a senha nunca é guardada).</summary>
+    public string? LastPfxPath { get; set; }
 
     public static AppSettings Load()
     {

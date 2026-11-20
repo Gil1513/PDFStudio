@@ -94,7 +94,7 @@ public sealed partial class ViewerPage : Page
         [
             new("\uE8E9", "OCR", "ocr", NeedsFile: true), new("\uE73F", "Comprimir", "comprimir", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar", "combinar"), new("\uE8C6", "Dividir", "dividir"), Sep,
-            new("\uE8B9", "PDFs em lote", "lote"),new("\uE749", "Impressão em lote"), new("\uE767", "Ler em voz alta", "lervoz", NeedsFile: true),
+            new("\uE8B9", "PDFs em lote", "lote"),new("\uE749", "Impressão em lote", "loteimprimir"), new("\uE767", "Ler em voz alta", "lervoz", NeedsFile: true),
         ],
         ["formulario"] =
         [
@@ -388,6 +388,7 @@ public sealed partial class ViewerPage : Page
             case "fundo": await BackgroundAsync(); break;
             // Ferramentas que trabalham com o arquivo aberto recebem o caminho dele.
             case "organizar" or "assinar" or "lote": App.MainWindow!.OpenTool(key, _path); break;
+            case "loteimprimir": App.MainWindow!.OpenTool("lote", new BatchRequest(_path, "imprimir")); break;
             default: App.MainWindow!.OpenTool(key); break;
         }
     }
