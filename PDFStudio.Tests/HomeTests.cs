@@ -43,6 +43,23 @@ public class RecentFilesTests
     }
 
     [Fact]
+    public void RemoveMissing_InBackground_WhileReadingAndAdding_DoesNotThrow()
+    {
+        // "Remover ausentes" roda em segundo plano enquanto a tela lê e o usuário abre arquivos.
+        var (store, storePath, dir) = NewStore();
+        for (int i = 0; i < 200; i++) store.Add(Path.Combine(dir, $"f{i}.pdf"), new DateTime(2026, 1, 1).AddMinutes(i));
+        var background = Task.Run(() => { for (int i = 0; i < 20; i++) store.RemoveMissing(); });
+        for (int i = 0; i < 300; i++)
+        {
+            _ = store.Entries.Count;
+            _ = store.Folders.Count;
+            store.Add(Path.Combine(dir, $"novo{i}.pdf"));
+        }
+        background.Wait();
+        Assert.NotNull(new RecentFilesStore(storePath).Entries); // o arquivo gravado continua legível
+    }
+
+    [Fact]
     public void Paths_AreCaseInsensitive()
     {
         var (store, _, dir) = NewStore();

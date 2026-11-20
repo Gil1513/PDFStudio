@@ -53,28 +53,55 @@ public sealed class AppSettings
     /// <summary>Propriedades da assinatura: certificados em que a pessoa confia (impressão digital SHA-256).</summary>
     public List<string> TrustedCertificates { get; set; } = [];
 
+    private static readonly object SaveLock = new();
+
     public static AppSettings Load()
     {
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+                return (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings()).Normalized();
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Arquivo inválido: usa o padrão.
+            // Arquivo estragado: guarda uma cópia (.bad) para não perder tudo sem aviso e começa com o padrão.
+            try { File.Copy(FilePath, FilePath + ".bad", overwrite: true); } catch (Exception) { }
         }
         return new AppSettings();
+    }
+
+    /// <summary>Corrige valores vazios ou inválidos vindos de um settings.json antigo ou editado à mão.</summary>
+    private AppSettings Normalized()
+    {
+        TrustedCertificates = (TrustedCertificates ?? [])
+            .Where(t => t is { Length: 64 } && t.All(Uri.IsHexDigit))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        CommentAuthor ??= Environment.UserName;
+        CommentColor ??= "#E53935";
+        HighlightColor ??= "#FDD835";
+        StampCustomText ??= "";
+        PageTextFont ??= "Arial";
+        PageTextColor ??= "#212121";
+        WatermarkFont ??= "Arial";
+        HeaderFooterFont ??= "Arial";
+        return this;
     }
 
     public void Save()
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            lock (SaveLock)
+            {
+                // Grava num arquivo temporário e só depois troca: se o PC desligar no meio, o settings.json antigo fica inteiro.
+                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                string temp = FilePath + ".tmp";
+                File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(temp, FilePath, overwrite: true);
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // Não conseguir salvar preferências não deve travar o app.
         }

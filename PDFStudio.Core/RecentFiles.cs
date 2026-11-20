@@ -30,6 +30,8 @@ public sealed class RecentFilesStore
 
     private readonly string _storePath;
     private readonly List<RecentFileEntry> _entries;
+    /// <summary>Protege a lista: "Remover ausentes" roda em segundo plano enquanto a tela lê a lista.</summary>
+    private readonly object _lock = new();
 
     public event EventHandler? Changed;
 
@@ -44,32 +46,48 @@ public sealed class RecentFilesStore
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDFStudio", "recent.json");
 
     /// <summary>Arquivos, do aberto mais recentemente para o mais antigo.</summary>
-    public IReadOnlyList<RecentFileEntry> Entries => _entries.OrderByDescending(e => e.LastOpened).ToList();
+    public IReadOnlyList<RecentFileEntry> Entries
+    {
+        get { lock (_lock) return _entries.OrderByDescending(e => e.LastOpened).ToList(); }
+    }
 
     public IReadOnlyList<RecentFileEntry> Starred => Entries.Where(e => e.Starred).ToList();
 
     /// <summary>Pastas dos arquivos recentes, da mais recente para a mais antiga.</summary>
-    public IReadOnlyList<RecentFolder> Folders => _entries
-        .GroupBy(e => System.IO.Path.GetDirectoryName(e.Path) ?? "", PathComparer)
-        .Where(g => g.Key.Length > 0)
-        .Select(g => new RecentFolder(g.Key, g.Max(e => e.LastOpened), g.Count()))
-        .OrderByDescending(f => f.LastOpened)
-        .ToList();
+    public IReadOnlyList<RecentFolder> Folders
+    {
+        get
+        {
+            lock (_lock)
+                return _entries
+                    .GroupBy(e => System.IO.Path.GetDirectoryName(e.Path) ?? "", PathComparer)
+                    .Where(g => g.Key.Length > 0)
+                    .Select(g => new RecentFolder(g.Key, g.Max(e => e.LastOpened), g.Count()))
+                    .OrderByDescending(f => f.LastOpened)
+                    .ToList();
+        }
+    }
 
-    public RecentFileEntry? Find(string path) => _entries.FirstOrDefault(e => PathComparer.Equals(e.Path, path));
+    public RecentFileEntry? Find(string path)
+    {
+        lock (_lock) return _entries.FirstOrDefault(e => PathComparer.Equals(e.Path, path));
+    }
 
     /// <summary>Registra que o arquivo foi aberto agora (mantém a estrela se já existia).</summary>
     public void Add(string path, DateTime? when = null)
     {
         path = System.IO.Path.GetFullPath(path);
-        var entry = Find(path);
-        if (entry is null)
+        lock (_lock)
         {
-            entry = new RecentFileEntry { Path = path };
-            _entries.Add(entry);
+            var entry = Find(path);
+            if (entry is null)
+            {
+                entry = new RecentFileEntry { Path = path };
+                _entries.Add(entry);
+            }
+            entry.LastOpened = when ?? DateTime.Now;
+            Trim();
         }
-        entry.LastOpened = when ?? DateTime.Now;
-        Trim();
         Save();
     }
 
@@ -79,9 +97,12 @@ public sealed class RecentFilesStore
     /// </summary>
     public void SetLastPage(string path, int page)
     {
-        var entry = Find(System.IO.Path.GetFullPath(path));
-        if (entry is null || page < 1 || entry.LastPage == page) return;
-        entry.LastPage = page;
+        lock (_lock)
+        {
+            var entry = Find(System.IO.Path.GetFullPath(path));
+            if (entry is null || page < 1 || entry.LastPage == page) return;
+            entry.LastPage = page;
+        }
         Save(notify: false);
     }
 
@@ -90,21 +111,31 @@ public sealed class RecentFilesStore
 
     public void SetStarred(string path, bool starred)
     {
-        var entry = Find(path);
-        if (entry is null || entry.Starred == starred) return;
-        entry.Starred = starred;
+        lock (_lock)
+        {
+            var entry = Find(path);
+            if (entry is null || entry.Starred == starred) return;
+            entry.Starred = starred;
+        }
         Save();
     }
 
     public void Remove(string path)
     {
-        if (_entries.RemoveAll(e => PathComparer.Equals(e.Path, path)) > 0) Save();
+        int removed;
+        lock (_lock) removed = _entries.RemoveAll(e => PathComparer.Equals(e.Path, path));
+        if (removed > 0) Save();
     }
 
     /// <summary>Remove os arquivos que não existem mais no disco. Retorna quantos saíram.</summary>
     public int RemoveMissing()
     {
-        int removed = _entries.RemoveAll(e => !File.Exists(e.Path));
+        // Confere o disco fora da trava (pode ser lento em pastas de rede) e só depois tira da lista.
+        string[] paths;
+        lock (_lock) paths = _entries.Select(e => e.Path).ToArray();
+        var missing = new HashSet<string>(paths.Where(p => !File.Exists(p)), PathComparer);
+        int removed;
+        lock (_lock) removed = _entries.RemoveAll(e => missing.Contains(e.Path));
         if (removed > 0) Save();
         return removed;
     }
@@ -112,7 +143,8 @@ public sealed class RecentFilesStore
     /// <summary>Limpa a lista. Com <paramref name="keepStarred"/>, os arquivos com estrela ficam.</summary>
     public void Clear(bool keepStarred = true)
     {
-        int removed = _entries.RemoveAll(e => !keepStarred || !e.Starred);
+        int removed;
+        lock (_lock) removed = _entries.RemoveAll(e => !keepStarred || !e.Starred);
         if (removed > 0) Save();
     }
 
@@ -144,10 +176,13 @@ public sealed class RecentFilesStore
     {
         try
         {
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_storePath)!);
-            string temp = _storePath + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(_entries, JsonOptions));
-            File.Move(temp, _storePath, overwrite: true);
+            lock (_lock)
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_storePath)!);
+                string temp = _storePath + ".tmp";
+                File.WriteAllText(temp, JsonSerializer.Serialize(_entries, JsonOptions));
+                File.Move(temp, _storePath, overwrite: true);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
