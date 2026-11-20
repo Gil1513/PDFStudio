@@ -53,6 +53,11 @@
                 <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="2. Certificado" />
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button Click="PickPfx_Click" Content="Escolher certificado .pfx…" />
+                    <Button
+                        x:Name="CreateCertButton"
+                        Click="CreateCert_Click"
+                        Content="Criar meu certificado…"
+                        ToolTipService.ToolTip="Gera um certificado .pfx com o seu nome e dados (autoassinado)" />
                     <TextBlock
                         x:Name="PfxText"
                         VerticalAlignment="Center"

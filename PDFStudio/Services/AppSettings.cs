@@ -50,6 +50,8 @@ public sealed class AppSettings
     public string? LastPrinter { get; set; }
     /// <summary>Tela própria de abrir/salvar: a última pasta usada (a tela abre nela).</summary>
     public string? LastFolder { get; set; }
+    /// <summary>Propriedades da assinatura: certificados em que a pessoa confia (impressão digital SHA-256).</summary>
+    public List<string> TrustedCertificates { get; set; } = [];
 
     public static AppSettings Load()
     {

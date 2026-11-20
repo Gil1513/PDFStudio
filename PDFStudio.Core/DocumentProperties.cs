@@ -39,7 +39,13 @@ public sealed record SignatureDetails(
     /// <summary>true = o documento não mudou desde a assinatura; false = foi alterado; null = não foi possível verificar.</summary>
     bool? IsIntact,
     /// <summary>A assinatura cobre o arquivo inteiro (não houve gravações depois dela).</summary>
-    bool CoversWholeFile);
+    bool CoversWholeFile,
+    /// <summary>Certificado de quem assinou (null se não veio na assinatura).</summary>
+    SignerCertificate? Certificate = null,
+    /// <summary>Hora do carimbo de tempo de um servidor (null = só o relógio de quem assinou).</summary>
+    DateTime? TimestampAt = null,
+    /// <summary>Assinatura de certificação (DocMDP): 1 = nada pode mudar, 2 = formulários e assinar, 3 = também comentar.</summary>
+    int? CertificationLevel = null);
 
 public enum PageSizeUnit { Centimeters, Millimeters, Inches, Points }
 
@@ -158,7 +164,7 @@ public static class DocumentPropertiesService
             if (v is null) continue; // campo de assinatura vazio
 
             bytes ??= File.ReadAllBytes(path);
-            var (intact, whole, cert) = Verify(bytes, v.Elements.GetArray("/ByteRange"));
+            var (intact, whole, cert, info, timestamp) = Verify(bytes, v.Elements.GetArray("/ByteRange"));
 
             result.Add(new SignatureDetails(
                 field.Elements.GetString("/T"),
@@ -169,10 +175,24 @@ public static class DocumentPropertiesService
                 NullIfEmpty(v.Elements.GetString("/Location")),
                 NullIfEmpty(v.Elements.GetString("/ContactInfo")),
                 ParsePdfDate(v.Elements.GetString("/M")),
-                intact, whole));
+                intact, whole, info, timestamp, CertificationLevelOf(v)));
             cert?.Dispose();
         }
         return result;
+    }
+
+    /// <summary>Nível de certificação (DocMDP, /Reference → /TransformParams /P) da assinatura, se for de certificação.</summary>
+    private static int? CertificationLevelOf(PdfDictionary signature)
+    {
+        if (signature.Elements.GetArray("/Reference") is not { } refs) return null;
+        for (int i = 0; i < refs.Elements.Count; i++)
+        {
+            var r = refs.Elements.GetDictionary(i);
+            if (r?.Elements.GetName("/TransformMethod") != "/DocMDP") continue;
+            var p = r.Elements.GetDictionary("/TransformParams");
+            return p is not null && p.Elements.ContainsKey("/P") ? p.Elements.GetInteger("/P") : 2; // sem /P = 2 (norma)
+        }
+        return null;
     }
 
     private static IEnumerable<PdfDictionary> Flatten(PdfArray fields)
@@ -204,19 +224,19 @@ public static class DocumentPropertiesService
     }
 
     /// <summary>Confere o CMS contra os bytes do /ByteRange, como um leitor de PDF faria.</summary>
-    private static (bool? Intact, bool Whole, X509Certificate2? Cert) Verify(byte[] bytes, PdfArray? byteRange)
+    private static (bool? Intact, bool Whole, X509Certificate2? Cert, SignerCertificate? Info, DateTime? Timestamp) Verify(byte[] bytes, PdfArray? byteRange)
     {
-        if (byteRange is null || byteRange.Elements.Count != 4) return (null, false, null);
+        if (byteRange is null || byteRange.Elements.Count != 4) return (null, false, null, null, null);
         try
         {
             long a = byteRange.Elements.GetInteger(0), b = byteRange.Elements.GetInteger(1),
                  c = byteRange.Elements.GetInteger(2), d = byteRange.Elements.GetInteger(3);
-            if (a != 0 || b <= 0 || c <= b || c + d > bytes.Length) return (null, false, null);
+            if (a != 0 || b <= 0 || c <= b || c + d > bytes.Length) return (null, false, null, null, null);
             bool whole = c + d == bytes.Length;
 
             // O trecho entre b e c é o valor hexadecimal de /Contents: <....>
             string hex = Encoding.ASCII.GetString(bytes, (int)b, (int)(c - b)).Trim();
-            if (!hex.StartsWith('<') || !hex.EndsWith('>')) return (null, whole, null);
+            if (!hex.StartsWith('<') || !hex.EndsWith('>')) return (null, whole, null, null, null);
             byte[] cms = TrimDer(System.Convert.FromHexString(hex[1..^1]));
 
             byte[] signedData = [.. bytes.AsSpan(0, (int)b), .. bytes.AsSpan((int)c, (int)d)];
@@ -224,19 +244,27 @@ public static class DocumentPropertiesService
             signed.Decode(cms);
             var cert = signed.SignerInfos.Count > 0 && signed.SignerInfos[0].Certificate is { } sc
                 ? X509CertificateLoader.LoadCertificate(sc.RawData) : null;
+            SignerCertificate? info = null;
+            DateTime? timestamp = null;
+            try
+            {
+                if (cert is not null) info = SignerCertificate.From(cert, signed.Certificates);
+                if (signed.SignerInfos.Count > 0) timestamp = SignerCertificate.TimestampOf(signed.SignerInfos[0]);
+            }
+            catch (CryptographicException) { } // detalhes do certificado são extras: a verificação continua
             try
             {
                 signed.CheckSignature(verifySignatureOnly: true);
-                return (true, whole, cert);
+                return (true, whole, cert, info, timestamp);
             }
             catch (CryptographicException)
             {
-                return (false, whole, cert);
+                return (false, whole, cert, info, timestamp);
             }
         }
         catch
         {
-            return (null, false, null);
+            return (null, false, null, null, null);
         }
     }
 

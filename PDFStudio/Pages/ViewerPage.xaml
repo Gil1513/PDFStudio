@@ -1213,7 +1213,7 @@
                 <Button
                     x:Name="SignaturesButton"
                     AutomationProperties.Name="Assinaturas"
-                    Click="Properties_Click"
+                    Click="Signatures_Click"
                     IsEnabled="False"
                     Style="{StaticResource IconButtonStyle}"
                     ToolTipService.ToolTip="Assinaturas do documento">

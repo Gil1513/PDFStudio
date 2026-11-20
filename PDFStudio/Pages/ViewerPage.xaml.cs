@@ -106,6 +106,7 @@ public sealed partial class ViewerPage : Page
         ["proteger"] =
         [
             new("\uEE56", "Assinar digitalmente", "assinar", NeedsFile: true),
+            new("\uE946", "Propriedades da assinatura", "verassinaturas", NeedsFile: true),
             new("\uE8AC", "Campo de assinatura", "campoassinatura", NeedsFile: true), Sep,
             new("\uE72E", "Colocar senha", "colocarsenha", NeedsFile: true), new("\uE785", "Remover senha", "removersenha", NeedsFile: true), Sep,
             new("\uE7B3", "Redigir", "redigir", NeedsFile: true), new("\uE81E", "Achatar", "achatar", NeedsFile: true),
@@ -363,6 +364,7 @@ public sealed partial class ViewerPage : Page
                 UpdateSidePanel();
                 break;
             case "propriedades": await ShowPropertiesAsync(); break;
+            case "verassinaturas": Signatures_Click(this, new RoutedEventArgs()); break;
             case "fontes": await ShowFontsAsync(); break;
             case "paraimagem": await ExportImagesAsync(); break;
             case "comprimir": await CompressAsync(); break;
@@ -456,6 +458,28 @@ public sealed partial class ViewerPage : Page
     }
 
     private async void Properties_Click(object sender, RoutedEventArgs e) => await ShowPropertiesAsync();
+
+    /// <summary>Propriedades das assinaturas digitais do arquivo (validade, quem assinou, certificado).</summary>
+    private async void Signatures_Click(object sender, RoutedEventArgs e)
+    {
+        if (_path is null || !await EnsureSavedAsync()) return;
+        string path = _path;
+        try
+        {
+            var signatures = (await Task.Run(() => DocumentPropertiesService.Read(path))).Signatures;
+            if (signatures.Count == 0)
+            {
+                ShowStatus(InfoBarSeverity.Informational, "Sem assinaturas", "Este documento não tem assinaturas digitais. Para assinar, use Proteger → Assinar.");
+                return;
+            }
+            var dialog = new SignaturePropertiesDialog(signatures) { XamlRoot = XamlRoot, RequestedTheme = App.Settings.Theme };
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Não foi possível ler as assinaturas", ex.Message);
+        }
+    }
 
     private async Task ShowPropertiesAsync()
     {

@@ -100,6 +100,22 @@ public sealed partial class SignPage : Page
         UpdateState();
     }
 
+    /// <summary>Gera um certificado com os dados digitados e já o deixa escolhido (com a senha) para assinar.</summary>
+    private async void CreateCert_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new PDFStudio.Dialogs.CreateCertificateDialog(App.Settings.CommentAuthor) { XamlRoot = XamlRoot, RequestedTheme = App.Settings.Theme };
+        await dialog.ShowAsync();
+        if (dialog.PfxPath is not { } path) return;
+        _pfx = path;
+        _cert = null;
+        PfxText.Text = Path.GetFileName(path);
+        PasswordInput.Password = dialog.Password;
+        if (string.IsNullOrWhiteSpace(ContactBox.Text) && dialog.Email is { } email) ContactBox.Text = email;
+        UpdateState();
+        if (await CheckCertificateAsync())
+            CertBar.Message += "\nCertificado criado agora e já escolhido. Guarde o arquivo .pfx e a senha.";
+    }
+
     private void PasswordInput_PasswordChanged(object sender, RoutedEventArgs e)
     {
         _cert = null; // senha mudou: precisa verificar de novo
