@@ -1,78 +1,63 @@
-using Microsoft.Windows.Storage.Pickers;
+using PDFStudio.Controls;
 
 namespace PDFStudio.Services;
 
 /// <summary>
-/// Seletores de arquivo do Windows App SDK. Funcionam em apps não empacotados porque
-/// recebem o WindowId da janela principal.
+/// Abrir arquivos, salvar e escolher pasta. Desde a tela própria (Controls/FileBrowser), não usa mais as janelas
+/// do Windows; os nomes e o jeito de chamar continuam os mesmos para o resto do app.
 /// </summary>
 public static class FilePickers
 {
-    private static Microsoft.UI.WindowId WindowId => App.MainWindow!.AppWindow.Id;
+    private static readonly string[] Pdf = [".pdf"];
 
-    public static async Task<string?> PickPdfAsync()
-    {
-        var picker = new FileOpenPicker(WindowId) { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
-        picker.FileTypeFilter.Add(".pdf");
-        var result = await picker.PickSingleFileAsync();
-        return result?.Path;
-    }
+    public static async Task<string?> PickPdfAsync() =>
+        (await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.Open, "Abrir PDF", Pdf, "Documento PDF")))?[0];
 
-    public static async Task<IReadOnlyList<string>> PickPdfsAsync()
-    {
-        var picker = new FileOpenPicker(WindowId) { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
-        picker.FileTypeFilter.Add(".pdf");
-        var results = await picker.PickMultipleFilesAsync();
-        return results?.Select(r => r.Path).ToList() ?? [];
-    }
+    public static async Task<IReadOnlyList<string>> PickPdfsAsync() =>
+        await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.OpenMany, "Escolher PDFs", Pdf, "Documento PDF")) ?? [];
 
-    public static async Task<string?> PickFileAsync(params string[] extensions)
-    {
-        var picker = new FileOpenPicker(WindowId) { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
-        foreach (var ext in extensions) picker.FileTypeFilter.Add(ext);
-        var result = await picker.PickSingleFileAsync();
-        return result?.Path;
-    }
+    /// <param name="extensions">".png", ".jpg"… ; "*" (ou nada) = qualquer arquivo.</param>
+    public static async Task<string?> PickFileAsync(params string[] extensions) =>
+        (await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.Open, "Escolher arquivo", Clean(extensions), TypeName(Clean(extensions)))))?[0];
 
     /// <summary>Escolhe vários arquivos de uma vez (ex.: imagens para virar PDF).</summary>
-    public static async Task<IReadOnlyList<string>> PickFilesAsync(params string[] extensions)
-    {
-        var picker = new FileOpenPicker(WindowId) { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
-        foreach (var ext in extensions) picker.FileTypeFilter.Add(ext);
-        var results = await picker.PickMultipleFilesAsync();
-        return results?.Select(r => r.Path).ToList() ?? [];
-    }
+    public static async Task<IReadOnlyList<string>> PickFilesAsync(params string[] extensions) =>
+        await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.OpenMany, "Escolher arquivos", Clean(extensions), TypeName(Clean(extensions)))) ?? [];
 
     public static async Task<string?> SavePdfAsync(string suggestedName)
     {
-        var picker = new FileSavePicker(WindowId)
-        {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-            SuggestedFileName = suggestedName,
-        };
-        picker.FileTypeChoices.Add("Documento PDF", [".pdf"]);
-        var result = await picker.PickSaveFileAsync();
-        return result?.Path;
+        string name = suggestedName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? suggestedName : suggestedName + ".pdf";
+        return (await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.Save, "Salvar como", Pdf, "Documento PDF", name)))?[0];
     }
 
     /// <summary>Escolhe onde salvar um arquivo qualquer (o tipo vem da extensão do nome sugerido).</summary>
     public static async Task<string?> SaveFileAsync(string suggestedName)
     {
         string ext = Path.GetExtension(suggestedName);
-        var picker = new FileSavePicker(WindowId)
-        {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-            SuggestedFileName = Path.GetFileNameWithoutExtension(suggestedName),
-        };
-        picker.FileTypeChoices.Add(ext.Length > 1 ? $"Arquivo {ext.ToUpperInvariant().TrimStart('.')}" : "Arquivo", [ext.Length > 1 ? ext : ".bin"]);
-        var result = await picker.PickSaveFileAsync();
-        return result?.Path;
+        string[] extensions = ext.Length > 1 ? [ext] : [];
+        return (await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.Save, "Salvar como", extensions,
+            TypeName(extensions), suggestedName)))?[0];
     }
 
-    public static async Task<string?> PickFolderAsync()
+    public static async Task<string?> PickFolderAsync() =>
+        (await FileBrowserHost.ShowAsync(new FileBrowserOptions(FileBrowserMode.Folder, "Escolher pasta", [], "Pasta")))?[0];
+
+    /// <summary>Tira o "*" (= qualquer arquivo) e garante o ponto: "png" → ".png".</summary>
+    private static string[] Clean(string[] extensions) => extensions
+        .Select(e => e.Trim().TrimStart('*'))
+        .Where(e => e.Trim('.').Length > 0)
+        .Select(e => e.StartsWith('.') ? e : "." + e)
+        .ToArray();
+
+    /// <summary>Nome do tipo na lista: "Documento PDF", "Imagens", "Arquivo DOCX"…</summary>
+    private static string TypeName(IReadOnlyList<string> extensions)
     {
-        var picker = new FolderPicker(WindowId) { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
-        var result = await picker.PickSingleFolderAsync();
-        return result?.Path;
+        if (extensions.Count == 0) return "Todos os arquivos";
+        var set = extensions.Select(e => e.TrimStart('.').ToLowerInvariant()).ToHashSet();
+        if (set.SetEquals(["pdf"])) return "Documento PDF";
+        if (set.All(e => e is "png" or "jpg" or "jpeg" or "bmp" or "gif" or "tif" or "tiff" or "webp")) return "Imagens";
+        if (set.All(e => e is "ttf" or "otf")) return "Fontes";
+        if (set.All(e => e is "pfx" or "p12")) return "Certificado digital";
+        return extensions.Count == 1 ? $"Arquivo {set.First().ToUpperInvariant()}" : "Arquivos";
     }
 }

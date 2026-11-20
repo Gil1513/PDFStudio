@@ -48,6 +48,8 @@ public sealed class AppSettings
     public string? RenameTemplate { get; set; }
     /// <summary>Tela de impressão própria: a última impressora usada (volta escolhida na próxima vez).</summary>
     public string? LastPrinter { get; set; }
+    /// <summary>Tela própria de abrir/salvar: a última pasta usada (a tela abre nela).</summary>
+    public string? LastFolder { get; set; }
 
     public static AppSettings Load()
     {
