@@ -22,7 +22,18 @@ public sealed partial class ViewerPage
     /// <summary>Arquivo mostrado na tela: a versão em edição, se houver, senão o original.</summary>
     private string? DisplayPath => _work?.CurrentPath ?? _path;
 
-    public bool HasUnsavedChanges => _work?.IsDirty == true || _editsRunning > 0;
+    public bool HasUnsavedChanges => _work?.IsDirty == true || _editsRunning > 0 || HasPendingMarks;
+
+    /// <summary>Desenho livre, caixa de texto ou bloco de texto que ainda não viraram alteração no arquivo.</summary>
+    private bool HasPendingMarks => _inkStrokes.Count > 0 || _textEditor is not null || _blockEditor is not null;
+
+    /// <summary>Grava no arquivo de trabalho o que ainda está pendente na tela (antes de salvar).</summary>
+    private async Task CommitPendingMarksAsync()
+    {
+        if (_textEditor is not null) await FinishTextEditorAsync(commit: true);
+        if (_blockEditor is not null) await FinishBlockEditorAsync(commit: true);
+        if (_inkStrokes.Count > 0) await CommitInkAsync();
+    }
 
     /// <summary>
     /// Uma alteração por vez: duas alterações seguidas (ex.: dois retângulos desenhados depressa) não podem
@@ -78,7 +89,8 @@ public sealed partial class ViewerPage
         if (generation != _docGeneration || _path is null) return false;
         string path = _path;
         if (_password is not null && !allowProtected && DisplayPath is { } current
-            && await Task.Run(() => PdfPasswords.Inspect(current)) == PasswordState.OpenPassword)
+            && await Task.Run(() => { try { return PdfPasswords.Inspect(current); } catch (Exception) { return PasswordState.None; } })
+                == PasswordState.OpenPassword)
         {
             if (generation == _docGeneration) ShowStatus(InfoBarSeverity.Warning, "Este PDF tem senha", ProtectedEditHint);
             return false;
@@ -203,7 +215,9 @@ public sealed partial class ViewerPage
     /// <summary>Grava as alterações no arquivo original. Retorna false se não conseguiu.</summary>
     private async Task<bool> SaveAsync()
     {
-        // Espera uma alteração que ainda está sendo gravada, para salvar com ela.
+        // Primeiro grava o que ainda está pendente na tela (traços, texto sendo digitado), depois espera
+        // uma alteração que ainda está sendo gravada, para salvar com ela.
+        await CommitPendingMarksAsync();
         await _editGate.WaitAsync();
         try
         {

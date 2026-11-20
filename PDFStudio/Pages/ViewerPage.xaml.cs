@@ -187,10 +187,12 @@ public sealed partial class ViewerPage : Page
         // Trocar de arquivo descarta a cópia de trabalho: pergunta antes se houver alterações.
         if (!await ConfirmDiscardAsync()) return;
         SetTool(null, keepPendingInk: false);
+        bool hadEdits = _work is not null;
         DiscardWork();
 
         LoadingBar.Visibility = Visibility.Visible;
         StatusBar.IsOpen = false;
+        bool opened = false;
         try
         {
             WinPdfDocument? doc;
@@ -227,6 +229,7 @@ public sealed partial class ViewerPage : Page
             // e volta à página em que o arquivo estava da última vez.
             Scroller.ChangeView(0, 0, null, true);
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, resumePage - 1));
+            opened = true;
         }
         catch (Exception ex)
         {
@@ -240,6 +243,13 @@ public sealed partial class ViewerPage : Page
         finally
         {
             LoadingBar.Visibility = Visibility.Collapsed;
+        }
+        // Não abriu (senha cancelada, arquivo estragado): o arquivo anterior continua aberto, mas as
+        // alterações dele foram descartadas; a tela volta a mostrar a versão gravada.
+        if (!opened && hadEdits && _path is not null)
+        {
+            await RefreshDocumentAsync();
+            UpdateEditState();
         }
     }
 
@@ -531,8 +541,7 @@ public sealed partial class ViewerPage : Page
             await dialog.ShowAsync();
             if (dialog.Saved)
             {
-                _path = null; // força recarregar
-                await OpenAsync(path);
+                await OpenAsync(path); // recarrega com as propriedades novas
             }
         }
         catch (Exception ex)

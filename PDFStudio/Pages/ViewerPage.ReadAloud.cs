@@ -48,28 +48,30 @@ public sealed partial class ViewerPage
             if (chunks.Count == 0 && first > 0) chunks = ReadAloud.Chunks(pages, 0); // daqui para a frente não há texto: lê do começo
         }
         catch (Exception ex) when (ex is not OutOfMemoryException) { chunks = []; }
-        if (cancel.IsCancellationRequested) return;
-        if (chunks.Count == 0)
+        if (cancel.IsCancellationRequested || chunks.Count == 0)
         {
-            _readCancel = null;
+            // Parou enquanto preparava, ou não há texto: libera o botão para ler de novo.
+            if (_readCancel == cancel) _readCancel = null;
+            bool stopped = cancel.IsCancellationRequested;
             cancel.Dispose();
+            if (stopped) return;
             ShowStatus(InfoBarSeverity.Informational, "Não há texto para ler",
                 "Este PDF parece ser imagem escaneada. Faça o OCR (Ferramentas → OCR) e depois peça para ler de novo.");
             return;
         }
 
-        PrepareReadControls();
-        _synth ??= new SpeechSynthesizer();
-        _player ??= new MediaPlayer { AutoPlay = false };
-        ApplyReadSettings();
-        _readPaused = false;
-        UpdatePauseButton();
-        StatusBar.IsOpen = false;
-        ReadAloudBar.Visibility = Visibility.Visible;
-
         bool finished = false;
         try
         {
+            PrepareReadControls();
+            _synth ??= new SpeechSynthesizer();
+            _player ??= new MediaPlayer { AutoPlay = false };
+            ApplyReadSettings();
+            _readPaused = false;
+            UpdatePauseButton();
+            StatusBar.IsOpen = false;
+            ReadAloudBar.Visibility = Visibility.Visible;
+
             var next = Synthesize(chunks[0].Text);
             for (int i = 0; i < chunks.Count; i++)
             {

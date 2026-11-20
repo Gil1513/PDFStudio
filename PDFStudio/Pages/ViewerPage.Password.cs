@@ -20,12 +20,26 @@ public sealed partial class ViewerPage
     private const string ProtectedEditHint =
         "Para alterar este PDF, remova a senha antes (Proteger → Remover senha). Depois, se quiser, coloque-a de novo.";
 
+    /// <summary>Que proteção o arquivo tem (null = não deu para ler o arquivo; o aviso já foi mostrado).</summary>
+    private async Task<PasswordState?> InspectPasswordAsync(string source)
+    {
+        try
+        {
+            return await Task.Run(() => PdfPasswords.Inspect(source));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Não foi possível ler o PDF", ex.Message);
+            return null;
+        }
+    }
+
     // ---------------- Colocar senha ----------------
 
     private async Task ProtectAsync()
     {
         if (_path is null || DisplayPath is not { } source) return;
-        var state = await Task.Run(() => PdfPasswords.Inspect(source));
+        if (await InspectPasswordAsync(source) is not { } state) return;
         if (await AskProtectionAsync(state) is not { } answer) return;
 
         string? output = answer.SaveCopy
@@ -90,7 +104,7 @@ public sealed partial class ViewerPage
     private async Task RemovePasswordAsync()
     {
         if (_path is null || DisplayPath is not { } source) return;
-        var state = await Task.Run(() => PdfPasswords.Inspect(source));
+        if (await InspectPasswordAsync(source) is not { } state) return;
         if (state == PasswordState.None)
         {
             ShowStatus(InfoBarSeverity.Informational, "Este PDF não tem senha", "Não há nada para remover.");

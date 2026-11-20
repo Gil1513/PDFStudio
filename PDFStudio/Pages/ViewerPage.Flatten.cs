@@ -10,7 +10,16 @@ public sealed partial class ViewerPage
     private async Task FlattenAsync()
     {
         if (DisplayPath is not { } source) return;
-        var (comments, fields) = await Task.Run(() => PdfFlatten.Count(source));
+        int comments, fields;
+        try
+        {
+            (comments, fields) = await Task.Run(() => PdfFlatten.Count(source));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Não foi possível ler o PDF", ex.Message);
+            return;
+        }
         if (comments == 0 && fields == 0)
         {
             ShowStatus(InfoBarSeverity.Informational, "Nada para achatar", "Este PDF não tem comentários nem campos de formulário (links e assinaturas não contam).");

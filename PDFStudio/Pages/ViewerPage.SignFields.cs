@@ -87,7 +87,11 @@ public sealed partial class ViewerPage
             h = Math.Max(h, PdfSignatureFields.MinHeight);
         }
 
-        string suggestion = await Task.Run(() => PdfSignatureFields.SuggestName(path));
+        string suggestion = await Task.Run(() =>
+        {
+            try { return PdfSignatureFields.SuggestName(path); }
+            catch (Exception) { return "Assinatura1"; } // só uma sugestão: o nome é conferido ao criar o campo
+        });
         var nameBox = new TextBox { Header = "Nome do campo", Text = suggestion, MinWidth = 300 };
         AutomationPropertiesHelper(nameBox, "Nome do campo");
         var dialog = Prepare(new ContentDialog
