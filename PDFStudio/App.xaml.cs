@@ -20,6 +20,62 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // Pegador geral: um erro inesperado em qualquer botão é anotado e avisado, em vez de fechar o app
+        // sem aviso (e perder o que não foi salvo).
+        UnhandledException += App_UnhandledException;
+        SafeSynchronizationContext.Install(ex =>
+        {
+            LogError("Erro inesperado", ex);
+            ShowError(ex.Message);
+        });
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            LogError("Tarefa em segundo plano", e.Exception);
+            e.SetObserved();
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex) LogError("Erro fatal", ex);
+        };
+    }
+
+    private bool _showingError;
+
+    private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
+        LogError("Erro inesperado", e.Exception);
+        if (e.Exception is OutOfMemoryException or StackOverflowException) return; // sem como continuar com segurança
+        e.Handled = true;
+        ShowError(e.Message);
+    }
+
+    /// <summary>Avisa a pessoa que uma ação falhou (sem abrir dois avisos nem brigar com outra janela de diálogo).</summary>
+    private async void ShowError(string message)
+    {
+        var root = MainWindow?.Content?.XamlRoot;
+        if (root is null || _showingError || DialogGuard.AnyOpen(root)) return;
+        _showingError = true;
+        try
+        {
+            var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+            {
+                XamlRoot = root,
+                RequestedTheme = Settings.Theme,
+                Title = "Algo deu errado",
+                Content = "Esta ação não pôde ser concluída. O app continua aberto e o que não foi salvo foi mantido.\n\n"
+                    + $"Detalhe: {message}\n\nO erro foi anotado em:\n{ErrorLogPath}",
+                CloseButtonText = "OK",
+            };
+            await dialog.ShowAsync();
+        }
+        catch (Exception)
+        {
+            // Não conseguir mostrar o aviso não pode causar outro erro.
+        }
+        finally
+        {
+            _showingError = false;
+        }
     }
 
     /// <summary>Arquivo onde os erros inesperados são anotados (para descobrir o que aconteceu depois).</summary>
