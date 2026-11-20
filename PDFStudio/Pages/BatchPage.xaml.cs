@@ -925,8 +925,8 @@ public sealed partial class BatchPage : Page
         var corner = new ComboBox { Header = "Canto", Items = { "Inferior direito", "Inferior esquerdo", "Superior direito", "Superior esquerdo" }, SelectedIndex = 0, MinWidth = 180 };
         var place = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { page, corner } };
         kind.SelectionChanged += (_, _) => place.Visibility = kind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
-        var reason = new TextBox { Header = "Motivo (opcional)", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
-        var location = new TextBox { Header = "Local (opcional)", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        var reason = new TextBox { Header = "Razão (opcional)", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
+        var location = new TextBox { Header = "Localização (opcional)", Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
         var error = new TextBlock
         {
             Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],

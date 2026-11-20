@@ -182,7 +182,8 @@ public sealed partial class ViewerPage : Page
 
     /// <summary>Abre um PDF e prepara as páginas (a renderização ocorre sob demanda).</summary>
     /// <param name="knownPassword">Senha já conhecida (ex.: acabou de ser colocada); se faltar, o app pergunta.</param>
-    public async Task OpenAsync(string path, string? knownPassword = null)
+    /// <param name="startPage">Página (base 0) em que abrir; sem ela, volta à última página vista.</param>
+    public async Task OpenAsync(string path, string? knownPassword = null, int? startPage = null)
     {
         // Trocar de arquivo descarta a cópia de trabalho: pergunta antes se houver alterações.
         if (!await ConfirmDiscardAsync()) return;
@@ -212,7 +213,8 @@ public sealed partial class ViewerPage : Page
             _password = string.IsNullOrEmpty(password) ? null : password;
             _path = path;
             _rememberPage = false; // até voltar à página guardada, a rolagem não deve sobrescrevê-la
-            int resumePage = App.Recent.LastPageOf(path);
+            int resumePage = startPage is { } start ? start + 1 : App.Recent.LastPageOf(path);
+            int generation = ++_openGeneration;
             App.Recent.Add(path);
             _slots = PdfRenderer.CreateSlots(doc);
             PagesRepeater.ItemsSource = _slots;
@@ -228,7 +230,7 @@ public sealed partial class ViewerPage : Page
             // Ajusta à largura depois que o layout estiver pronto (o ScrollViewer acabou de ficar visível)
             // e volta à página em que o arquivo estava da última vez.
             Scroller.ChangeView(0, 0, null, true);
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, resumePage - 1));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(generation, resumePage - 1));
             opened = true;
         }
         catch (Exception ex)
@@ -713,17 +715,23 @@ public sealed partial class ViewerPage : Page
     /// Ao abrir: ajusta à largura já na página guardada. Se a rolagem ainda não alcançou a página (o layout
     /// das páginas ainda estava sendo montado), tenta de novo algumas vezes.
     /// </summary>
-    private void OpenAtPage(string path, int index, int attempt = 0)
+    /// <summary>Contador de aberturas: uma volta-à-página de uma abertura antiga não mexe na atual.</summary>
+    private int _openGeneration;
+
+    private void OpenAtPage(int generation, int index, int attempt = 0)
     {
-        if (!string.Equals(_path, path, StringComparison.OrdinalIgnoreCase) || _slots.Count == 0) return;
+        if (generation != _openGeneration || _slots.Count == 0) return;
         if (Scroller.ViewportWidth <= 0 && attempt < 10)
         {
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, index, attempt + 1));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(generation, index, attempt + 1));
             return;
         }
         index = Math.Clamp(index, 0, _slots.Count - 1);
         double widest = _slots.Max(s => s.Width) + 2 * ContentMargin + 2;
-        float zoom = Math.Clamp((float)(Scroller.ViewportWidth / widest), Scroller.MinZoomFactor, Scroller.MaxZoomFactor);
+        // Sem largura da tela ainda (janela minimizada, por exemplo): mantém o zoom atual em vez do mínimo.
+        float zoom = Scroller.ViewportWidth > 0
+            ? Math.Clamp((float)(Scroller.ViewportWidth / widest), Scroller.MinZoomFactor, Scroller.MaxZoomFactor)
+            : Scroller.ZoomFactor;
         double target = index == 0 ? 0 : Math.Max(0, (PageTop(index) - PageSpacing) * zoom);
         Scroller.ChangeView(null, target, zoom, true);
         UpdateZoomDisplay(zoom);
@@ -731,13 +739,13 @@ public sealed partial class ViewerPage : Page
         SyncThumbnailSelection(index);
         if (index > 0 && Math.Abs(Scroller.VerticalOffset - target) > 4 && attempt < 10)
         {
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(path, index, attempt + 1));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => OpenAtPage(generation, index, attempt + 1));
             return;
         }
         // Terminou: depois que a tela assentar, acerta o número da página pela posição real.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            if (!string.Equals(_path, path, StringComparison.OrdinalIgnoreCase) || _slots.Count == 0) return;
+            if (generation != _openGeneration || _slots.Count == 0) return;
             _rememberPage = true;
             int page = PageAtCenter();
             SetPageBox(page);

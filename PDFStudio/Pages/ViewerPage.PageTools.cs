@@ -210,8 +210,8 @@ public sealed partial class ViewerPage
     /// <summary>Abre (ou recarrega) um arquivo e volta para a página em que o usuário estava.</summary>
     private async Task ReopenAsync(string path, int pageIndex)
     {
-        await OpenAsync(path); // abre de novo mesmo que seja o mesmo arquivo
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () => GoToPage(Math.Min(pageIndex, _slots.Count - 1)));
+        // Abre de novo (mesmo que seja o mesmo arquivo) já na página certa: uma só volta-à-página, sem
+        // disputar com a da última página vista.
+        await OpenAsync(path, startPage: pageIndex);
     }
 }
