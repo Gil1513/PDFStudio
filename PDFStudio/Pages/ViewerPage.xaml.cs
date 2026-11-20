@@ -344,9 +344,9 @@ public sealed partial class ViewerPage : Page
             SetTool(_tool?.Key == key ? null : key);
             return;
         }
-        // Ferramentas que trabalham direto no arquivo precisam das alterações salvas.
-        if (key is "excluir" or "extrair" or "inserir" or "recortar" or "redimensionar" or "organizar" or "assinar"
-            && !await EnsureSavedAsync()) return;
+        // Organizar e Assinar abrem outra tela com o arquivo salvo: precisam das alterações salvas. (Excluir,
+        // extrair, inserir, recortar e redimensionar trabalham sobre o que está na tela, com Desfazer; Etapa 7.10.)
+        if (key is "organizar" or "assinar" && !await EnsureSavedAsync()) return;
 
         switch (key)
         {

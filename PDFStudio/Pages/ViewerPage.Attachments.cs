@@ -92,7 +92,7 @@ public sealed partial class ViewerPage
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         string text = description.Text;
         string? name = null;
-        if (await ApplyEditAsync((input, output) => name = PdfAttachments.Add(input, file, text, output)))
+        if (await ApplyEditAsync((input, output) => name = PdfAttachments.Add(input, file, text, output), label: "Anexar arquivo"))
         {
             ShowStatus(InfoBarSeverity.Success, "Arquivo anexado", $"\"{name}\" agora faz parte do PDF (salve para gravar).");
             AttachmentsToggle.IsChecked = true;
@@ -163,7 +163,7 @@ public sealed partial class ViewerPage
     private async void DeleteAttachment_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedAttachment is not { Info: { PageIndex: null } info }) return;
-        if (await ApplyEditAsync((input, output) => PdfAttachments.Remove(input, info.Number, output)))
+        if (await ApplyEditAsync((input, output) => PdfAttachments.Remove(input, info.Number, output), label: "Excluir anexo"))
             ShowStatus(InfoBarSeverity.Success, "Anexo excluído", "Use Desfazer (Ctrl+Z) se quiser trazê-lo de volta.");
     }
 }

@@ -90,7 +90,7 @@
 
             <RadioButtons x:Name="TargetChoice" Header="Onde salvar" SelectedIndex="0">
                 <x:String>Criar um novo arquivo (o original fica intacto)</x:String>
-                <x:String>Substituir o arquivo aberto</x:String>
+                <x:String>Alterar este documento (dá para desfazer; o arquivo só muda ao salvar)</x:String>
             </RadioButtons>
 
             <TextBlock

@@ -13,6 +13,7 @@ public sealed class WorkingCopy : IDisposable
 
     private readonly string _folder;
     private readonly List<string> _versions = [];
+    private readonly List<string?> _labels = []; // nome da alteração que criou cada versão (ex.: "Excluir páginas")
     private int _current;   // versão mostrada
     private int _saved;     // versão igual ao arquivo em disco (-1 = nenhuma)
     private int _counter;
@@ -25,6 +26,7 @@ public sealed class WorkingCopy : IDisposable
         string first = NextFile();
         File.Copy(OriginalPath, first);
         _versions.Add(first);
+        _labels.Add(null);
     }
 
     /// <summary>Arquivo que o usuário abriu (ou o último "Salvar como").</summary>
@@ -37,11 +39,17 @@ public sealed class WorkingCopy : IDisposable
     public bool CanUndo => _current > 0;
     public bool CanRedo => _current < _versions.Count - 1;
 
+    /// <summary>Nome da alteração que Desfazer vai desfazer (null se não houver ou não tiver nome).</summary>
+    public string? UndoLabel => CanUndo ? _labels[_current] : null;
+
+    /// <summary>Nome da alteração que Refazer vai refazer.</summary>
+    public string? RedoLabel => CanRedo ? _labels[_current + 1] : null;
+
     /// <summary>
     /// Aplica uma alteração: <paramref name="operation"/> recebe (versão atual, arquivo novo) e deve gravar o novo.
     /// As versões "refazer" pendentes são descartadas. Se a operação falhar, nada muda.
     /// </summary>
-    public void Apply(Action<string, string> operation)
+    public void Apply(Action<string, string> operation, string? label = null)
     {
         string next = NextFile();
         try
@@ -60,15 +68,18 @@ public sealed class WorkingCopy : IDisposable
         {
             TryDelete(_versions[i]);
             _versions.RemoveAt(i);
+            _labels.RemoveAt(i);
             if (_saved == i) _saved = -1; // a versão salva não existe mais no histórico
         }
         _versions.Add(next);
+        _labels.Add(label);
         _current = _versions.Count - 1;
 
         if (_versions.Count > MaxVersions)
         {
             TryDelete(_versions[0]);
             _versions.RemoveAt(0);
+            _labels.RemoveAt(0);
             _current--;
             _saved = _saved > 0 ? _saved - 1 : -1;
         }

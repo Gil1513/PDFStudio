@@ -62,7 +62,7 @@ public sealed partial class ViewerPage
             DefaultButton = ContentDialogButton.Close,
         });
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return true;
-        if (await ApplyEditAsync((input, output) => PdfSignatureFields.Remove(input, field.Name, output)))
+        if (await ApplyEditAsync((input, output) => PdfSignatureFields.Remove(input, field.Name, output), label: "Excluir campo de assinatura"))
             ShowStatus(InfoBarSeverity.Success, "Campo excluído", $"“{field.Name}” saiu da página. Ctrl+Z desfaz.");
         return true;
     }
@@ -117,7 +117,7 @@ public sealed partial class ViewerPage
 
         string name = nameBox.Text.Trim();
         int page = slot.Index;
-        if (await ApplyEditAsync((input, output) => PdfSignatureFields.Add(input, page, x, y, w, h, name, output)))
+        if (await ApplyEditAsync((input, output) => PdfSignatureFields.Add(input, page, x, y, w, h, name, output), label: "Adicionar campo de assinatura"))
             ShowStatus(InfoBarSeverity.Success, "Campo criado",
                 $"“{name}” está na página {page + 1}. Salve com Ctrl+S; para assinar nele, use Proteger → Assinar digitalmente.");
     }

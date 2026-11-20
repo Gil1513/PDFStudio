@@ -106,7 +106,7 @@ public sealed partial class ViewerPage
                 return;
             }
             bool stopped = cancel.IsCancellationRequested;
-            if (await ApplyEditAsync((input, output) => PdfOcr.AddTextLayer(input, found, output)))
+            if (await ApplyEditAsync((input, output) => PdfOcr.AddTextLayer(input, found, output), label: "OCR"))
                 ShowStatus(InfoBarSeverity.Success,
                     stopped ? $"OCR parado: texto gravado em {found.Count} de {pages.Count} páginas" : "Texto reconhecido",
                     $"{words} palavras em {found.Count} {(found.Count == 1 ? "página" : "páginas")}. Agora dá para pesquisar (Ctrl+F), " +

@@ -53,7 +53,7 @@ public sealed partial class ViewerPage
 
         bool doComments = commentsBox.IsChecked == true, doFields = fieldsBox.IsChecked == true;
         FlattenResult? result = null;
-        if (!await ApplyEditAsync((input, output) => result = PdfFlatten.Apply(input, output, doComments, doFields))) return;
+        if (!await ApplyEditAsync((input, output) => result = PdfFlatten.Apply(input, output, doComments, doFields), label: "Achatar")) return;
         if (result is null) return;
 
         var parts = new List<string>();

@@ -235,7 +235,7 @@ public sealed partial class ViewerPage
     private async Task<bool> EditBookmarksAsync(int[] selectAfter, Action<string, string> edit)
     {
         _bookmarkSelectAfter = selectAfter;
-        bool ok = await ApplyEditAsync(edit);
+        bool ok = await ApplyEditAsync(edit, label: "Alterar marcadores");
         if (!ok) _bookmarkSelectAfter = null;
         return ok;
     }

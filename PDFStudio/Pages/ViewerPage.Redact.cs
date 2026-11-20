@@ -117,7 +117,7 @@ public sealed partial class ViewerPage
             .Select(m => new RedactionArea(m.Slot.Index, m.Box.X / DipsPerPoint, m.Box.Y / DipsPerPoint, m.Box.Width / DipsPerPoint, m.Box.Height / DipsPerPoint))
             .ToList();
         RedactionResult? result = null;
-        if (!await ApplyEditAsync((input, output) => result = PdfRedaction.Apply(input, areas, output))) return;
+        if (!await ApplyEditAsync((input, output) => result = PdfRedaction.Apply(input, areas, output), label: "Redigir")) return;
         ClearRedactMarks();
         UpdateRedactHint();
         if (result is null) return;

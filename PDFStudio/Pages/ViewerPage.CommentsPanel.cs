@@ -178,7 +178,7 @@ public sealed partial class ViewerPage
         });
         if (await dialog.ShowAsync() != ContentDialogResult.Primary || box.Text == info.Contents) return;
         string text = box.Text;
-        await ApplyEditAsync((input, output) => PdfAnnotations.SetContents(input, info.PageIndex, info.Index, text, output));
+        await ApplyEditAsync((input, output) => PdfAnnotations.SetContents(input, info.PageIndex, info.Index, text, output), label: "Editar comentário");
     }
 
     private async void CommentColor_Click(object sender, RoutedEventArgs e)
@@ -187,14 +187,14 @@ public sealed partial class ViewerPage
         if (SelectedComment is not { } item) return;
         var info = item.Info;
         var color = AnnotationColor.FromHex((string)((FrameworkElement)sender).Tag);
-        await ApplyEditAsync((input, output) => PdfAnnotations.SetColor(input, info.PageIndex, info.Index, color, output));
+        await ApplyEditAsync((input, output) => PdfAnnotations.SetColor(input, info.PageIndex, info.Index, color, output), label: "Mudar cor do comentário");
     }
 
     private async void DeleteComment_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedComment is not { } item) return;
         var info = item.Info;
-        if (await ApplyEditAsync((input, output) => PdfAnnotations.Delete(input, info.PageIndex, info.Index, output)))
+        if (await ApplyEditAsync((input, output) => PdfAnnotations.Delete(input, info.PageIndex, info.Index, output), label: "Excluir comentário"))
             ShowStatus(InfoBarSeverity.Success, "Comentário excluído", "Use Desfazer (Ctrl+Z) se quiser trazê-lo de volta.");
     }
 

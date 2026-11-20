@@ -199,7 +199,7 @@ public sealed partial class ViewerPage
         }
 
         string good = password;
-        if (!await ApplyEditAsync((input, output) => PdfPasswords.Remove(input, good, output), allowProtected: true)) return;
+        if (!await ApplyEditAsync((input, output) => PdfPasswords.Remove(input, good, output), allowProtected: true, label: "Remover senha")) return;
         ShowStatus(InfoBarSeverity.Success, "Senha removida", "Salve (Ctrl+S) para gravar o PDF sem senha. Use Desfazer (Ctrl+Z) para voltar.");
     }
 

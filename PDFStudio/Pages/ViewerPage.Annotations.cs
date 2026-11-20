@@ -33,7 +33,8 @@ public sealed partial class ViewerPage
     /// <paramref name="operation"/> recebe (versão atual, arquivo novo).
     /// </summary>
     /// <param name="allowProtected">A operação sabe lidar com PDF que tem senha (ex.: remover a senha).</param>
-    private async Task<bool> ApplyEditAsync(Action<string, string> operation, bool allowProtected = false)
+    /// <param name="label">Nome da alteração, mostrado em "Desfazer: …" (ex.: "Excluir páginas").</param>
+    private async Task<bool> ApplyEditAsync(Action<string, string> operation, bool allowProtected = false, string? label = null)
     {
         if (_path is null) return false;
         if (_password is not null && !allowProtected && DisplayPath is { } current
@@ -51,7 +52,7 @@ public sealed partial class ViewerPage
                 _work = await Task.Run(() => new WorkingCopy(original));
             }
             var work = _work;
-            await Task.Run(() => work.Apply(operation));
+            await Task.Run(() => work.Apply(operation, label));
         }
         catch (Exception ex)
         {
@@ -78,6 +79,7 @@ public sealed partial class ViewerPage
             if (await RenderSourceAsync() is not { } path) return;
             var doc = await PdfRenderer.LoadAsync(path, _password); // a senha não atrapalha versões já sem senha (ex.: depois de Desfazer)
             _document = doc;
+            if (PagesChanged(doc)) { RebuildPages(doc); return; } // excluir/inserir/redimensionar (ou desfazer isso)
             foreach (var slot in _slots)
             {
                 if (slot.Image is not null)
@@ -98,6 +100,32 @@ public sealed partial class ViewerPage
         }
     }
 
+    /// <summary>O documento novo tem outro número de páginas ou páginas de outro tamanho?</summary>
+    private bool PagesChanged(Windows.Data.Pdf.PdfDocument doc)
+    {
+        if (doc.PageCount != _slots.Count) return true;
+        for (int i = 0; i < _slots.Count; i++)
+        {
+            using var page = doc.GetPage((uint)i);
+            if (Math.Abs(page.Size.Width - _slots[i].Width) > 0.5 || Math.Abs(page.Size.Height - _slots[i].Height) > 0.5) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Remonta a lista de páginas (e miniaturas) e volta para a página em que o usuário estava.</summary>
+    private void RebuildPages(Windows.Data.Pdf.PdfDocument doc, int? goToPage = null)
+    {
+        int page = goToPage ?? CurrentIndex;
+        _slots = PdfRenderer.CreateSlots(doc);
+        PagesRepeater.ItemsSource = _slots;
+        ThumbnailList.ItemsSource = _slots;
+        PageCountText.Text = $"de {_slots.Count}";
+        PageNumberBox.Maximum = Math.Max(1, _slots.Count);
+        int target = Math.Clamp(page, 0, Math.Max(0, _slots.Count - 1));
+        SetPageBox(target + 1);
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => { if (target < _slots.Count) GoToPage(target); });
+    }
+
     private static double ThumbnailScale(PageSlot slot) => PageSlot.ThumbMaxWidth * 1.5 / Math.Max(slot.Width, slot.Height);
 
     /// <summary>Atualiza botões Salvar/Desfazer/Refazer e o título (marca "não salvo").</summary>
@@ -105,6 +133,13 @@ public sealed partial class ViewerPage
     {
         UndoButton.IsEnabled = _work?.CanUndo == true;
         RedoButton.IsEnabled = _work?.CanRedo == true;
+        // A dica diz o que vai ser desfeito/refeito (ex.: "Desfazer: Excluir páginas (Ctrl+Z)").
+        string undo = _work?.UndoLabel is { } u ? $"Desfazer: {u}" : "Desfazer";
+        string redo = _work?.RedoLabel is { } r ? $"Refazer: {r}" : "Refazer";
+        ToolTipService.SetToolTip(UndoButton, undo + " (Ctrl+Z)");
+        ToolTipService.SetToolTip(RedoButton, redo + " (Ctrl+Y)");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UndoButton, undo);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(RedoButton, redo);
         QuickSaveButton.IsEnabled = HasUnsavedChanges;
         if (_path is not null) App.MainWindow!.SetSubtitle(FileName!);
         _ = RefreshCommentListAsync();
@@ -168,9 +203,11 @@ public sealed partial class ViewerPage
             return;
         }
         if (_work is null || (undo ? !_work.CanUndo : !_work.CanRedo)) return;
+        string? label = undo ? _work.UndoLabel : _work.RedoLabel;
         if (undo) _work.Undo(); else _work.Redo();
         await RefreshDocumentAsync();
         UpdateEditState();
+        if (label is not null) ShowStatus(InfoBarSeverity.Informational, undo ? "Desfeito" : "Refeito", label);
     }
 
     /// <summary>Descarta a cópia de trabalho (sem perguntar).</summary>
@@ -852,7 +889,7 @@ public sealed partial class ViewerPage
             if (w < 4 || h < 4) return; // clique sem arrastar
             await ApplyEditAsync((input, output) =>
                 PdfAnnotations.AddShape(input, page, tool.Kind, x / DipsPerPoint, y / DipsPerPoint, w / DipsPerPoint, h / DipsPerPoint,
-                    style, author, output));
+                    style, author, output), label: "Adicionar forma");
         }
         else
         {
@@ -862,7 +899,7 @@ public sealed partial class ViewerPage
             if (Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y) < 6) return;
             await ApplyEditAsync((input, output) =>
                 PdfAnnotations.AddLine(input, page, start.X / DipsPerPoint, start.Y / DipsPerPoint, end.X / DipsPerPoint, end.Y / DipsPerPoint,
-                    tool.Arrow, style, author, output));
+                    tool.Arrow, style, author, output), label: "Adicionar linha");
         }
     }
 
@@ -989,12 +1026,12 @@ public sealed partial class ViewerPage
             var style = CurrentPageTextStyle();
             double pad = PageTextPadding;
             await ApplyEditAsync((input, output) =>
-                PdfPageContent.AddText(input, page, box.X / DipsPerPoint + pad, box.Y / DipsPerPoint + pad, text, style, output));
+                PdfPageContent.AddText(input, page, box.X / DipsPerPoint + pad, box.Y / DipsPerPoint + pad, text, style, output), label: "Adicionar texto");
         }
         else if (note)
         {
             await ApplyEditAsync((input, output) =>
-                PdfAnnotations.AddNote(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, text, color, author, output));
+                PdfAnnotations.AddNote(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, text, color, author, output), label: "Adicionar nota");
         }
         else
         {
@@ -1002,7 +1039,7 @@ public sealed partial class ViewerPage
             var style = new AnnotationStyle(color, LineWidth: 0);
             await ApplyEditAsync((input, output) =>
                 PdfAnnotations.AddTextBox(input, page, box.X / DipsPerPoint, box.Y / DipsPerPoint, box.Width / DipsPerPoint,
-                    box.Height / DipsPerPoint, text, fontSize, style, author, output));
+                    box.Height / DipsPerPoint, text, fontSize, style, author, output), label: "Adicionar caixa de texto");
         }
     }
 
@@ -1073,7 +1110,7 @@ public sealed partial class ViewerPage
         int page = slot.Index;
         string author = App.Settings.CommentAuthor;
         await ApplyEditAsync((input, output) =>
-            PdfAnnotations.AddStamp(input, page, p.X / DipsPerPoint, p.Y / DipsPerPoint, design, author, output));
+            PdfAnnotations.AddStamp(input, page, p.X / DipsPerPoint, p.Y / DipsPerPoint, design, author, output), label: "Adicionar carimbo");
     }
 
     // ---------------- Realçar / sublinhar / riscar: selecionar o texto ----------------
@@ -1159,7 +1196,7 @@ public sealed partial class ViewerPage
         int page = slot.Index;
         var style = new AnnotationStyle(ToolColor, LineWidth: 1);
         string author = App.Settings.CommentAuthor;
-        await ApplyEditAsync((input, output) => PdfAnnotations.AddTextMarkup(input, page, tool.Kind, lines, style, author, output, text));
+        await ApplyEditAsync((input, output) => PdfAnnotations.AddTextMarkup(input, page, tool.Kind, lines, style, author, output, text), label: "Marcar texto");
     }
 
     /// <summary>Grava como um único comentário todos os traços do desenho livre feitos até agora.</summary>
@@ -1174,7 +1211,7 @@ public sealed partial class ViewerPage
         string author = App.Settings.CommentAuthor;
         ClearInk();
         if (strokes.Count == 0) return;
-        await ApplyEditAsync((input, output) => PdfAnnotations.AddInk(input, page, strokes, style, author, output));
+        await ApplyEditAsync((input, output) => PdfAnnotations.AddInk(input, page, strokes, style, author, output), label: "Desenho livre");
     }
 
     private void ClearInk()

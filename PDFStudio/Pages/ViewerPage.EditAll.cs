@@ -191,7 +191,7 @@ public sealed partial class ViewerPage
         }
         int page = editing.Slot.Index;
         TextEditResult? result = null;
-        if (!await ApplyEditAsync((input, output) => result = PdfTextEditor.Replace(input, page, block, text, output, editing.Font))) return;
+        if (!await ApplyEditAsync((input, output) => result = PdfTextEditor.Replace(input, page, block, text, output, editing.Font), label: "Editar texto")) return;
         var notes = new List<string>();
         if (result is { } r && !r.FontUsed.Equals(block.FontFamily, StringComparison.OrdinalIgnoreCase))
             notes.Add($"Original: {block.FontFamily} → usando: {r.FontUsed}.");

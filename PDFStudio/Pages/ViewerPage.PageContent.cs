@@ -220,7 +220,7 @@ public sealed partial class ViewerPage
         var r = click ? ClickImageRect(surface, start) : DraggedImageRect(surface, start, end);
         int page = slot.Index;
         await ApplyEditAsync((input, output) =>
-            PdfPageContent.AddImage(input, page, r.X / DipsPerPoint, r.Y / DipsPerPoint, r.Width / DipsPerPoint, r.Height / DipsPerPoint, path, output));
+            PdfPageContent.AddImage(input, page, r.X / DipsPerPoint, r.Y / DipsPerPoint, r.Width / DipsPerPoint, r.Height / DipsPerPoint, path, output), label: "Adicionar imagem");
     }
 
     private PageTextStyle CurrentPageTextStyle() => new(

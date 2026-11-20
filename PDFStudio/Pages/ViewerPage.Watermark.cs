@@ -31,7 +31,7 @@ public sealed partial class ViewerPage
         int pages = 0;
         if (d.Remove)
         {
-            if (!await ApplyEditAsync((input, output) => pages = PdfWatermark.Remove(input, ranges, output))) return;
+            if (!await ApplyEditAsync((input, output) => pages = PdfWatermark.Remove(input, ranges, output), label: "Remover marca d'água")) return;
             if (pages == 0)
                 ShowStatus(InfoBarSeverity.Informational, "Nenhuma marca d'água para remover",
                     "Só as marcas colocadas pelo PDF Studio podem ser removidas.");
@@ -43,7 +43,7 @@ public sealed partial class ViewerPage
         var options = d.Options;
         App.Settings.WatermarkFont = options.FontFamily;
         App.Settings.Save();
-        if (await ApplyEditAsync((input, output) => pages = PdfWatermark.Add(input, options, ranges, output)))
+        if (await ApplyEditAsync((input, output) => pages = PdfWatermark.Add(input, options, ranges, output), label: "Adicionar marca d'água"))
             ShowStatus(InfoBarSeverity.Success, "Marca d'água aplicada",
                 $"{Plural(pages, "página", "páginas")}. Use Desfazer (Ctrl+Z) para voltar, ou salve para gravar.");
     }

@@ -27,7 +27,7 @@ public sealed partial class ViewerPage
         int pages = 0;
         if (d.Remove)
         {
-            if (!await ApplyEditAsync((input, output) => pages = PdfBackground.Remove(input, ranges, output))) return;
+            if (!await ApplyEditAsync((input, output) => pages = PdfBackground.Remove(input, ranges, output), label: "Remover fundo")) return;
             if (pages == 0)
                 ShowStatus(InfoBarSeverity.Informational, "Nenhum fundo para remover", "Só o fundo colocado pelo PDF Studio pode ser removido.");
             else
@@ -36,7 +36,7 @@ public sealed partial class ViewerPage
         }
 
         var options = d.Options;
-        if (await ApplyEditAsync((input, output) => pages = PdfBackground.Add(input, options, ranges, output)))
+        if (await ApplyEditAsync((input, output) => pages = PdfBackground.Add(input, options, ranges, output), label: "Adicionar fundo"))
             ShowStatus(InfoBarSeverity.Success, "Fundo aplicado",
                 $"{Plural(pages, "página", "páginas")}. Use Desfazer (Ctrl+Z) para voltar, ou salve para gravar.");
     }

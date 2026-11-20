@@ -30,7 +30,7 @@ public sealed partial class ViewerPage
         int pages = 0;
         if (d.Remove)
         {
-            if (!await ApplyEditAsync((input, output) => pages = PdfHeaderFooter.Remove(input, ranges, output))) return;
+            if (!await ApplyEditAsync((input, output) => pages = PdfHeaderFooter.Remove(input, ranges, output), label: "Remover cabeçalho/rodapé")) return;
             if (pages == 0)
                 ShowStatus(InfoBarSeverity.Informational, "Nada para remover",
                     "Só cabeçalhos, rodapés e números colocados pelo PDF Studio podem ser removidos.");
@@ -42,7 +42,7 @@ public sealed partial class ViewerPage
         var options = d.Options;
         App.Settings.HeaderFooterFont = options.FontFamily;
         App.Settings.Save();
-        if (await ApplyEditAsync((input, output) => pages = PdfHeaderFooter.Add(input, options, ranges, output)))
+        if (await ApplyEditAsync((input, output) => pages = PdfHeaderFooter.Add(input, options, ranges, output), label: "Adicionar cabeçalho/rodapé"))
             ShowStatus(InfoBarSeverity.Success, pageNumberOnly ? "Páginas numeradas" : "Cabeçalho e rodapé aplicados",
                 $"{Plural(pages, "página", "páginas")}. Use Desfazer (Ctrl+Z) para voltar, ou salve para gravar.");
     }

@@ -142,7 +142,7 @@ public sealed partial class ViewerPage
         if (action != LinkDialogAction.Save || target is null) return;
         int page = slot.Index;
         if (await ApplyEditAsync((input, output) => PdfAnnotations.AddLink(input, page,
-                area.X / DipsPerPoint, area.Y / DipsPerPoint, area.Width / DipsPerPoint, area.Height / DipsPerPoint, target, output)))
+                area.X / DipsPerPoint, area.Y / DipsPerPoint, area.Width / DipsPerPoint, area.Height / DipsPerPoint, target, output), label: "Adicionar link"))
             await ShowLinkOutlinesAsync(surface, force: true);
     }
 
@@ -154,9 +154,9 @@ public sealed partial class ViewerPage
         bool changed = action switch
         {
             LinkDialogAction.Save when target is not null && target != link.Target =>
-                await ApplyEditAsync((input, output) => PdfAnnotations.SetLinkTarget(input, page, index, target, output)),
+                await ApplyEditAsync((input, output) => PdfAnnotations.SetLinkTarget(input, page, index, target, output), label: "Mudar destino do link"),
             LinkDialogAction.Delete =>
-                await ApplyEditAsync((input, output) => PdfAnnotations.Delete(input, page, index, output)),
+                await ApplyEditAsync((input, output) => PdfAnnotations.Delete(input, page, index, output), label: "Excluir link"),
             _ => false,
         };
         if (changed) await ShowLinkOutlinesAsync(surface, force: true);
