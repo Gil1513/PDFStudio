@@ -79,13 +79,18 @@ public static partial class PdfAnnotations
             var annot = NewAnnotation(doc, page, kind == AnnotationKind.Rectangle ? "/Square" : "/Circle", rect, style, author, contents);
 
             annot.Elements["/BS"] = BorderStyle(doc, style.LineWidth);
-
-            double lw = style.LineWidth, w = rect.Width, h = rect.Height;
-            string path = kind == AnnotationKind.Rectangle
-                ? $"{N(lw / 2)} {N(lw / 2)} {N(w - lw)} {N(h - lw)} re"
-                : Ellipse(lw / 2, lw / 2, w - lw, h - lw);
-            SetAppearance(doc, annot, w, h, $"{style.Color.Pdf} RG {N(lw)} w {path} S", style.Opacity);
+            DrawShape(doc, annot, kind == AnnotationKind.Rectangle, rect.Width, rect.Height, style);
         });
+    }
+
+    /// <summary>Aparência do retângulo/oval do tamanho do /Rect (também usada ao redimensionar).</summary>
+    private static void DrawShape(PdfDocument doc, PdfDictionary annot, bool rectangle, double w, double h, AnnotationStyle style)
+    {
+        double lw = style.LineWidth;
+        string path = rectangle
+            ? $"{N(lw / 2)} {N(lw / 2)} {N(w - lw)} {N(h - lw)} re"
+            : Ellipse(lw / 2, lw / 2, w - lw, h - lw);
+        SetAppearance(doc, annot, w, h, $"{style.Color.Pdf} RG {N(lw)} w {path} S", style.Opacity);
     }
 
     /// <summary>
@@ -102,30 +107,36 @@ public static partial class PdfAnnotations
             var a = geometry.ViewToPdf(x1, y1);
             var b = geometry.ViewToPdf(x2, y2);
 
-            // A ponta da seta: duas "asas" de comprimento proporcional à espessura.
-            double lw = style.LineWidth, head = Math.Max(8, lw * 4);
-            var points = new List<XPoint> { a, b };
-            XPoint wing1 = default, wing2 = default;
-            if (arrow)
-            {
-                double angle = Math.Atan2(b.Y - a.Y, b.X - a.X), spread = Math.PI / 7;
-                wing1 = new XPoint(b.X - head * Math.Cos(angle - spread), b.Y - head * Math.Sin(angle - spread));
-                wing2 = new XPoint(b.X - head * Math.Cos(angle + spread), b.Y - head * Math.Sin(angle + spread));
-                points.Add(wing1);
-                points.Add(wing2);
-            }
-
-            var rect = BoundingBox(points, lw + 2);
-            var annot = NewAnnotation(doc, page, "/Line", rect, style, author, contents);
-            annot.Elements["/L"] = new PdfArray(doc, new PdfReal(a.X), new PdfReal(a.Y), new PdfReal(b.X), new PdfReal(b.Y));
-            annot.Elements["/BS"] = BorderStyle(doc, lw);
+            var annot = NewAnnotation(doc, page, "/Line", BoundingBox([a, b], style.LineWidth + 2), style, author, contents);
+            annot.Elements["/BS"] = BorderStyle(doc, style.LineWidth);
             if (arrow) annot.Elements["/LE"] = new PdfArray(doc, new PdfName("/None"), new PdfName("/OpenArrow"));
-
-            var ops = new StringBuilder($"{style.Color.Pdf} RG {N(lw)} w 1 J 1 j ");
-            ops.Append($"{Local(a, rect)} m {Local(b, rect)} l S");
-            if (arrow) ops.Append($" {Local(wing1, rect)} m {Local(b, rect)} l {Local(wing2, rect)} l S");
-            SetAppearance(doc, annot, rect.Width, rect.Height, ops.ToString(), style.Opacity);
+            DrawLine(doc, annot, a, b, arrow, style);
         });
+    }
+
+    /// <summary>Grava /L, o /Rect (com folga para a seta) e a aparência da linha de <paramref name="a"/> a <paramref name="b"/>.</summary>
+    private static void DrawLine(PdfDocument doc, PdfDictionary annot, XPoint a, XPoint b, bool arrow, AnnotationStyle style)
+    {
+        // A ponta da seta: duas "asas" de comprimento proporcional à espessura.
+        double lw = style.LineWidth, head = Math.Max(8, lw * 4);
+        var points = new List<XPoint> { a, b };
+        XPoint wing1 = default, wing2 = default;
+        if (arrow)
+        {
+            double angle = Math.Atan2(b.Y - a.Y, b.X - a.X), spread = Math.PI / 7;
+            wing1 = new XPoint(b.X - head * Math.Cos(angle - spread), b.Y - head * Math.Sin(angle - spread));
+            wing2 = new XPoint(b.X - head * Math.Cos(angle + spread), b.Y - head * Math.Sin(angle + spread));
+            points.Add(wing1);
+            points.Add(wing2);
+        }
+        var rect = BoundingBox(points, lw + 2);
+        annot.Elements["/Rect"] = rect;
+        annot.Elements["/L"] = new PdfArray(doc, new PdfReal(a.X), new PdfReal(a.Y), new PdfReal(b.X), new PdfReal(b.Y));
+
+        var ops = new StringBuilder($"{style.Color.Pdf} RG {N(lw)} w 1 J 1 j ");
+        ops.Append($"{Local(a, rect)} m {Local(b, rect)} l S");
+        if (arrow) ops.Append($" {Local(wing1, rect)} m {Local(b, rect)} l {Local(wing2, rect)} l S");
+        SetAppearance(doc, annot, rect.Width, rect.Height, ops.ToString(), style.Opacity);
     }
 
     /// <summary>
@@ -142,29 +153,35 @@ public static partial class PdfAnnotations
             var page = GetPage(doc, pageIndex);
             var geometry = PageGeometry.Of(page);
             var pdfStrokes = valid.Select(s => s.Select(p => geometry.ViewToPdf(p.X, p.Y)).ToList()).ToList();
-            double lw = style.LineWidth;
-            var rect = BoundingBox(pdfStrokes.SelectMany(s => s), lw + 2);
-
-            var annot = NewAnnotation(doc, page, "/Ink", rect, style, author, contents);
-            var inkList = new PdfArray(doc);
-            foreach (var stroke in pdfStrokes)
-            {
-                var array = new PdfArray(doc);
-                foreach (var p in stroke) { array.Elements.Add(new PdfReal(p.X)); array.Elements.Add(new PdfReal(p.Y)); }
-                inkList.Elements.Add(array);
-            }
-            annot.Elements["/InkList"] = inkList;
-            annot.Elements["/BS"] = BorderStyle(doc, lw);
-
-            var ops = new StringBuilder($"{style.Color.Pdf} RG {N(lw)} w 1 J 1 j");
-            foreach (var stroke in pdfStrokes)
-            {
-                ops.Append($" {Local(stroke[0], rect)} m");
-                foreach (var p in stroke.Skip(1)) ops.Append($" {Local(p, rect)} l");
-                ops.Append(" S");
-            }
-            SetAppearance(doc, annot, rect.Width, rect.Height, ops.ToString(), style.Opacity);
+            var annot = NewAnnotation(doc, page, "/Ink", BoundingBox(pdfStrokes.SelectMany(s => s), style.LineWidth + 2), style, author, contents);
+            annot.Elements["/BS"] = BorderStyle(doc, style.LineWidth);
+            DrawInk(doc, annot, pdfStrokes, style);
         });
+    }
+
+    /// <summary>Grava /InkList, o /Rect e a aparência dos traços (pontos do PDF).</summary>
+    private static void DrawInk(PdfDocument doc, PdfDictionary annot, IReadOnlyList<IReadOnlyList<XPoint>> strokes, AnnotationStyle style)
+    {
+        double lw = style.LineWidth;
+        var rect = BoundingBox(strokes.SelectMany(s => s), lw + 2);
+        annot.Elements["/Rect"] = rect;
+        var inkList = new PdfArray(doc);
+        foreach (var stroke in strokes)
+        {
+            var array = new PdfArray(doc);
+            foreach (var p in stroke) { array.Elements.Add(new PdfReal(p.X)); array.Elements.Add(new PdfReal(p.Y)); }
+            inkList.Elements.Add(array);
+        }
+        annot.Elements["/InkList"] = inkList;
+
+        var ops = new StringBuilder($"{style.Color.Pdf} RG {N(lw)} w 1 J 1 j");
+        foreach (var stroke in strokes)
+        {
+            ops.Append($" {Local(stroke[0], rect)} m");
+            foreach (var p in stroke.Skip(1)) ops.Append($" {Local(p, rect)} l");
+            ops.Append(" S");
+        }
+        SetAppearance(doc, annot, rect.Width, rect.Height, ops.ToString(), style.Opacity);
     }
 
     // ---------------- Listar / excluir ----------------

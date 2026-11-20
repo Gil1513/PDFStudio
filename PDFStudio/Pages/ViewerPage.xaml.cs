@@ -62,6 +62,7 @@ public sealed partial class ViewerPage : Page
         ],
         ["comentario"] =
         [
+            new("\uE7C2", "Mover comentários", "movercomentario", NeedsFile: true), Sep,
             new("\uE7E6", "Realçar", "realcar", NeedsFile: true), new("\uE8DC", "Sublinhar", "sublinhar", NeedsFile: true), new("\uEDE0", "Riscar", "riscar", NeedsFile: true), Sep,
             new("\uE8D2", "Caixa de texto", "texto", NeedsFile: true), new("\uE70B", "Nota", "nota", NeedsFile: true), Sep,
             new("\uE7AD", "Linha", "linha", NeedsFile: true), new("\uE72A", "Seta", "seta", NeedsFile: true), new("\uE739", "Retângulo", "retangulo", NeedsFile: true), new("\uEA3A", "Oval", "oval", NeedsFile: true), new("\uEE56", "Desenho livre", "desenho", NeedsFile: true), Sep,
@@ -692,6 +693,12 @@ public sealed partial class ViewerPage : Page
         {
             a.Handled = true;
             _ = FinishTextEditorAsync(commit: true);
+            return;
+        }
+        if (_moveSel is not null) // Esc primeiro tira a seleção do comentário (a ferramenta continua)
+        {
+            a.Handled = true;
+            ClearCommentSelection();
             return;
         }
         if (_tool is not null) // Esc primeiro sai da ferramenta de comentário

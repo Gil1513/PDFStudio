@@ -74,6 +74,7 @@ public sealed partial class ViewerPage
     /// <summary>Recarrega o arquivo mostrado e redesenha só as páginas e miniaturas que estão na tela.</summary>
     private async Task RefreshDocumentAsync()
     {
+        ClearCommentSelection(); // o arquivo mudou (editar, desfazer…): a seleção pode não valer mais
         try
         {
             if (await RenderSourceAsync() is not { } path) return;
@@ -318,6 +319,8 @@ public sealed partial class ViewerPage
         Redact,
         /// <summary>Etapa 6.4: arrastar (ou clicar) cria um campo de assinatura; clicar num campo vazio oferece excluir.</summary>
         SignField,
+        /// <summary>Clicar num comentário seleciona; arrastar move; os cantos mudam o tamanho.</summary>
+        MoveComment,
     }
 
     /// <summary>Uma ferramenta de comentário: chave do botão, nome e o que mostrar na barra de opções.</summary>
@@ -326,6 +329,9 @@ public sealed partial class ViewerPage
 
     private static readonly Dictionary<string, CommentTool> CommentTools = new[]
     {
+        new CommentTool("movercomentario", "Mover comentários", AnnotationKind.Other, DrawMode.MoveComment,
+            "Clique num comentário para selecionar; arraste para mover e puxe os cantos para mudar o tamanho.",
+            UsesColor: false, UsesWidth: false),
         new CommentTool("realcar", "Realçar", AnnotationKind.Highlight, DrawMode.TextSelect,
             "Arraste sobre o texto para realçar.", UsesWidth: false),
         new CommentTool("sublinhar", "Sublinhar", AnnotationKind.Underline, DrawMode.TextSelect,
@@ -543,6 +549,7 @@ public sealed partial class ViewerPage
         if (_blockEditor is not null) _ = FinishBlockEditorAsync(commit: keepPendingInk);
         RemoveBlockOutlines();
         ClearRedactMarks();
+        ClearCommentSelection();
         ToolTipService.SetToolTip(ToolHintText, null);
         CancelImageDrag();
         RemoveImageGhost();
@@ -571,6 +578,7 @@ public sealed partial class ViewerPage
             UpdateRedactHint();
             UpdateStampOptions();
             // Seleção de texto: já lê as palavras das páginas na tela, para a primeira seleção ser imediata.
+            if (_tool.Mode == DrawMode.MoveComment && DisplayPath is not null) _ = CommentsForMove(); // já lê os comentários
             if (_tool.Mode == DrawMode.TextSelect && DisplayPath is not null)
                 foreach (var slot in _slots.Where(s => s.Image is not null)) _ = WordsOfPage(slot.Index);
         }
@@ -604,6 +612,7 @@ public sealed partial class ViewerPage
         if (_tool?.Mode == DrawMode.Link) _ = ShowLinkOutlinesAsync(surface);
         else if (_tool?.Mode == DrawMode.EditAll) { surface.SetCursor(null); _ = ShowBlockOutlinesAsync(surface); }
         else if (_tool?.Mode == DrawMode.Redact) ShowRedactMarks(surface);
+        else if (_tool?.Mode == DrawMode.MoveComment) { surface.SetCursor(null); if (DisplayPath is not null) _ = CommentsForMove(); }
         // Já lê os links e as palavras da página, para a "mãozinha" e a seleção de texto não terem atraso.
         else if (_tool is null && DisplayPath is not null && SlotOf(surface) is { } slot)
         {
@@ -648,6 +657,11 @@ public sealed partial class ViewerPage
         if (_tool.Mode == DrawMode.TextSelect)
         {
             await StartTextSelectionAsync(surface, slot, e);
+            return;
+        }
+        if (_tool.Mode == DrawMode.MoveComment)
+        {
+            await MovePressedAsync(surface, slot, e);
             return;
         }
         if (_tool.Mode == DrawMode.Image)
@@ -753,6 +767,11 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.MoveComment && sender is DrawingSurface moveSurface)
+        {
+            MoveMoved(moveSurface, e);
+            return;
+        }
         if (_tool?.Mode == DrawMode.Image && sender is DrawingSurface imageSurface)
         {
             MoveImageGhost(imageSurface, e);
@@ -804,6 +823,12 @@ public sealed partial class ViewerPage
 
     private async void Surface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.MoveComment && sender is DrawingSurface moveSurface)
+        {
+            e.Handled = true;
+            await MoveReleasedAsync(moveSurface);
+            return;
+        }
         if (_tool is null && _copyDragging && sender is DrawingSurface copySurface && ReferenceEquals(copySurface, _copySurface))
         {
             e.Handled = true;
@@ -905,6 +930,7 @@ public sealed partial class ViewerPage
 
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
+        if (sender is DrawingSurface moveSurface && ReferenceEquals(moveSurface, _moveSurface)) MoveCaptureLost(moveSurface);
         if (ReferenceEquals(sender, _imageDragSurface)) { CancelImageDrag(); return; }
         // No desenho livre o traço já está guardado; nas outras ferramentas, perder o mouse cancela.
         // Na seleção de texto, soltar o botão também solta o mouse, mas a seleção termina em PointerReleased
