@@ -279,6 +279,169 @@ public class BatchTests
         Assert.Empty(Directory.GetFiles(Path.Combine(dir, "s")));
     }
 
+    // ---------------- Etapa 8.4: Bates, páginas em branco, formulários, renomear ----------------
+
+    [Fact]
+    public void Bates_ContinuesFromOneFileToTheNext()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 2), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 3);
+        var options = new BatesOptions("ABC", 6);
+        Assert.Equal("ABC000001", PdfBates.Label(options, 1));
+        Assert.Equal("X-0042/24", PdfBates.Label(new BatesOptions("X-", 4, "/24"), 42));
+
+        var results = PdfBatch.Run([a, b], Path.Combine(dir, "s"), "-bates", PdfBatch.Bates(options, 1));
+
+        Assert.Equal(["ABC000001 a ABC000002", "ABC000003 a ABC000005"], results.Select(r => r.Detail));
+        Assert.Equal(3, PdfBates.Count(results[1].Output!));
+        Assert.Contains(PdfTextLayout.Words(results[1].Output!, 0), w => w.Text == "ABC000003");
+        Assert.Contains(PdfTextLayout.Words(results[1].Output!, 2), w => w.Text == "ABC000005");
+        Assert.Equal(TestPdfs.Labels(b), TestPdfs.Labels(results[1].Output!)); // o conteúdo continua o mesmo
+
+        // Numerar de novo troca o número (não acumula).
+        string again = Path.Combine(dir, "de-novo.pdf");
+        PdfBates.Add(results[0].Output!, options, 100, again);
+        var words = PdfTextLayout.Words(again, 0).Select(w => w.Text).ToList();
+        Assert.Contains("ABC000100", words);
+        Assert.DoesNotContain("ABC000001", words);
+    }
+
+    private static byte[] Page(int width, int height, Action<Action<int, int>>? ink = null)
+    {
+        var data = new byte[width * height * 4];
+        Array.Fill(data, (byte)255);
+        ink?.Invoke((x, y) => { int i = (y * width + x) * 4; data[i] = data[i + 1] = data[i + 2] = 0; });
+        return data;
+    }
+
+    [Fact]
+    public void BlankPage_IgnoresDirtAndScannerBorders_ButNotText()
+    {
+        const int W = 200, H = 300;
+        Assert.Equal(0, BlankPages.InkRatio(Page(W, H), W, H));
+        // Borda preta do scanner (fora da área que conta) e 5 pontinhos de sujeira.
+        var dirty = Page(W, H, dot =>
+        {
+            for (int y = 0; y < H; y++) { dot(0, y); dot(1, y); dot(W - 1, y); }
+            for (int i = 0; i < 5; i++) dot(50 + i * 20, 150);
+        });
+        double dirt = BlankPages.InkRatio(dirty, W, H);
+        Assert.True(BlankPages.IsBlank(dirt, BlankPages.DefaultTolerancePercent), $"{dirt:P3}");
+        // Uma linha de texto (bloco de 120 × 8 pontos com metade pintada).
+        var text = Page(W, H, dot => { for (int y = 40; y < 48; y++) for (int x = 30; x < 150; x += 2) dot(x, y); });
+        double t = BlankPages.InkRatio(text, W, H);
+        Assert.False(BlankPages.IsBlank(t, BlankPages.DefaultTolerancePercent), $"{t:P3}");
+        Assert.True(BlankPages.IsBlank(t, 2)); // com tolerância bem alta passa
+        Assert.Equal("2, 5", BlankPages.Ranges([4, 1]));
+    }
+
+    [Fact]
+    public void BlankPages_AreRemoved_SkippingFilesWithoutThem()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 4), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 2);
+        string c = TestPdfs.Create(Path.Combine(dir, "c.pdf"), 2);
+        // Tinta fingida por página: em "a" as páginas 2 e 4 estão em branco; "b" não tem; "c" é toda branca.
+        var ink = new Dictionary<string, double[]> { ["a"] = [0.05, 0, 0.03, 0.0002], ["b"] = [0.02, 0.04], ["c"] = [0, 0] };
+        var op = PdfBatch.RemoveBlankPages((input, _) =>
+            Task.FromResult<IReadOnlyList<double>>(ink[Path.GetFileNameWithoutExtension(input)]), BlankPages.DefaultTolerancePercent);
+
+        var results = PdfBatch.RunAsync([a, b, c], Path.Combine(dir, "s"), "-sem-brancas", op).GetAwaiter().GetResult();
+
+        Assert.Equal("2 páginas excluídas (2, 4)", results[0].Detail);
+        Assert.Equal([TestPdfs.Labels(a)[0], TestPdfs.Labels(a)[2]], TestPdfs.Labels(results[0].Output!));
+        Assert.True(results[1].Ok);
+        Assert.Null(results[1].Output); // nada a fazer
+        Assert.Contains("Todas as páginas", results[2].Error);
+    }
+
+    /// <summary>Formulário de teste: campos soltos, um grupo com filhos, caixa marcada/desmarcada e assinatura.</summary>
+    private static string FormPdf(string path, string name, string city, bool accepted)
+    {
+        TestPdfs.Create(path, 1);
+        using (var doc = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify))
+        {
+            PdfSharp.Pdf.PdfDictionary Field(string t, string ft)
+            {
+                var f = new PdfSharp.Pdf.PdfDictionary(doc);
+                f.Elements["/T"] = new PdfSharp.Pdf.PdfString(t);
+                if (ft.Length > 0) f.Elements.SetName("/FT", ft);
+                doc.Internals.AddObject(f);
+                return f;
+            }
+            var nameField = Field("nome", "/Tx");
+            nameField.Elements["/V"] = new PdfSharp.Pdf.PdfString(name);
+            var address = Field("endereco", "/Tx");
+            var cityField = Field("cidade", "");
+            cityField.Elements["/V"] = new PdfSharp.Pdf.PdfString(city);
+            cityField.Elements["/Parent"] = address.Reference;
+            address.Elements["/Kids"] = new PdfSharp.Pdf.PdfArray(doc, cityField.Reference!);
+            var check = Field("aceito", "/Btn");
+            check.Elements.SetName("/V", accepted ? "/Yes" : "/Off");
+            var sig = Field("assinatura", "/Sig");
+            var form = new PdfSharp.Pdf.PdfDictionary(doc);
+            form.Elements["/Fields"] = new PdfSharp.Pdf.PdfArray(doc, nameField.Reference!, address.Reference!, check.Reference!, sig.Reference!);
+            doc.Internals.Catalog.Elements["/AcroForm"] = form;
+            doc.Save(path);
+        }
+        return path;
+    }
+
+    [Fact]
+    public void FormData_GoesToOneCsvRowPerFile()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = FormPdf(Path.Combine(dir, "a.pdf"), "Ana; Maria", "São Paulo", true);
+        string b = FormPdf(Path.Combine(dir, "b.pdf"), "=SOMA(1)", "Recife \"centro\"", false);
+        string plain = TestPdfs.Create(Path.Combine(dir, "sem.pdf"), 1);
+
+        Assert.Equal([new FormFieldValue("nome", "Ana; Maria"), new FormFieldValue("endereco.cidade", "São Paulo"), new FormFieldValue("aceito", "Yes")],
+            PdfFormData.Read(a));
+
+        var (results, csv) = PdfBatch.ExportFormsCsv([a, plain, b], null);
+
+        Assert.Equal(["3 campos", "sem formulário", "3 campos"], results.Select(r => r.Detail));
+        Assert.Equal(Path.Combine(dir, "dados-formularios.csv"), csv);
+        byte[] bytes = File.ReadAllBytes(csv!);
+        Assert.Equal([0xEF, 0xBB, 0xBF], bytes[..3]); // BOM: o Excel acerta os acentos
+        Assert.Equal(
+            "Arquivo;nome;endereco.cidade;aceito\r\n" +
+            "a.pdf;\"Ana; Maria\";São Paulo;Yes\r\n" +
+            "b.pdf;'=SOMA(1);\"Recife \"\"centro\"\"\";\r\n",
+            File.ReadAllText(csv!));
+
+        // De novo: não sobrescreve a planilha anterior.
+        Assert.Equal(Path.Combine(dir, "dados-formularios (2).csv"), PdfBatch.ExportFormsCsv([a], null).Csv);
+        Assert.Null(PdfBatch.ExportFormsCsv([plain], null).Csv);
+    }
+
+    [Fact]
+    public void Rename_UsesTheContent_AndKeepsTheOriginals()
+    {
+        var info = new RenameInfo("scan001", "Contrato: Aluguel", "Ana", new DateTime(2026, 3, 5), "PROPOSTA COMERCIAL");
+        Assert.Equal("2026-03-05 Contrato Aluguel", PdfRename.NameFor("{data} {titulo}", info, 1, 5));
+        Assert.Equal("002 - PROPOSTA COMERCIAL", PdfRename.NameFor("{n} - {linha}", info, 2, 5));
+        var empty = info with { Title = "", Author = "" };
+        Assert.Equal("Relatório", PdfRename.NameFor("{autor} - Relatório", empty, 1, 1)); // sobra de separador sai
+        Assert.Equal("scan001", PdfRename.NameFor("{titulo}", empty, 1, 1)); // sem título: fica o nome atual
+        Assert.Equal("007 - scan001", PdfRename.NameFor("{n} - {titulo} - {nome}", empty, 7, 9)); // sem "- -" no meio
+        Assert.Equal(PdfRename.MaxLength, PdfRename.NameFor(new string('x', 300), info, 1, 1).Length);
+
+        string dir = TestPdfs.TempDir();
+        string a = Path.Combine(dir, "a.pdf"); // sem título: fica o nome atual
+        DocumentPropertiesService.Save(TestPdfs.Create(Path.Combine(dir, "w.pdf"), 1), new DocumentMetadata("", "", "", ""), a);
+        string titled = Path.Combine(dir, "b.pdf");
+        DocumentPropertiesService.Save(TestPdfs.Create(Path.Combine(dir, "x.pdf"), 1), new DocumentMetadata("Relatório anual", "", "", ""), titled);
+        string c = TestPdfs.Create(Path.Combine(dir, "c.pdf"), 1);
+        DocumentPropertiesService.Save(TestPdfs.Create(Path.Combine(dir, "y.pdf"), 1), new DocumentMetadata("Relatório anual", "", "", ""), c);
+
+        var results = PdfBatch.CopyRenamed([a, titled, c], Path.Combine(dir, "s"), "{titulo}").GetAwaiter().GetResult();
+
+        Assert.Equal(["a.pdf", "Relatório anual.pdf", "Relatório anual (2).pdf"], results.Select(r => Path.GetFileName(r.Output!)));
+        Assert.True(File.Exists(a) && File.Exists(titled) && File.Exists(c)); // os originais ficam
+        Assert.Equal("topo", PdfRename.Info(a).FirstLine); // a linha mais alta da página de teste
+    }
+
     /// <summary>IProgress que chama na hora (o Progress padrão chama depois, em outra thread).</summary>
     private sealed class SyncProgress<T>(Action<T> report) : IProgress<T>
     {

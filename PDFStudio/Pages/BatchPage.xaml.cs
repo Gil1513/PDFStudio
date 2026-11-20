@@ -73,7 +73,8 @@ public sealed partial class BatchFileEntry(string path, int pageCount) : INotify
 /// 8.1: comprimir, marca d'água, fundo, cabeçalho/rodapé e número de página (as janelas de opções são as mesmas
 /// do visualizador, com a prévia do primeiro arquivo). 8.2: colocar/remover senha, assinar (o mesmo .pfx) e imprimir
 /// (todos juntos numa só janela de impressão). 8.3: converter para Word e para imagem, OCR e imagens para PDF (a lista
-/// aceita imagens; cada ação usa só os arquivos do tipo dela).
+/// aceita imagens; cada ação usa só os arquivos do tipo dela). 8.4: numeração Bates, excluir páginas em branco,
+/// formulários para CSV (uma planilha para o lote todo) e renomear (cópias com nome pelo conteúdo).
 /// </summary>
 public sealed partial class BatchPage : Page
 {
@@ -94,6 +95,10 @@ public sealed partial class BatchPage : Page
         new("paraimagem", "", "Converter para imagem", "Cada página vira um PNG ou JPG.", "", extension: ""),
         new("ocr", "", "Reconhecer texto (OCR)", "Texto pesquisável nos PDFs escaneados.", "-ocr"),
         new("imagemparapdf", "", "Imagens para PDF", "Cada imagem (PNG ou JPG) vira um PDF.", "", forImages: true),
+        new("bates", "", "Numeração Bates", "ABC000001, ABC000002… seguindo de um arquivo para o outro.", "-bates"),
+        new("paginasbrancas", "", "Excluir páginas em branco", "Tira as páginas vazias (ex.: verso de escaneados).", "-sem-brancas"),
+        new("formcsv", "", "Formulários para planilha", "Os campos preenchidos de todos os PDFs num CSV.", "", extension: ""),
+        new("renomear", "", "Renomear", "Nome pelo título, autor, data ou 1ª linha (cópias).", "", extension: ""),
     ];
 
     private string? _outputFolder;           // null = a mesma pasta de cada arquivo
@@ -348,13 +353,18 @@ public sealed partial class BatchPage : Page
         bool stopped = results.Count < total;
         string? folder = _outputFolder ?? (results.FirstOrDefault(r => r.Output is not null)?.Output is { } first ? Path.GetDirectoryName(first) : null);
         Action? open = folder is null ? null : () => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
-        string made = SelectedAction.Key == "paraimagem"
-            ? $"{ok} {(ok == 1 ? "PDF convertido" : "PDFs convertidos")} em imagens"
-            : $"{ok} {(ok == 1 ? "arquivo criado" : "arquivos criados")}";
+        string made = SelectedAction.Key switch
+        {
+            "paraimagem" => $"{ok} {(ok == 1 ? "PDF convertido" : "PDFs convertidos")} em imagens",
+            "renomear" => $"{ok} {(ok == 1 ? "cópia renomeada" : "cópias renomeadas")} (os originais ficaram como estavam)",
+            "formcsv" when _lastCsv is not null => $"Planilha \"{Path.GetFileName(_lastCsv)}\" criada com {ok} {(ok == 1 ? "linha" : "linhas")}",
+            "formcsv" => "Nenhum dos PDFs tem formulário: nenhuma planilha foi criada",
+            _ => $"{ok} {(ok == 1 ? "arquivo criado" : "arquivos criados")}",
+        };
         string message = made + (skipped > 0 ? $", {skipped} {(skipped == 1 ? "pulado" : "pulados")} (nada a fazer)" : "") +
                          (failed > 0 ? $", {failed} com erro (veja na lista)" : "") +
                          (stopped ? $", {total - results.Count} não processados" : "") + ".";
-        var severity = failed > 0 || stopped ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
+        var severity = failed > 0 || stopped || ok == 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
         ShowStatus(severity, stopped ? "Lote parado" : "Lote concluído", message, open is null ? null : "Abrir pasta", open);
     }
 
@@ -371,6 +381,10 @@ public sealed partial class BatchPage : Page
             case "imagemparapdf": return await AskImagesToPdfAsync() is { } op ? Sync(op, ".pdf") : null;
             case "paraimagem": return await AskPageImagesAsync();
             case "ocr": return await AskOcrAsync();
+            case "bates": return await AskBatesAsync() is { } bates ? Sync(PdfBatch.Bates(bates.Options, bates.First), ".pdf") : null;
+            case "paginasbrancas": return await AskBlankPagesAsync();
+            case "formcsv": return FormsToCsv();
+            case "renomear": return await AskRenameAsync();
             default: return await AskOptionsAsync(action) is { } operation ? Sync(operation, ".pdf") : null;
         }
     }
@@ -600,6 +614,183 @@ public sealed partial class BatchPage : Page
             PdfOcr.AddTextLayer(input, found, output);
             return $"{words} palavras em {found.Count} {(found.Count == 1 ? "página" : "páginas")}";
         }, progress, cancel));
+    }
+
+    // ---------------- Bates, páginas em branco, formulários e renomear (Etapa 8.4) ----------------
+
+    private sealed record BatesChoice(BatesOptions Options, long First);
+
+    /// <summary>Prefixo, algarismos, número inicial, posição e tamanho, com o exemplo do primeiro número.</summary>
+    private async Task<BatesChoice?> AskBatesAsync()
+    {
+        var prefix = new TextBox { Header = "Prefixo", PlaceholderText = "ex.: ABC", Width = 170, MaxLength = 20, Text = App.Settings.BatesPrefix ?? "" };
+        var suffix = new TextBox { Header = "Final (opcional)", Width = 170, MaxLength = 20 };
+        var digits = new NumberBox { Header = "Algarismos", Minimum = 1, Maximum = PdfBates.MaxDigits, Value = 6, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 170 };
+        var first = new NumberBox { Header = "Começar em", Minimum = 1, Maximum = 999_999_999_999, Value = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 170 };
+        // Mesma ordem de BatesPosition.
+        var position = new ComboBox { Header = "Posição", MinWidth = 170, SelectedIndex = 0, Items = { "Inferior direito", "Inferior centro", "Inferior esquerdo", "Superior direito", "Superior centro", "Superior esquerdo" } };
+        var size = new NumberBox { Header = "Tamanho da letra", Minimum = 6, Maximum = 36, Value = 10, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 170 };
+        var example = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 16, IsTextSelectionEnabled = true };
+        BatesOptions Options() => new(prefix.Text.Trim(), double.IsNaN(digits.Value) ? 6 : (int)digits.Value, suffix.Text.Trim(),
+            (BatesPosition)Math.Max(0, position.SelectedIndex), FontSize: double.IsNaN(size.Value) ? 10 : size.Value);
+        long First() => double.IsNaN(first.Value) ? 1 : (long)first.Value;
+        int pages = Files.Sum(f => Math.Max(0, f.PageCount));
+        void Update()
+        {
+            var o = Options();
+            example.Text = pages > 1 ? $"{PdfBates.Label(o, First())} … {PdfBates.Label(o, First() + pages - 1)}" : PdfBates.Label(o, First());
+        }
+        prefix.TextChanged += (_, _) => Update();
+        suffix.TextChanged += (_, _) => Update();
+        digits.ValueChanged += (_, _) => Update();
+        first.ValueChanged += (_, _) => Update();
+        Update();
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Numeração Bates",
+            Content = new ScrollViewer
+            {
+                Content = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "Cada página recebe um número único, que continua de um arquivo para o outro na ordem da lista. Rodar de novo troca a numeração antiga (não acumula).",
+                            TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                        },
+                        new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { prefix, suffix } },
+                        new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { digits, first } },
+                        new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { position, size } },
+                        new StackPanel { Spacing = 4, Children = { new TextBlock { Text = "Exemplo", Opacity = 0.7, FontSize = 12 }, example } },
+                    },
+                },
+            },
+            PrimaryButtonText = "Numerar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        App.Settings.BatesPrefix = prefix.Text.Trim();
+        App.Settings.Save();
+        return new BatesChoice(Options(), First());
+    }
+
+    /// <summary>Tolerância (quanto de "sujeira" uma página pode ter e ainda contar como em branco).</summary>
+    private async Task<BatchRunner?> AskBlankPagesAsync()
+    {
+        var tolerance = new Slider
+        {
+            Header = "Tolerância", Minimum = 0, Maximum = 1, StepFrequency = 0.05, Value = BlankPages.DefaultTolerancePercent,
+            Width = 360, HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        var value = new TextBlock { Opacity = 0.8 };
+        void Update() => value.Text = tolerance.Value == 0
+            ? "0%: só páginas totalmente brancas"
+            : $"{tolerance.Value.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)}% da página pode ter manchas ou pontinhos";
+        tolerance.ValueChanged += (_, _) => Update();
+        Update();
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Excluir páginas em branco",
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Cada PDF ganha uma cópia sem as páginas em branco. As bordas da folha (sombra do scanner) não contam. " +
+                               "Se páginas com pouco texto sumirem, diminua a tolerância; se versos escaneados ficarem, aumente.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    tolerance, value,
+                },
+            },
+            PrimaryButtonText = "Excluir",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        double tol = tolerance.Value;
+        var operation = PdfBatch.RemoveBlankPages(async (input, token) =>
+        {
+            RefuseLocked(input);
+            return await PdfRenderer.InkRatiosAsync(input, token);
+        }, tol);
+        return (inputs, folder, suffix, progress, cancel) => Task.Run(() => PdfBatch.RunAsync(inputs, folder, suffix, operation, progress, cancel));
+    }
+
+    private string? _lastCsv; // planilha criada pelo último "Formulários para planilha"
+
+    /// <summary>
+    /// Uma planilha só para o lote todo. Na lista, cada PDF que entrou nela aparece "Pronto" com o número de campos
+    /// (e "Abrir pasta" leva à planilha).
+    /// </summary>
+    private BatchRunner FormsToCsv() => async (inputs, folder, _, progress, cancel) =>
+    {
+        _lastCsv = null;
+        var (results, csv) = await Task.Run(() => PdfBatch.ExportFormsCsv(inputs, folder, progress, cancel));
+        _lastCsv = csv;
+        return csv is null ? results : results.Select(r => r.Ok && r.Detail != "sem formulário" ? r with { Output = csv } : r).ToList();
+    };
+
+    /// <summary>Modelo do nome, com o exemplo do primeiro arquivo.</summary>
+    private async Task<BatchRunner?> AskRenameAsync()
+    {
+        var template = new TextBox { Header = "Modelo do nome", Text = App.Settings.RenameTemplate ?? "{titulo}", Width = 420, HorizontalAlignment = HorizontalAlignment.Left };
+        var example = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 420, IsTextSelectionEnabled = true };
+        var first = Files.FirstOrDefault(f => !f.IsImage && f.PageCount >= 0);
+        RenameInfo? info = null;
+        if (first is not null)
+            try { string path = first.Path; info = await Task.Run(() => PdfRename.Info(path)); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        int total = Files.Count(f => !f.IsImage);
+        void Update() => example.Text = info is null ? "" : $"{info.FileName} → {PdfRename.NameFor(template.Text, info, 1, total)}.pdf";
+        template.TextChanged += (_, _) => Update();
+        Update();
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Renomear",
+            Content = new ScrollViewer
+            {
+                Content = new StackPanel
+                {
+                    Spacing = 10,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "Cada PDF ganha uma cópia com o novo nome; os originais ficam como estão. Nome repetido ganha \" (2)\".",
+                            TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                        },
+                        template,
+                        new TextBlock
+                        {
+                            Text = "{titulo}  título do documento\n{autor}  autor\n{data}  data de criação (2025-03-14)\n" +
+                                   "{linha}  primeira linha da 1ª página\n{nome}  nome atual\n{n}  número na lista (001, 002…)",
+                            FontFamily = new FontFamily("Consolas"), FontSize = 12, Opacity = 0.8,
+                        },
+                        new TextBlock
+                        {
+                            Text = "Se uma informação faltar (ex.: PDF sem título), fica o nome atual.",
+                            TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                        },
+                        new StackPanel { Spacing = 4, Children = { new TextBlock { Text = "Exemplo", Opacity = 0.7, FontSize = 12 }, example } },
+                    },
+                },
+            },
+            PrimaryButtonText = "Renomear",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        dialog.PrimaryButtonClick += (_, args) => args.Cancel = string.IsNullOrWhiteSpace(template.Text);
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        string chosen = template.Text.Trim();
+        App.Settings.RenameTemplate = chosen;
+        App.Settings.Save();
+        return (inputs, folder, _, progress, cancel) => Task.Run(() => PdfBatch.CopyRenamed(inputs, folder, chosen, progress, cancel));
     }
 
     // ---------------- Senha, assinatura e impressão (Etapa 8.2) ----------------

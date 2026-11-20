@@ -87,6 +87,111 @@ public static partial class PdfBatch
     public static bool IsImage(string path) =>
         ImagesToPdf.Extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 
+    // ---------------- Etapa 8.4: Bates, páginas em branco, formulários, renomear ----------------
+
+    /// <summary>
+    /// Operação "numeração Bates": a numeração continua de um arquivo para o outro, na ordem da lista (arquivo com erro
+    /// não gasta números). Devolve "ABC000001 a ABC000004".
+    /// </summary>
+    public static Func<string, string, string?> Bates(BatesOptions options, long first)
+    {
+        long next = first;
+        return (input, output) =>
+        {
+            long start = next;
+            int pages = PdfBates.Add(input, options, start, output);
+            next = start + pages;
+            return pages == 1 ? PdfBates.Label(options, start) : $"{PdfBates.Label(options, start)} a {PdfBates.Label(options, start + pages - 1)}";
+        };
+    }
+
+    /// <summary>
+    /// Operação "excluir páginas em branco". <paramref name="inkOfPages"/> dá a fração de tinta de cada página (o app
+    /// desenha as páginas com o motor do Windows). PDF sem página em branco é pulado; se todas forem brancas, erro.
+    /// </summary>
+    public static Func<string, string, CancellationToken, Task<string?>> RemoveBlankPages(
+        Func<string, CancellationToken, Task<IReadOnlyList<double>>> inkOfPages, double tolerancePercent) => async (input, output, cancel) =>
+    {
+        var ink = await inkOfPages(input, cancel);
+        var blank = Enumerable.Range(0, ink.Count).Where(i => BlankPages.IsBlank(ink[i], tolerancePercent)).ToList();
+        if (blank.Count == 0) return "nenhuma página em branco";
+        if (blank.Count == ink.Count) throw new InvalidOperationException("Todas as páginas parecem em branco: nada foi excluído (diminua a tolerância?).");
+        PdfOperations.DeletePages(input, BlankPages.Ranges(blank), output);
+        return blank.Count == 1 ? $"página {blank[0] + 1} excluída" : $"{blank.Count} páginas excluídas ({BlankPages.Ranges(blank)})";
+    };
+
+    /// <summary>
+    /// Junta os dados de formulário de todos os PDFs numa planilha CSV (uma linha por arquivo), gravada em
+    /// <paramref name="outputFolder"/> (null = pasta do primeiro arquivo) sem sobrescrever nada. PDF sem formulário fica
+    /// de fora da planilha ("pulado"). Devolve o resultado de cada arquivo e o caminho do CSV (null = nenhum dado).
+    /// </summary>
+    public static (List<BatchItemResult> Results, string? Csv) ExportFormsCsv(IReadOnlyList<string> inputs, string? outputFolder,
+        IProgress<BatchProgress>? progress = null, CancellationToken cancel = default, string fileName = "dados-formularios.csv")
+    {
+        var rows = new List<(string File, IReadOnlyList<FormFieldValue> Fields)>();
+        var results = new List<BatchItemResult>();
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            progress?.Report(new BatchProgress(i, inputs.Count, inputs[i]));
+            if (cancel.IsCancellationRequested) break;
+            try
+            {
+                if (!File.Exists(inputs[i])) { results.Add(new BatchItemResult(inputs[i], null, "O arquivo não existe mais.")); continue; }
+                var fields = PdfFormData.Read(inputs[i]);
+                if (fields.Count == 0) { results.Add(new BatchItemResult(inputs[i], null, null, "sem formulário")); continue; }
+                rows.Add((Path.GetFileName(inputs[i]), fields));
+                results.Add(new BatchItemResult(inputs[i], null, null, $"{fields.Count} {(fields.Count == 1 ? "campo" : "campos")}"));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                results.Add(new BatchItemResult(inputs[i], null, FriendlyError(ex)));
+            }
+        }
+        progress?.Report(new BatchProgress(results.Count, inputs.Count, ""));
+        if (rows.Count == 0) return (results, null);
+
+        string folder = outputFolder ?? Path.GetDirectoryName(Path.GetFullPath(inputs[0]))!;
+        Directory.CreateDirectory(folder);
+        string temp = Path.Combine(folder, $".pdfstudio-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temp, PdfFormData.ToCsv(rows), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            string csv = PageImages.FreePath(folder, fileName);
+            File.Move(temp, csv);
+            return (results, csv);
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>
+    /// "Renomear": cria uma cópia de cada PDF com o nome feito pelo <paramref name="template"/> (veja <see cref="PdfRename"/>).
+    /// O original fica como está; nome repetido ganha " (2)".
+    /// </summary>
+    public static Task<List<BatchItemResult>> CopyRenamed(IReadOnlyList<string> inputs, string? outputFolder, string template,
+        IProgress<BatchProgress>? progress = null, CancellationToken cancel = default)
+    {
+        int position = 0;
+        return Loop(inputs, outputFolder, progress, cancel, (input, folder) =>
+        {
+            position++;
+            try
+            {
+                if (!File.Exists(input)) return Task.FromResult(new BatchItemResult(input, null, "O arquivo não existe mais."));
+                string name = PdfRename.NameFor(template, PdfRename.Info(input), position, inputs.Count);
+                string target = PageImages.FreePath(folder, name + ".pdf");
+                File.Copy(input, target, overwrite: false);
+                return Task.FromResult(new BatchItemResult(input, target, null, $"→ {Path.GetFileName(target)}"));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return Task.FromResult(new BatchItemResult(input, null, FriendlyError(ex)));
+            }
+        });
+    }
+
     // ---------------- Imprimir ----------------
 
     /// <summary>Por que o arquivo não pode ir para a impressão (null = pode).</summary>

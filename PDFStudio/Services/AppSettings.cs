@@ -43,6 +43,9 @@ public sealed class AppSettings
     public string HeaderFooterFont { get; set; } = "Arial";
     /// <summary>Etapa 8.2 — assinar em lote: o último certificado .pfx usado (só o caminho; a senha nunca é guardada).</summary>
     public string? LastPfxPath { get; set; }
+    /// <summary>Etapa 8.4 — o último prefixo da numeração Bates e o último modelo de "Renomear".</summary>
+    public string? BatesPrefix { get; set; }
+    public string? RenameTemplate { get; set; }
 
     public static AppSettings Load()
     {

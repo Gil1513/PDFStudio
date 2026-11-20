@@ -92,6 +92,36 @@ public static class PdfRenderer
         await input.CopyToAsync(output);
     }
 
+    /// <summary>
+    /// Etapa 8.4: quanto de "tinta" cada página tem (0 a 1), para achar páginas em branco. Cada página é desenhada
+    /// pequena (~40 dpi, sobre papel branco) e os pixels vão para <see cref="BlankPages.InkRatio"/>.
+    /// </summary>
+    public static async Task<IReadOnlyList<double>> InkRatiosAsync(string path, CancellationToken cancel)
+    {
+        var doc = await LoadAsync(path);
+        var ratios = new List<double>();
+        for (uint i = 0; i < doc.PageCount; i++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            using var page = doc.GetPage(i);
+            double scale = 40 / 96.0;
+            var options = new PdfPageRenderOptions
+            {
+                DestinationWidth = (uint)Math.Max(8, Math.Round(page.Size.Width * scale)),
+                DestinationHeight = (uint)Math.Max(8, Math.Round(page.Size.Height * scale)),
+                BackgroundColor = Windows.UI.Color.FromArgb(255, 255, 255, 255),
+            };
+            using var stream = new InMemoryRandomAccessStream();
+            await page.RenderToStreamAsync(stream, options);
+            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+            var pixels = await decoder.GetPixelDataAsync(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Straight, new Windows.Graphics.Imaging.BitmapTransform(),
+                Windows.Graphics.Imaging.ExifOrientationMode.IgnoreExifOrientation, Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage);
+            ratios.Add(BlankPages.InkRatio(pixels.DetachPixelData(), (int)decoder.PixelWidth, (int)decoder.PixelHeight));
+        }
+        return ratios;
+    }
+
     public static List<PageSlot> CreateSlots(PdfDocument doc)
     {
         var slots = new List<PageSlot>((int)doc.PageCount);

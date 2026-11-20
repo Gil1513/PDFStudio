@@ -211,7 +211,7 @@ public static class PdfPageContent
     // ---------------- Trechos do conteúdo da página ----------------
 
     /// <summary>Tipos de conteúdo que o app coloca e sabe remover depois.</summary>
-    public enum ArtifactKind { Watermark, Header, Footer, PageNumber, Background }
+    public enum ArtifactKind { Watermark, Header, Footer, PageNumber, Background, Bates }
 
     private const string Signature = "/PDFStudio";
     private const string ArtifactEnd = "\nEMC\n";
