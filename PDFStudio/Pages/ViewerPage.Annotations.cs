@@ -22,7 +22,22 @@ public sealed partial class ViewerPage
     /// <summary>Arquivo mostrado na tela: a versão em edição, se houver, senão o original.</summary>
     private string? DisplayPath => _work?.CurrentPath ?? _path;
 
-    public bool HasUnsavedChanges => _work?.IsDirty == true;
+    public bool HasUnsavedChanges => _work?.IsDirty == true || _editsRunning > 0;
+
+    /// <summary>
+    /// Uma alteração por vez: duas alterações seguidas (ex.: dois retângulos desenhados depressa) não podem
+    /// partir da mesma versão, senão a primeira some. Salvar e Desfazer/Refazer também esperam a vez.
+    /// </summary>
+    private readonly SemaphoreSlim _editGate = new(1, 1);
+
+    /// <summary>Alterações pedidas e ainda não terminadas (contam como "não salvo").</summary>
+    private int _editsRunning;
+
+    /// <summary>
+    /// Muda sempre que o arquivo aberto é trocado ou fechado (DiscardWork). Uma alteração que termina depois
+    /// disso é jogada fora em vez de ser aplicada ao arquivo novo.
+    /// </summary>
+    private int _docGeneration;
 
     // =====================================================================
     // Cópia de trabalho: aplicar, salvar, desfazer/refazer
@@ -37,35 +52,69 @@ public sealed partial class ViewerPage
     private async Task<bool> ApplyEditAsync(Action<string, string> operation, bool allowProtected = false, string? label = null)
     {
         if (_path is null) return false;
+        int generation = _docGeneration;
+        _editsRunning++;
+        try
+        {
+            await _editGate.WaitAsync();
+            try
+            {
+                return await ApplyEditCoreAsync(operation, allowProtected, label, generation);
+            }
+            finally
+            {
+                _editGate.Release();
+            }
+        }
+        finally
+        {
+            _editsRunning--;
+        }
+    }
+
+    private async Task<bool> ApplyEditCoreAsync(Action<string, string> operation, bool allowProtected, string? label, int generation)
+    {
+        // Enquanto esperava a vez, o arquivo pode ter sido trocado ou fechado: não aplica no arquivo errado.
+        if (generation != _docGeneration || _path is null) return false;
+        string path = _path;
         if (_password is not null && !allowProtected && DisplayPath is { } current
             && await Task.Run(() => PdfPasswords.Inspect(current)) == PasswordState.OpenPassword)
         {
-            ShowStatus(InfoBarSeverity.Warning, "Este PDF tem senha", ProtectedEditHint);
+            if (generation == _docGeneration) ShowStatus(InfoBarSeverity.Warning, "Este PDF tem senha", ProtectedEditHint);
             return false;
         }
+        if (generation != _docGeneration) return false;
         bool first = _work is null;
         try
         {
             if (_work is null)
             {
-                string original = _path;
-                _work = await Task.Run(() => new WorkingCopy(original));
+                var created = await Task.Run(() => new WorkingCopy(path));
+                if (generation != _docGeneration) // trocou de arquivo enquanto a cópia era criada
+                {
+                    created.Dispose();
+                    return false;
+                }
+                _work = created;
             }
             var work = _work;
             await Task.Run(() => work.Apply(operation, label));
         }
         catch (Exception ex)
         {
+            if (generation != _docGeneration) return false;
             bool restricted = ex.Message.Contains("owner password", StringComparison.OrdinalIgnoreCase);
             ShowStatus(InfoBarSeverity.Error, restricted ? "Este PDF tem restrições de edição" : "Não foi possível alterar o documento",
                 restricted ? ProtectedEditHint : ex.Message);
             return false;
         }
+        if (generation != _docGeneration) return false;
 
         if (_hideComments) ShowCommentsAgain(); // um comentário novo precisa aparecer
         await RefreshDocumentAsync();
+        if (generation != _docGeneration) return false;
         UpdateEditState();
-        if (first && await IsSignedAsync(_path))
+        if (first && await IsSignedAsync(path) && generation == _docGeneration)
             ShowStatus(InfoBarSeverity.Warning, "Este PDF tem assinatura digital",
                 "Ao salvar, as alterações invalidam as assinaturas existentes. Para manter o original assinado, use \"Salvar como\".");
         return true;
@@ -75,10 +124,12 @@ public sealed partial class ViewerPage
     private async Task RefreshDocumentAsync()
     {
         ClearCommentSelection(); // o arquivo mudou (editar, desfazer…): a seleção pode não valer mais
+        int generation = _docGeneration;
         try
         {
             if (await RenderSourceAsync() is not { } path) return;
             var doc = await PdfRenderer.LoadAsync(path, _password); // a senha não atrapalha versões já sem senha (ex.: depois de Desfazer)
+            if (generation != _docGeneration) return; // outro arquivo foi aberto enquanto carregava
             _document = doc;
             if (PagesChanged(doc)) { RebuildPages(doc); return; } // excluir/inserir/redimensionar (ou desfazer isso)
             foreach (var slot in _slots)
@@ -152,9 +203,11 @@ public sealed partial class ViewerPage
     /// <summary>Grava as alterações no arquivo original. Retorna false se não conseguiu.</summary>
     private async Task<bool> SaveAsync()
     {
-        if (_work is not { IsDirty: true } work) return true;
+        // Espera uma alteração que ainda está sendo gravada, para salvar com ela.
+        await _editGate.WaitAsync();
         try
         {
+            if (_work is not { IsDirty: true } work) return true;
             await Task.Run(work.Save);
         }
         catch (Exception ex)
@@ -163,8 +216,13 @@ public sealed partial class ViewerPage
                 $"{ex.Message} Se o arquivo estiver aberto em outro programa, feche-o ou use \"Salvar como\".");
             return false;
         }
+        finally
+        {
+            _editGate.Release();
+        }
+        var saved = _work;
         UpdateEditState();
-        ShowStatus(InfoBarSeverity.Success, "Alterações salvas", work.OriginalPath);
+        if (saved is not null) ShowStatus(InfoBarSeverity.Success, "Alterações salvas", saved.OriginalPath);
         return true;
     }
 
@@ -203,18 +261,28 @@ public sealed partial class ViewerPage
             ClearInk();
             return;
         }
-        if (_work is null || (undo ? !_work.CanUndo : !_work.CanRedo)) return;
-        string? label = undo ? _work.UndoLabel : _work.RedoLabel;
-        if (undo) _work.Undo(); else _work.Redo();
-        await RefreshDocumentAsync();
-        UpdateEditState();
-        if (label is not null) ShowStatus(InfoBarSeverity.Informational, undo ? "Desfeito" : "Refeito", label);
+        // Espera uma alteração em andamento terminar, para desfazer a versão certa.
+        await _editGate.WaitAsync();
+        try
+        {
+            if (_work is null || (undo ? !_work.CanUndo : !_work.CanRedo)) return;
+            string? label = undo ? _work.UndoLabel : _work.RedoLabel;
+            if (undo) _work.Undo(); else _work.Redo();
+            await RefreshDocumentAsync();
+            UpdateEditState();
+            if (label is not null) ShowStatus(InfoBarSeverity.Informational, undo ? "Desfeito" : "Refeito", label);
+        }
+        finally
+        {
+            _editGate.Release();
+        }
     }
 
     /// <summary>Descarta a cópia de trabalho (sem perguntar).</summary>
     public void DiscardWork()
     {
         StopReadAloud(); // abrir/fechar outro arquivo encerra a leitura em voz alta
+        _docGeneration++; // alterações ainda em andamento não valem mais para o arquivo novo
         _work?.Dispose();
         _work = null;
         ShowCommentsAgain();
