@@ -544,6 +544,60 @@
                         <Button x:Name="StatusAction" Click="StatusAction_Click" Visibility="Collapsed" />
                     </InfoBar.ActionButton>
                 </InfoBar>
+
+                <!--  Etapa 7.9: barra da leitura em voz alta  -->
+                <Border
+                    x:Name="ReadAloudBar"
+                    Margin="0,8,0,0"
+                    Padding="12,6"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Visibility="Collapsed">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon VerticalAlignment="Center" Glyph="&#xE767;" />
+                        <TextBlock
+                            x:Name="ReadAloudText"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            TextTrimming="CharacterEllipsis" />
+                        <ComboBox
+                            x:Name="ReadAloudVoice"
+                            Grid.Column="2"
+                            MinWidth="170"
+                            AutomationProperties.Name="Voz"
+                            SelectionChanged="ReadAloudVoice_SelectionChanged" />
+                        <ComboBox
+                            x:Name="ReadAloudSpeed"
+                            Grid.Column="3"
+                            AutomationProperties.Name="Velocidade"
+                            SelectionChanged="ReadAloudSpeed_SelectionChanged" />
+                        <Button
+                            x:Name="ReadAloudPauseButton"
+                            Grid.Column="4"
+                            AutomationProperties.Name="Pausar"
+                            Click="ReadAloudPause_Click"
+                            ToolTipService.ToolTip="Pausar">
+                            <FontIcon x:Name="ReadAloudPauseIcon" FontSize="14" Glyph="&#xE769;" />
+                        </Button>
+                        <Button
+                            Grid.Column="5"
+                            AutomationProperties.Name="Parar a leitura"
+                            Click="ReadAloudStop_Click"
+                            ToolTipService.ToolTip="Parar a leitura">
+                            <FontIcon FontSize="14" Glyph="&#xE71A;" />
+                        </Button>
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <!--  Documento  -->

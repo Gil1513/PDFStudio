@@ -176,6 +176,7 @@ public sealed partial class ViewerPage
     /// <summary>Descarta a cópia de trabalho (sem perguntar).</summary>
     public void DiscardWork()
     {
+        StopReadAloud(); // abrir/fechar outro arquivo encerra a leitura em voz alta
         _work?.Dispose();
         _work = null;
         ShowCommentsAgain();

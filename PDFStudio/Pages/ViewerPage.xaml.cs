@@ -81,7 +81,8 @@ public sealed partial class ViewerPage : Page
         [
             new("\uE9A6", "Ajustar à largura", "fitwidth", NeedsFile: true), new("\uE7F4", "Página inteira", "fitpage", NeedsFile: true),
             new("\uE8B3", "Tamanho real", "actualsize", NeedsFile: true), Sep,
-            new("\uE8A9", "Miniaturas", "miniaturas", NeedsFile: true), new("\uE740", "Tela cheia", "telacheia"),
+            new("\uE8A9", "Miniaturas", "miniaturas", NeedsFile: true), new("\uE740", "Tela cheia", "telacheia"), Sep,
+            new("\uE767", "Ler em voz alta", "lervoz", NeedsFile: true),
         ],
         ["organizar"] =
         [
@@ -93,7 +94,7 @@ public sealed partial class ViewerPage : Page
         [
             new("\uE8E9", "OCR", "ocr", NeedsFile: true), new("\uE73F", "Comprimir", "comprimir", NeedsFile: true), Sep,
             new("\uE8C8", "Combinar", "combinar"), new("\uE8C6", "Dividir", "dividir"), Sep,
-            new("\uE8B9", "PDFs em lote"), new("\uE749", "Impressão em lote"), new("\uE767", "Ler em voz alta"),
+            new("\uE8B9", "PDFs em lote"), new("\uE749", "Impressão em lote"), new("\uE767", "Ler em voz alta", "lervoz", NeedsFile: true),
         ],
         ["formulario"] =
         [
@@ -365,6 +366,7 @@ public sealed partial class ViewerPage : Page
             case "paraimagem": await ExportImagesAsync(); break;
             case "comprimir": await CompressAsync(); break;
             case "paraword": await ConvertToWordAsync(); break;
+            case "lervoz": await ReadAloudAsync(); break;
             case "converter": ShowConverterTab(); break;
             case "ocr": await OcrAsync(); break;
             case "imagemparapdf":
@@ -523,6 +525,7 @@ public sealed partial class ViewerPage : Page
     {
         if (_document is null || args.Index >= _slots.Count) return;
         ShowSearchMarks(args.Element, args.Index); // a página reaproveitada recebe os destaques da pesquisa dela
+        ShowReadMarks(args.Element, args.Index);   // e o da frase que está sendo lida em voz alta
         var slot = _slots[args.Index];
         if (slot.Image is not null || slot.IsRendering) return;
 
