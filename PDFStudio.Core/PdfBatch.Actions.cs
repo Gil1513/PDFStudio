@@ -192,6 +192,63 @@ public static partial class PdfBatch
         });
     }
 
+    // ---------------- Dividir e recortar (Etapa 8.5) ----------------
+
+    /// <summary>
+    /// Operação "dividir" (para <see cref="RunToFolderAsync"/>): cada PDF vira várias partes, a cada
+    /// <paramref name="pagesPerPart"/> páginas, ou pelos intervalos de <paramref name="ranges"/> (iguais para todos os
+    /// arquivos; o que passa do fim de um arquivo é cortado). Nomes: "contrato_paginas_01-03.pdf". PDF que daria uma
+    /// parte só, com todas as páginas, é pulado.
+    /// </summary>
+    public static Func<string, string, CancellationToken, Task<string?>> Split(int pagesPerPart, string? ranges) => (input, folder, cancel) =>
+    {
+        using var source = PdfOperations.OpenForImport(input);
+        int count = source.PageCount;
+        var groups = ranges is null
+            ? Enumerable.Range(0, count).Chunk(Math.Max(1, pagesPerPart)).ToList()
+            : PageRanges.ParseClipped(ranges, count);
+        if (groups.Count == 0)
+            throw new InvalidOperationException($"Nenhum dos intervalos existe neste arquivo (ele tem {count} {(count == 1 ? "página" : "páginas")}).");
+        if (groups.Count == 1 && groups[0].Length == count)
+            return Task.FromResult<string?>(count == 1 ? "só tem 1 página" : $"daria uma parte só ({count} páginas)");
+        cancel.ThrowIfCancellationRequested();
+        int digits = count.ToString(System.Globalization.CultureInfo.InvariantCulture).Length;
+        string N(int index) => (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(digits, '0');
+        var made = PdfOperations.WriteGroups(source, input, folder, groups,
+            g => g.Length == 1 ? $"pagina_{N(g[0])}" : $"paginas_{N(g[0])}-{N(g[^1])}");
+        return Task.FromResult<string?>(made.Count == 1 ? "1 parte" : $"{made.Count} partes");
+    };
+
+    /// <summary>
+    /// Operação "recortar": tira as mesmas margens (em pontos, como a página aparece na tela) das páginas de
+    /// <paramref name="ranges"/> (null = todas; o que passa do fim de um arquivo é ignorado). Só a área visível muda.
+    /// </summary>
+    public static Func<string, string, string?> Crop(PageMargins margins, string? ranges) => (input, output) =>
+    {
+        int count = PdfOperations.GetPageCount(input);
+        string? chosen = ranges is null ? null : PageRanges.Format(PageRanges.ParseClipped(ranges, count));
+        if (chosen is "") return "nenhuma das páginas escolhidas existe neste arquivo";
+        PdfOperations.CropPages(input, chosen, margins, output);
+        int pages = chosen is null ? count : PageRanges.ParseClipped(chosen, count).Sum(g => g.Length);
+        return $"{pages} {(pages == 1 ? "página recortada" : "páginas recortadas")}";
+    };
+
+    /// <summary>Operação "desfazer recortes": as páginas voltam a mostrar a área toda. PDF sem recorte é pulado.</summary>
+    public static Func<string, string, string?> RemoveCrop(string? ranges) => (input, output) =>
+    {
+        int count, cropped;
+        using (var doc = PdfOperations.OpenForImport(input))
+        {
+            count = doc.PageCount;
+            cropped = doc.Pages.Cast<PdfPage>().Count(p => p.Elements.ContainsKey("/CropBox"));
+        }
+        if (cropped == 0) return "não tinha recorte";
+        string? chosen = ranges is null ? null : PageRanges.Format(PageRanges.ParseClipped(ranges, count));
+        if (chosen is "") return "nenhuma das páginas escolhidas existe neste arquivo";
+        PdfOperations.RemoveCrop(input, chosen, output);
+        return "recortes desfeitos";
+    };
+
     // ---------------- Imprimir ----------------
 
     /// <summary>Por que o arquivo não pode ir para a impressão (null = pode).</summary>

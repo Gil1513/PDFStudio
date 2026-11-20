@@ -10,15 +10,23 @@ public sealed partial class CropPagesDialog : ContentDialog
 {
     private const double PreviewMaxSide = 240;
     private readonly int _pageCount;
+    private readonly bool _batch;
     private readonly double _pageWidthPt, _pageHeightPt, _previewWidth, _previewHeight;
 
     /// <param name="preview">Imagem da página atual (pode ser nula).</param>
     /// <param name="pageWidthPt">Largura da página atual na tela, em pontos.</param>
+    /// <param name="batch">Etapa 8.5: vários arquivos (sem "onde salvar"; intervalos que passam do fim de um arquivo são cortados).</param>
     public CropPagesDialog(int pageCount, int currentPage, bool isSigned,
-        ImageSource? preview, double pageWidthPt, double pageHeightPt)
+        ImageSource? preview, double pageWidthPt, double pageHeightPt, bool batch = false)
     {
         InitializeComponent();
         _pageCount = pageCount;
+        _batch = batch;
+        if (batch)
+        {
+            Title = "Recortar em lote";
+            TargetChoice.Visibility = Visibility.Collapsed;
+        }
         _pageWidthPt = pageWidthPt;
         _pageHeightPt = pageHeightPt;
         SignedWarning.IsOpen = isSigned;
@@ -30,7 +38,7 @@ public sealed partial class CropPagesDialog : ContentDialog
         PreviewHost.Width = _previewWidth;
         PreviewHost.Height = _previewHeight;
         PreviewImage.Source = preview;
-        PreviewTitle.Text = $"Prévia da página {currentPage}";
+        PreviewTitle.Text = batch ? "Prévia: 1ª página do 1º arquivo" : $"Prévia da página {currentPage}";
         UpdatePreview();
     }
 
@@ -94,7 +102,7 @@ public sealed partial class CropPagesDialog : ContentDialog
         string? error = null;
         if (Ranges is { } ranges)
         {
-            try { PageRanges.Parse(ranges, _pageCount); }
+            try { if (_batch) PageRanges.ParseClipped(ranges, 0); else PageRanges.Parse(ranges, _pageCount); }
             catch (FormatException ex) { error = ex.Message; }
         }
         if (error is null && !RemoveCrop)

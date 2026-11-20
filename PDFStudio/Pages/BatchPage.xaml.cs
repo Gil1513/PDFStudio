@@ -74,7 +74,8 @@ public sealed partial class BatchFileEntry(string path, int pageCount) : INotify
 /// do visualizador, com a prévia do primeiro arquivo). 8.2: colocar/remover senha, assinar (o mesmo .pfx) e imprimir
 /// (todos juntos numa só janela de impressão). 8.3: converter para Word e para imagem, OCR e imagens para PDF (a lista
 /// aceita imagens; cada ação usa só os arquivos do tipo dela). 8.4: numeração Bates, excluir páginas em branco,
-/// formulários para CSV (uma planilha para o lote todo) e renomear (cópias com nome pelo conteúdo).
+/// formulários para CSV (uma planilha para o lote todo) e renomear (cópias com nome pelo conteúdo). 8.5: dividir (a cada
+/// N páginas ou por intervalos) e recortar margens (intervalos que passam do fim de um arquivo são cortados nele).
 /// </summary>
 public sealed partial class BatchPage : Page
 {
@@ -98,6 +99,8 @@ public sealed partial class BatchPage : Page
         new("bates", "", "Numeração Bates", "ABC000001, ABC000002… seguindo de um arquivo para o outro.", "-bates"),
         new("paginasbrancas", "", "Excluir páginas em branco", "Tira as páginas vazias (ex.: verso de escaneados).", "-sem-brancas"),
         new("formcsv", "", "Formulários para planilha", "Os campos preenchidos de todos os PDFs num CSV.", "", extension: ""),
+        new("dividir", "", "Dividir", "Cada PDF em partes: a cada N páginas ou por intervalos.", "", extension: ""),
+        new("recortar", "", "Recortar", "As mesmas margens cortadas em todos os PDFs.", "-recortado"),
         new("renomear", "", "Renomear", "Nome pelo título, autor, data ou 1ª linha (cópias).", "", extension: ""),
     ];
 
@@ -356,6 +359,7 @@ public sealed partial class BatchPage : Page
         string made = SelectedAction.Key switch
         {
             "paraimagem" => $"{ok} {(ok == 1 ? "PDF convertido" : "PDFs convertidos")} em imagens",
+            "dividir" => $"{ok} {(ok == 1 ? "PDF dividido" : "PDFs divididos")} em partes",
             "renomear" => $"{ok} {(ok == 1 ? "cópia renomeada" : "cópias renomeadas")} (os originais ficaram como estavam)",
             "formcsv" when _lastCsv is not null => $"Planilha \"{Path.GetFileName(_lastCsv)}\" criada com {ok} {(ok == 1 ? "linha" : "linhas")}",
             "formcsv" => "Nenhum dos PDFs tem formulário: nenhuma planilha foi criada",
@@ -385,6 +389,8 @@ public sealed partial class BatchPage : Page
             case "paginasbrancas": return await AskBlankPagesAsync();
             case "formcsv": return FormsToCsv();
             case "renomear": return await AskRenameAsync();
+            case "dividir": return await AskSplitAsync();
+            case "recortar": return await AskCropAsync() is { } crop ? Sync(crop, ".pdf") : null;
             default: return await AskOptionsAsync(action) is { } operation ? Sync(operation, ".pdf") : null;
         }
     }
@@ -791,6 +797,84 @@ public sealed partial class BatchPage : Page
         App.Settings.RenameTemplate = chosen;
         App.Settings.Save();
         return (inputs, folder, _, progress, cancel) => Task.Run(() => PdfBatch.CopyRenamed(inputs, folder, chosen, progress, cancel));
+    }
+
+    // ---------------- Dividir e recortar (Etapa 8.5) ----------------
+
+    /// <summary>A cada N páginas, ou pelos mesmos intervalos em todos os arquivos. As partes vão para a pasta de saída.</summary>
+    private async Task<BatchRunner?> AskSplitAsync()
+    {
+        var every = new RadioButton { GroupName = "lotedividir", Content = "A cada", IsChecked = true, MinWidth = 0 };
+        var count = new NumberBox { Minimum = 1, Maximum = 9999, Value = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, Width = 130 };
+        var byRanges = new RadioButton { GroupName = "lotedividir", Content = "Por intervalos (os mesmos em todos os arquivos)" };
+        var ranges = new TextBox { PlaceholderText = "Ex.: 1-2, 3-", Width = 300, HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = false };
+        var error = new TextBlock
+        {
+            Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+            TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed,
+        };
+        every.Checked += (_, _) => { count.IsEnabled = true; ranges.IsEnabled = false; };
+        byRanges.Checked += (_, _) => { count.IsEnabled = false; ranges.IsEnabled = true; };
+        var dialog = Prepare(new ContentDialog
+        {
+            Title = "Dividir em lote",
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Cada PDF vira vários arquivos, com nomes como \"contrato_paginas_1-2.pdf\". Os originais ficam como estão.",
+                        TextWrapping = TextWrapping.Wrap, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal, Spacing = 8,
+                        Children = { every, count, new TextBlock { Text = "página(s)", VerticalAlignment = VerticalAlignment.Center } },
+                    },
+                    byRanges, ranges,
+                    new TextBlock
+                    {
+                        Text = "\"3-\" vai da 3ª página até o fim. Num arquivo menor, o que passa do fim é ignorado. " +
+                               "Um PDF que daria uma parte só, com todas as páginas, é pulado.",
+                        TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left,
+                    },
+                    error,
+                },
+            },
+            PrimaryButtonText = "Dividir",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Primary,
+        });
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (byRanges.IsChecked != true) return;
+            try { PageRanges.ParseClipped(ranges.Text, 0); }
+            catch (FormatException ex)
+            {
+                error.Text = ex.Message;
+                error.Visibility = Visibility.Visible;
+                args.Cancel = true;
+            }
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        var operation = byRanges.IsChecked == true
+            ? PdfBatch.Split(0, ranges.Text.Trim())
+            : PdfBatch.Split(double.IsNaN(count.Value) ? 1 : (int)count.Value, null);
+        return (inputs, folder, _, progress, cancel) => Task.Run(() => PdfBatch.RunToFolderAsync(inputs, folder, operation, progress, cancel));
+    }
+
+    /// <summary>A mesma janela de recorte do visualizador, com a prévia do primeiro arquivo.</summary>
+    private async Task<Func<string, string, string?>?> AskCropAsync()
+    {
+        var first = Files.FirstOrDefault(f => !f.IsImage && f.PageCount >= 0) ?? Files[0];
+        var (preview, widthPt, heightPt) = await PreviewAsync(first.Path, transparent: false);
+        int pages = Math.Max(1, Files.Max(f => f.PageCount));
+        var d = Prepare(new CropPagesDialog(pages, 1, isSigned: false, preview, widthPt, heightPt, batch: true));
+        if (await d.ShowAsync() != ContentDialogResult.Primary) return null;
+        string? ranges = d.Ranges;
+        return d.RemoveCrop ? PdfBatch.RemoveCrop(ranges) : PdfBatch.Crop(d.Margins, ranges);
     }
 
     // ---------------- Senha, assinatura e impressão (Etapa 8.2) ----------------

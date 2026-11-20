@@ -442,6 +442,68 @@ public class BatchTests
         Assert.Equal("topo", PdfRename.Info(a).FirstLine); // a linha mais alta da página de teste
     }
 
+    // ---------------- Etapa 8.5: dividir e recortar ----------------
+
+    [Fact]
+    public void ClippedRanges_FitFilesOfDifferentSizes()
+    {
+        Assert.Equal([[2, 3, 4]], PageRanges.ParseClipped("3-10", 5));
+        Assert.Equal([[0, 1], [3, 4]], PageRanges.ParseClipped("1-2, 4-", 5));
+        Assert.Empty(PageRanges.ParseClipped("7-", 5)); // começa depois do fim: ignorado
+        Assert.Throws<FormatException>(() => PageRanges.ParseClipped("0-2", 5));
+        Assert.Throws<FormatException>(() => PageRanges.ParseClipped("5-2", 0)); // 0 = só conferir a escrita
+        Assert.Throws<FormatException>(() => PageRanges.ParseClipped("a", 0));
+        Assert.Equal("1-2, 4", PageRanges.Format([[0, 1], [3]]));
+    }
+
+    [Fact]
+    public void Split_EveryNPages_OrByRanges_SkippingFilesWithNothingToSplit()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 5), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 1);
+        string c = TestPdfs.Create(Path.Combine(dir, "c.pdf"), 3);
+
+        string out1 = Path.Combine(dir, "s1");
+        var every2 = PdfBatch.RunToFolderAsync([a, b], out1, PdfBatch.Split(2, null)).GetAwaiter().GetResult();
+        Assert.Equal("3 partes", every2[0].Detail);
+        Assert.True(every2[1].Ok && every2[1].Output is null); // 1 página: pulado
+        Assert.Equal(["a_pagina_5.pdf", "a_paginas_1-2.pdf", "a_paginas_3-4.pdf"],
+            Directory.GetFiles(out1).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal(2, PdfOperations.GetPageCount(Path.Combine(out1, "a_paginas_3-4.pdf")));
+
+        string out2 = Path.Combine(dir, "s2");
+        var byRanges = PdfBatch.RunToFolderAsync([a, c], out2, PdfBatch.Split(0, "1-2, 4-")).GetAwaiter().GetResult();
+        Assert.All(byRanges, r => Assert.True(r.Ok, r.Error));
+        Assert.Equal(["a_paginas_1-2.pdf", "a_paginas_4-5.pdf", "c_paginas_1-2.pdf"],
+            Directory.GetFiles(out2).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+
+        var none = Assert.Single(PdfBatch.RunToFolderAsync([c], out2, PdfBatch.Split(0, "8-9")).GetAwaiter().GetResult());
+        Assert.Contains("Nenhum dos intervalos", none.Error);
+    }
+
+    [Fact]
+    public void Crop_SameMarginsOnEveryFile_AndUndo()
+    {
+        string dir = TestPdfs.TempDir();
+        string a = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 3), b = TestPdfs.Create(Path.Combine(dir, "b.pdf"), 1);
+        string outDir = Path.Combine(dir, "s");
+        var margins = new PageMargins(36, 36, 36, 36);
+
+        var cropped = PdfBatch.Run([a, b], outDir, "-recortado", PdfBatch.Crop(margins, "2-"));
+        Assert.Equal("2 páginas recortadas", cropped[0].Detail);
+        Assert.True(cropped[1].Ok && cropped[1].Output is null); // b só tem a página 1: nada a recortar
+        using (var doc = PdfSharp.Pdf.IO.PdfReader.Open(cropped[0].Output!, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import))
+        {
+            Assert.False(doc.Pages[0].Elements.ContainsKey("/CropBox"));
+            Assert.Equal(doc.Pages[1].MediaBox.Width - 72, doc.Pages[1].CropBox.Width, 3);
+        }
+
+        var undo = PdfBatch.Run([a, cropped[0].Output!], outDir, "-inteiro", PdfBatch.RemoveCrop(null));
+        Assert.True(undo[0].Ok && undo[0].Output is null); // o original não tinha recorte: pulado
+        using var back = PdfSharp.Pdf.IO.PdfReader.Open(undo[1].Output!, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+        Assert.All(back.Pages.Cast<PdfSharp.Pdf.PdfPage>(), p => Assert.False(p.Elements.ContainsKey("/CropBox")));
+    }
+
     /// <summary>IProgress que chama na hora (o Progress padrão chama depois, em outra thread).</summary>
     private sealed class SyncProgress<T>(Action<T> report) : IProgress<T>
     {
