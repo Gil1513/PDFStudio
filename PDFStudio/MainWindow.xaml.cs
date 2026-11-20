@@ -81,6 +81,7 @@ public sealed partial class MainWindow : Window
             "combinar" or "dividir" => typeof(MergeSplitPage),
             "organizar" => typeof(OrganizePage),
             "assinar" => typeof(SignPage),
+            "lote" => typeof(BatchPage),
             "configuracoes" => typeof(SettingsPage),
             _ => null,
         };

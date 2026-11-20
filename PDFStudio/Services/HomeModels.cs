@@ -48,7 +48,7 @@ public static class ToolCatalog
     public static readonly ToolInfo Sign = new("assinar", "Assinar PDF", "Assinatura digital com certificado .pfx.", "", Pink, true);
     public static readonly ToolInfo Compress = new("comprimir", "Comprimir PDF", "Reduza o tamanho do arquivo.", "", Amber, true);
     public static readonly ToolInfo Form = new("formulario", "Preencher formulário", "Preencha campos e marque opções.", "", Green, false);
-    public static readonly ToolInfo Batch = new("lote", "PDFs em lote", "Aplique uma ação em vários arquivos de uma vez.", "", Slate, false);
+    public static readonly ToolInfo Batch = new("lote", "PDFs em lote", "Aplique uma ação em vários arquivos de uma vez.", "", Slate, true);
 
     /// <summary>Cartões da seção "Ferramentas rápidas".</summary>
     public static IReadOnlyList<ToolGroup> Quick { get; } =

@@ -108,6 +108,21 @@ public class CompressTests
     }
 
     [Fact]
+    public void Compressing_NeverMakesTheFileBigger()
+    {
+        // Defeito encontrado no lote (8.1): um PDF já compacto saía ~5% maior (o PDFsharp regrava a estrutura).
+        string dir = TestPdfs.TempDir();
+        string once = Path.Combine(dir, "uma-vez.pdf"), twice = Path.Combine(dir, "duas-vezes.pdf");
+        PdfCompressor.Compress(TestPdfs.Create(Path.Combine(dir, "doc.pdf"), 3), once, CompressLevel.Light);
+
+        var result = PdfCompressor.Compress(once, twice, CompressLevel.Light); // de novo: não há mais o que ganhar
+
+        Assert.True(result.After <= result.Before, $"{result.Before} → {result.After}");
+        Assert.Equal(new FileInfo(twice).Length, result.After);
+        if (result.After == result.Before) Assert.Equal(File.ReadAllBytes(once), File.ReadAllBytes(twice)); // cópia idêntica
+    }
+
+    [Fact]
     public void Light_NeverTouchesImages()
     {
         string dir = TestPdfs.TempDir();

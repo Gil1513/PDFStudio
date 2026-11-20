@@ -87,8 +87,19 @@ public static class PdfCompressor
         doc.Options.CompressContentStreams = true;
         doc.Options.NoCompression = false;
         doc.Save(output); // o PDFsharp só grava os objetos que alguma página ou o catálogo usam
-        return new CompressResult(before, new FileInfo(output).Length, reduced);
+        long after = new FileInfo(output).Length;
+        // Arquivo que já estava compacto pode sair um pouco maior (o PDFsharp regrava a estrutura). Comprimir nunca
+        // deve aumentar o arquivo: nesse caso o resultado é uma cópia idêntica do original.
+        if (after >= before && !SameFile(input, output))
+        {
+            File.Copy(input, output, overwrite: true);
+            return new CompressResult(before, before, 0);
+        }
+        return new CompressResult(before, after, reduced);
     }
+
+    private static bool SameFile(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Compacta (Flate) um fluxo que está gravado sem compactação nenhuma.</summary>
     private static void Deflate(PdfDictionary dict)
