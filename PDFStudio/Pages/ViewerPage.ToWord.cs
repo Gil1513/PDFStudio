@@ -13,6 +13,7 @@ public sealed partial class ViewerPage
     private async Task ConvertToWordAsync()
     {
         if (_path is null || DisplayPath is not { } source) return;
+        if (!await CopyAllowedAsync("Conversão não permitida")) return;
         string? output = await FilePickers.SaveFileAsync(Path.GetFileNameWithoutExtension(_path) + ".docx");
         if (output is null) return;
 

@@ -30,6 +30,14 @@ public sealed record PasswordOptions(
     public bool HasRestrictions => !(AllowPrint && AllowCopy && AllowEdit && AllowComments);
 }
 
+/// <summary>O que o autor do PDF permite fazer com ele (sem proteção ou com a senha de permissões: tudo).</summary>
+public sealed record PdfPermissions(bool Print, bool Copy, bool Edit, bool Comments)
+{
+    public static readonly PdfPermissions All = new(true, true, true, true);
+    /// <summary>Usado quando não dá para conferir: na dúvida, nada é liberado.</summary>
+    public static readonly PdfPermissions Nothing = new(false, false, false, false);
+}
+
 /// <summary>A senha dada não serve para a operação pedida.</summary>
 public sealed class PdfPasswordException(string message, Exception? inner = null) : Exception(message, inner);
 
@@ -47,7 +55,7 @@ public static class PdfPasswords
         try
         {
             PdfReader.Open(path, PdfDocumentOpenMode.Import).Dispose();
-            return HasEncryptDictionary(path) ? PasswordState.Restricted : PasswordState.None;
+            return IsEncrypted(path) ? PasswordState.Restricted : PasswordState.None;
         }
         catch (PdfReaderException ex) when (IsPasswordError(ex))
         {
@@ -94,7 +102,7 @@ public static class PdfPasswords
     /// <summary>Abre para alterar. Precisa da senha "dona" (a de permissões, ou a única senha que houver).</summary>
     private static PdfDocument OpenForChange(string input, string? password)
     {
-        if (!HasEncryptDictionary(input)) password = null; // sem proteção: a senha não importa
+        if (!IsEncrypted(input)) password = null; // sem proteção: a senha não importa
         try
         {
             return string.IsNullOrEmpty(password)
@@ -113,29 +121,95 @@ public static class PdfPasswords
         }
     }
 
-    /// <summary>O arquivo tem o dicionário /Encrypt (criptografia, com ou sem senha para abrir).</summary>
     /// <summary>
     /// Etapa 7.3: o autor permite imprimir? PDF sem proteção sempre permite. <paramref name="password"/>: a senha
     /// usada para abrir, se houver.
     /// </summary>
-    public static bool AllowsPrinting(string path, string? password = null)
+    public static bool AllowsPrinting(string path, string? password = null) => Permissions(path, password).Print;
+
+    /// <summary>
+    /// O que o autor permite (imprimir, copiar o texto, alterar, comentar), lido do /Encrypt (/P). Com a senha de
+    /// permissões, tudo. Se não der para conferir (senha errada, arquivo estragado), nada — o app falha "fechado".
+    /// </summary>
+    public static PdfPermissions Permissions(string path, string? password = null)
     {
-        if (!HasEncryptDictionary(path)) return true;
         try
         {
+            if (!IsEncrypted(path)) return PdfPermissions.All;
             using var doc = string.IsNullOrEmpty(password)
                 ? PdfReader.Open(path, PdfDocumentOpenMode.Import)
                 : PdfReader.Open(path, password, PdfDocumentOpenMode.Import);
-            return doc.SecuritySettings.PermitPrint;
+            var security = doc.SecuritySettings;
+            if (IsOwner(path, password)) return PdfPermissions.All;
+            return new PdfPermissions(security.PermitPrint, security.PermitExtractContent,
+                security.PermitModifyDocument, security.PermitAnnotations);
         }
-        catch (PdfReaderException ex) when (IsPasswordError(ex))
+        catch (Exception ex) when (ex is PdfReaderException or IOException or UnauthorizedAccessException or InvalidOperationException
+                                       or NotSupportedException or FormatException or ArgumentException)
         {
-            return true; // não deu para conferir; o próprio Windows recusaria abrir sem a senha
+            return PdfPermissions.Nothing;
         }
     }
 
-    private static bool HasEncryptDictionary(string path) =>
-        System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(path)).Contains("/Encrypt", StringComparison.Ordinal);
+    /// <summary>A senha dada é a "dona" (de permissões)? O PDFsharp só deixa abrir para alterar com ela.</summary>
+    private static bool IsOwner(string path, string? password)
+    {
+        try
+        {
+            using var doc = string.IsNullOrEmpty(password)
+                ? PdfReader.Open(path, PdfDocumentOpenMode.Modify)
+                : PdfReader.Open(path, password, PdfDocumentOpenMode.Modify);
+            return true;
+        }
+        catch (PdfReaderException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// O arquivo é criptografado (tem /Encrypt no trailer mais recente)? Lê só o fim do arquivo e a tabela que ele
+    /// aponta. Se a estrutura não for reconhecida, procura "/Encrypt" no arquivo todo (na dúvida, trata como protegido).
+    /// </summary>
+    public static bool IsEncrypted(string path)
+    {
+        using var file = File.OpenRead(path);
+        try
+        {
+            int tailLength = (int)Math.Min(file.Length, 2048);
+            var tail = new byte[tailLength];
+            file.Seek(-tailLength, SeekOrigin.End);
+            file.ReadExactly(tail);
+            string end = System.Text.Encoding.Latin1.GetString(tail);
+            var m = System.Text.RegularExpressions.Regex.Match(end, @"startxref\s+(\d+)", System.Text.RegularExpressions.RegexOptions.RightToLeft);
+            if (m.Success && long.TryParse(m.Groups[1].Value, out long at) && at >= 0 && at < file.Length)
+            {
+                var buffer = new byte[(int)Math.Min(file.Length - at, 64 * 1024)];
+                file.Seek(at, SeekOrigin.Begin);
+                file.ReadExactly(buffer);
+                string text = System.Text.Encoding.Latin1.GetString(buffer);
+                string? dict = null;
+                if (text.StartsWith("xref", StringComparison.Ordinal))
+                {
+                    int t = text.IndexOf("trailer", StringComparison.Ordinal);
+                    int e = t < 0 ? -1 : text.IndexOf("startxref", t, StringComparison.Ordinal);
+                    if (t >= 0) dict = e > t ? text[t..e] : text[t..];
+                }
+                else if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^\d+\s+\d+\s+obj") && text.Contains("/XRef", StringComparison.Ordinal))
+                {
+                    int st = text.IndexOf("stream", StringComparison.Ordinal);
+                    dict = st > 0 ? text[..st] : null;
+                }
+                if (dict is not null) return System.Text.RegularExpressions.Regex.IsMatch(dict, @"/Encrypt\b");
+            }
+        }
+        catch (IOException) { }
+        // Estrutura que não reconhecemos: procura no arquivo todo.
+        file.Seek(0, SeekOrigin.Begin);
+        using var all = new MemoryStream();
+        file.CopyTo(all);
+        return System.Text.Encoding.Latin1.GetString(all.GetBuffer(), 0, (int)all.Length).Contains("/Encrypt", StringComparison.Ordinal);
+    }
 
     private static bool IsPasswordError(PdfReaderException ex) =>
         ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase);

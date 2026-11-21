@@ -113,6 +113,8 @@ public partial class App : Application
         Task.Run(() =>
         {
             PDFStudio.Core.WorkingCopy.CleanupStale();
+            try { PDFStudio.Core.WorkingCopy.CleanupLooseCopies(); }
+            catch (Exception ex) { LogError("Limpar cópias temporárias", ex); }
             try { PDFStudio.Core.PdfAttachments.CleanupOpenedCopies(); }
             catch (Exception ex) { LogError("Limpar cópias de anexos", ex); }
         });

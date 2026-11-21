@@ -477,10 +477,12 @@ public sealed partial class BatchPage : Page
     // ---------------- Converter, OCR e imagens para PDF (Etapa 8.3) ----------------
 
     /// <summary>Erro claro para PDF com senha (o motor do Windows daria uma mensagem confusa).</summary>
-    private static void RefuseLocked(string input)
+    private static void RefuseLocked(string input, bool needsCopy = false)
     {
         if (SafeInspect(input) == PasswordState.OpenPassword)
             throw new PdfPasswordException("Tem senha para abrir: remova a senha antes.");
+        if (needsCopy && !PdfPasswords.Permissions(input).Copy)
+            throw new PdfPasswordException("Quem criou o PDF não permite copiar o conteúdo.");
     }
 
     private async Task<Func<string, string, string?>?> AskImagesToPdfAsync()
@@ -544,7 +546,7 @@ public sealed partial class BatchPage : Page
 
         return (inputs, folder, _, progress, cancel) => Task.Run(() => PdfBatch.RunToFolderAsync(inputs, folder, async (input, temp, token) =>
         {
-            RefuseLocked(input);
+            RefuseLocked(input, needsCopy: true);
             var doc = await PdfRenderer.LoadAsync(input);
             int count = (int)doc.PageCount;
             string name = Path.GetFileName(input);

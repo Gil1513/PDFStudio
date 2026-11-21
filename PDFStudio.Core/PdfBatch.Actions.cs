@@ -72,6 +72,8 @@ public static partial class PdfBatch
     /// <summary>Operação "PDF para Word" (use com extension ".docx").</summary>
     public static Func<string, string, string?> ToWord() => (input, output) =>
     {
+        if (PdfPasswords.Inspect(input) == PasswordState.OpenPassword) throw new PdfPasswordException("Tem senha para abrir: remova a senha antes.");
+        if (!PdfPasswords.Permissions(input).Copy) throw new PdfPasswordException("Quem criou o PDF não permite copiar o conteúdo.");
         var r = PdfToWord.Convert(input, output);
         return $"{r.Pages} {(r.Pages == 1 ? "página" : "páginas")}" + (r.Images > 0 ? $", {r.Images} {(r.Images == 1 ? "imagem" : "imagens")}" : "");
     };

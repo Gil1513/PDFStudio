@@ -16,6 +16,7 @@ public sealed partial class ViewerPage
     private async Task ExportImagesAsync()
     {
         if (_document is null || _path is null) return;
+        if (!await CopyAllowedAsync("Conversão não permitida")) return;
         int pageCount = _slots.Count;
         int current = Math.Clamp((int)PageNumberBox.Value, 1, pageCount);
 

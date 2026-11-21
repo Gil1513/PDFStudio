@@ -17,12 +17,17 @@ public sealed class WorkingCopy : IDisposable
     private int _current;   // versão mostrada
     private int _saved;     // versão igual ao arquivo em disco (-1 = nenhuma)
     private int _counter;
+    /// <summary>Arquivo aberto enquanto a cópia existe: mostra a outras instâncias que a pasta está em uso
+    /// (o Windows o apaga sozinho quando o app fecha, mesmo se ele travar).</summary>
+    private readonly FileStream _inUse;
+    private const string InUseFile = ".em-uso";
 
     public WorkingCopy(string originalPath, string? tempRoot = null)
     {
         OriginalPath = Path.GetFullPath(originalPath);
         _folder = Path.Combine(tempRoot ?? DefaultRoot, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_folder);
+        _inUse = new FileStream(Path.Combine(_folder, InUseFile), FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
         string first = NextFile();
         File.Copy(OriginalPath, first);
         _versions.Add(first);
@@ -104,12 +109,16 @@ public sealed class WorkingCopy : IDisposable
 
     public void Dispose()
     {
+        _inUse.Dispose();
         try { Directory.Delete(_folder, recursive: true); }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
     }
 
-    /// <summary>Apaga pastas de trabalho esquecidas (ex.: o app foi fechado à força) com mais de um dia.</summary>
+    /// <summary>
+    /// Apaga pastas de trabalho esquecidas (ex.: o app foi fechado à força). Elas podem ter versões SEM a senha do
+    /// PDF (depois de "Remover senha"), então saem assim que nenhum PDF Studio aberto as usa — não espera um dia.
+    /// </summary>
     public static void CleanupStale(string? tempRoot = null)
     {
         string root = tempRoot ?? DefaultRoot;
@@ -118,10 +127,56 @@ public sealed class WorkingCopy : IDisposable
         {
             try
             {
-                if (Directory.GetLastWriteTimeUtc(dir) < DateTime.UtcNow.AddDays(-1)) Directory.Delete(dir, recursive: true);
+                if (Directory.GetCreationTimeUtc(dir) > DateTime.UtcNow.AddMinutes(-1)) continue; // acabou de ser criada
+                if (InUse(dir)) continue;
+                Directory.Delete(dir, recursive: true);
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>
+    /// Apaga cópias temporárias soltas que ficaram para trás (app fechado à força): testes de senha, cópias sem
+    /// comentários e arquivos de impressão em %TEMP%\PDFStudio. Podem estar sem a senha do PDF original.
+    /// Só as com mais de <paramref name="olderThan"/> (padrão: 10 minutos); arquivos ainda abertos não saem.
+    /// </summary>
+    public static int CleanupLooseCopies(string? tempRoot = null, TimeSpan? olderThan = null)
+    {
+        string root = tempRoot ?? Path.Combine(Path.GetTempPath(), "PDFStudio");
+        if (!Directory.Exists(root)) return 0;
+        var limit = DateTime.UtcNow - (olderThan ?? TimeSpan.FromMinutes(10));
+        var files = Directory.GetFiles(root, "senha-*.pdf").Concat(Directory.GetFiles(root, "teste-senha-*.pdf"));
+        foreach (var sub in new[] { "sem-comentarios", "impressao" })
+            if (Directory.Exists(Path.Combine(root, sub))) files = files.Concat(Directory.GetFiles(Path.Combine(root, sub)));
+        int removed = 0;
+        foreach (var file in files.ToList())
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) > limit) continue;
+                File.Delete(file);
+                removed++;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        return removed;
+    }
+
+    /// <summary>Outra instância do app está usando a pasta (o arquivo de "em uso" existe e está travado)?</summary>
+    private static bool InUse(string dir)
+    {
+        string marker = Path.Combine(dir, InUseFile);
+        if (!File.Exists(marker)) return false;
+        try
+        {
+            using var probe = new FileStream(marker, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return false;
+        }
+        catch (IOException)
+        {
+            return true;
         }
     }
 

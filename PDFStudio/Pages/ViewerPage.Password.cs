@@ -20,6 +20,34 @@ public sealed partial class ViewerPage
     private const string ProtectedEditHint =
         "Para alterar este PDF, remova a senha antes (Proteger → Remover senha). Depois, se quiser, coloque-a de novo.";
 
+    private (string Path, string? Password, DateTime Stamp, PdfPermissions Value)? _permissions;
+
+    /// <summary>
+    /// O que o autor do PDF mostrado permite (imprimir, copiar…). Guarda o resultado enquanto o arquivo não mudar.
+    /// Na dúvida (não deu para ler), nada é liberado.
+    /// </summary>
+    private async Task<PdfPermissions> PermissionsAsync()
+    {
+        if (DisplayPath is not { } path) return PdfPermissions.Nothing;
+        string? password = _password;
+        DateTime stamp;
+        try { stamp = File.GetLastWriteTimeUtc(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return PdfPermissions.Nothing; }
+        if (_permissions is { } cached && cached.Path == path && cached.Password == password && cached.Stamp == stamp) return cached.Value;
+        var value = await Task.Run(() => PdfPasswords.Permissions(path, password));
+        _permissions = (path, password, stamp, value);
+        return value;
+    }
+
+    /// <summary>Copiar/exportar o conteúdo é permitido? Se não, avisa com o título dado.</summary>
+    private async Task<bool> CopyAllowedAsync(string title)
+    {
+        if ((await PermissionsAsync()).Copy) return true;
+        ShowStatus(InfoBarSeverity.Warning, title,
+            "Quem criou este PDF não permite copiar o conteúdo dele (restrição de permissões). Com a senha de permissões, use Proteger → Remover senha.");
+        return false;
+    }
+
     /// <summary>Que proteção o arquivo tem (null = não deu para ler o arquivo; o aviso já foi mostrado).</summary>
     private async Task<PasswordState?> InspectPasswordAsync(string source)
     {

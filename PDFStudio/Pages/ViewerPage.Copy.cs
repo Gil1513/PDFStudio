@@ -97,9 +97,12 @@ public sealed partial class ViewerPage
 
     private bool HasCopySelection => _copySelected.Count > 0;
 
-    private void CopySelectedText()
+    private async void CopySelectedText()
     {
         if (!HasCopySelection) return;
+        var selected = _copySelected;
+        if (!await CopyAllowedAsync("Cópia não permitida")) return;
+        if (!ReferenceEquals(selected, _copySelected)) return; // a seleção mudou enquanto conferia
         var package = new DataPackage();
         package.SetText(PdfTextLayout.TextOf(_copySelected));
         Clipboard.SetContent(package);

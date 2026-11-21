@@ -21,7 +21,7 @@ public sealed partial class ViewerPage
     private async Task PrintAsync()
     {
         if (DisplayPath is not { } path || _document is null || _printing) return;
-        if (!await Task.Run(() => PdfPasswords.AllowsPrinting(path, _password)))
+        if (!(await PermissionsAsync()).Print)
         {
             ShowStatus(InfoBarSeverity.Warning, "Impressão não permitida",
                 "Quem criou este PDF não permite imprimi-lo (restrição de permissões). Com a senha de permissões, use Proteger → Remover senha.");
