@@ -423,6 +423,10 @@ public sealed partial class ViewerPage : Page
             case "paraword": await ConvertToWordAsync(); break;
             case "lervoz": await ReadAloudAsync(); break;
             case "converter": ShowConverterTab(); break;
+            case "editar": // cartão "Editar PDF" da tela inicial: aba Editar com o "Editar tudo" ligado
+                if (Categories.FirstOrDefault(c => c.Key == "editar") is { } editTab) CategoryList.SelectedItem = editTab;
+                if (_tool?.Key != "editartudo") SetTool("editartudo");
+                break;
             case "ocr": await OcrAsync(); break;
             case "imagemparapdf":
                 // Cria o PDF a partir de imagens e abre (OpenAsync pergunta antes se há alterações não salvas).

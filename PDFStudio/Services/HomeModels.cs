@@ -39,7 +39,7 @@ public static class ToolCatalog
         Purple = C(0x8A63F0), Red = C(0xE5534B), Pink = C(0xD94F9C), Amber = C(0xE0A31B), Slate = C(0x5B6B8C), Cyan = C(0x2BA7D9);
 
     public static readonly ToolInfo Viewer = new("viewer", "Abrir e visualizar", "Leia o PDF com zoom e navegação por páginas.", "", Blue, true);
-    public static readonly ToolInfo Edit = new("editar", "Editar PDF", "Edite textos e imagens no arquivo.", "", Orange, false);
+    public static readonly ToolInfo Edit = new("editar", "Editar PDF", "Edite textos e imagens no arquivo.", "", Orange, true);
     public static readonly ToolInfo Convert = new("converter", "Converter PDF", "Converta PDFs para Word, imagens e mais.", "", Teal, true);
     public static readonly ToolInfo Ocr = new("ocr", "PDF por OCR", "Deixe PDFs digitalizados pesquisáveis e copiáveis.", "", Green, true);
     public static readonly ToolInfo Merge = new("combinar", "Combinar PDFs", "Junte vários arquivos em um único PDF.", "", Blue, true);
