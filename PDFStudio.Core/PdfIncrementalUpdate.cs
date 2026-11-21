@@ -34,6 +34,24 @@ internal static class PdfIncrementalUpdate
     /// <param name="xrefStream">Só para testes: força o formato da tabela nova (null = o mesmo do arquivo).</param>
     public static void Write(byte[] original, PdfDocument doc, Dictionary<int, byte[]> before, string output, bool? xrefStream = null)
     {
+        byte[] result = Build(original, doc, before, xrefStream);
+        string full = Path.GetFullPath(output), temp = full + ".tmp";
+        try
+        {
+            File.WriteAllBytes(temp, result);
+            File.Move(temp, full, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temp)) File.Delete(temp);
+        }
+    }
+
+    /// <summary>Como <see cref="Write"/>, mas devolve os bytes. <paramref name="patchedLater"/> = objetos que o
+    /// chamador ainda vai completar nos bytes (ex.: a assinatura): não entram na conferência.</summary>
+    public static byte[] Build(byte[] original, PdfDocument doc, Dictionary<int, byte[]> before, bool? xrefStream = null,
+        IReadOnlySet<int>? patchedLater = null)
+    {
         var changed = new List<PdfObject>();
         var expected = new Dictionary<int, byte[]>(before);
         int maxNumber = 0;
@@ -119,6 +137,9 @@ internal static class PdfIncrementalUpdate
             using var check = PdfSharp.Pdf.IO.PdfReader.Open(new MemoryStream(result), PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
             var got = Snapshot(check);
             got.Remove(ownXref); // a própria tabela nova, em formato de fluxo, também é um objeto
+            if (patchedLater is not null)
+                foreach (int n in patchedLater)
+                    if (got.ContainsKey(n)) got[n] = expected[n];
             if (got.Count != expected.Count || expected.Any(kv => !got.TryGetValue(kv.Key, out var h) || !h.AsSpan().SequenceEqual(kv.Value)))
                 throw new NotSupportedException("A gravação no fim do arquivo não conferiu.");
         }
@@ -126,17 +147,7 @@ internal static class PdfIncrementalUpdate
         {
             throw new NotSupportedException("A gravação no fim do arquivo não pôde ser lida de volta.", ex);
         }
-
-        string full = Path.GetFullPath(output), temp = full + ".tmp";
-        try
-        {
-            File.WriteAllBytes(temp, result);
-            File.Move(temp, full, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temp)) File.Delete(temp);
-        }
+        return result;
     }
 
     /// <summary>A tabela mais recente do arquivo: onde ela fica, se é "fluxo" e o texto do trailer (ou do dicionário dela).</summary>

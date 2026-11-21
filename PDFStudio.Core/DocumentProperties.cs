@@ -358,7 +358,7 @@ public static class DocumentPropertiesService
     private static bool ByteRangeInsideSignedPart(byte[] bytes, long a, long b, long c, long d)
     {
         const int window = 64 * 1024;
-        var pattern = new System.Text.RegularExpressions.Regex($@"/ByteRange\s*\[\s*{a}\s+{b}\s+{c}\s+{d}\s*\]");
+        var pattern = new System.Text.RegularExpressions.Regex($@"/ByteRange\s*\[\s*0*{a}\s+0*{b}\s+0*{c}\s+0*{d}\s*\]");
         int from = (int)Math.Max(0, b - window);
         if (pattern.IsMatch(Encoding.Latin1.GetString(bytes, from, (int)(b - from)))) return true;
         int length = (int)Math.Min(window, d);

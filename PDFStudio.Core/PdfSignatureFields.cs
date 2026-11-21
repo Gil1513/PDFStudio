@@ -146,6 +146,34 @@ public static class PdfSignatureFields
         return false;
     }
 
+    /// <summary>Acha o campo vazio <paramref name="name"/>: página, anotação (o retângulo na página) e o campo.</summary>
+    internal static (int Page, PdfDictionary Widget, PdfDictionary Field)? FindEmptyField(PdfDocument doc, string name)
+    {
+        for (int p = 0; p < doc.PageCount; p++)
+        {
+            var annots = doc.Pages[p].Elements.GetArray("/Annots");
+            if (annots is null) continue;
+            for (int i = 0; i < annots.Elements.Count; i++)
+            {
+                if (annots.Elements.GetDictionary(i) is not { } annot || annot.Elements.GetName("/Subtype") != "/Widget") continue;
+                if (FieldOf(annot) is not { } field || !NameOf(field).Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (field.Elements.ContainsKey("/V")) throw new InvalidOperationException($"O campo “{name}” já está assinado.");
+                return (p, annot, field);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Nomes de todos os campos do formulário (para escolher um nome livre).</summary>
+    internal static HashSet<string> FieldNames(PdfDocument doc)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (doc.Internals.Catalog.Elements.GetDictionary("/AcroForm")?.Elements.GetArray("/Fields") is { } fields)
+            for (int i = 0; i < fields.Elements.Count; i++)
+                if (fields.Elements.GetDictionary(i) is { } f) names.Add(NameOf(f));
+        return names;
+    }
+
     /// <summary>O campo de assinatura da anotação (ela mesma ou um "pai" com /FT /Sig), ou null.</summary>
     private static PdfDictionary? FieldOf(PdfDictionary annot)
     {

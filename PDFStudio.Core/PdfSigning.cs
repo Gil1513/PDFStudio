@@ -59,7 +59,7 @@ public sealed record CertificateSummary(string Name, string Issuer, DateTime Not
 }
 
 /// <summary>Assinatura digital PAdES/CMS com certificado .pfx (PDFsharp 6.2.4, MIT + criptografia do .NET).</summary>
-public static class PdfSigning
+public static partial class PdfSigning
 {
     /// <summary>Tamanho do carimbo visível, em pontos (1/72 pol.).</summary>
     public const double StampWidth = 230, StampHeight = 72, StampMargin = 36;
@@ -115,6 +115,9 @@ public static class PdfSigning
         if (!cert.HasPrivateKey)
             throw new InvalidOperationException("O certificado não contém a chave privada, necessária para assinar.");
         var summary = Summarize(cert);
+
+        // PDF que já tem assinatura: a nova vai no fim do arquivo e as anteriores continuam valendo.
+        if (await TrySignIncrementallyAsync(request, cert, summary)) return summary;
 
         PdfDocument doc;
         try

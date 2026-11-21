@@ -123,6 +123,71 @@ public class SignatureChangesTests
     }
 
     [Fact]
+    public async Task SigningAgain_KeepsTheFirstSignatureValid()
+    {
+        string dir = TestPdfs.TempDir();
+        string first = await SignedPdf(dir);
+        byte[] original = File.ReadAllBytes(first);
+        string pfx2 = SigningTests.CreatePfx(Directory.CreateDirectory(Path.Combine(dir, "b")).FullName, "Beltrano Teste");
+        string second = Path.Combine(dir, "duas.pdf");
+
+        await PdfSigning.SignAsync(new SignatureRequest
+        {
+            InputPath = first, OutputPath = second, PfxPath = pfx2, PfxPassword = "senha123",
+            Visible = true, PageNumber = 2, Reason = "Testemunha", Location = "São Paulo",
+        });
+
+        Assert.True(File.ReadAllBytes(second).AsSpan().StartsWith(original));
+        var sigs = DocumentPropertiesService.Read(second).Signatures;
+        Assert.Equal(2, sigs.Count);
+        var a = sigs.Single(s => s.Signer == "Fulano de Tal");
+        var b = sigs.Single(s => s.Signer == "Beltrano Teste");
+        Assert.True(a.IsIntact);
+        Assert.Equal(SignatureChanges.Signatures, a.ChangesAfter);
+        Assert.Contains("outra assinatura", SignatureReview.Evaluate(a, trustedByUser: true).Headline);
+        Assert.Equal(SignatureStatus.ValidWithChanges, SignatureReview.Evaluate(a, trustedByUser: true).Status);
+        Assert.True(b.IsIntact);
+        Assert.True(b.CoversWholeFile);
+        Assert.Equal(2, b.PageNumber);
+        Assert.Equal("Testemunha", b.Reason);
+        Assert.Equal("São Paulo", b.Location);
+        Assert.Equal(SignatureStatus.Valid, SignatureReview.Evaluate(b, trustedByUser: true).Status);
+
+        // Comentar depois das duas: as duas continuam valendo.
+        PdfAnnotations.AddShape(second, 0, AnnotationKind.Oval, 50, 50, 100, 60, Red, "Ana", second);
+        sigs = DocumentPropertiesService.Read(second).Signatures;
+        Assert.All(sigs, s => Assert.Equal(SignatureStatus.ValidWithChanges, SignatureReview.Evaluate(s, trustedByUser: true).Status));
+    }
+
+    [Fact]
+    public async Task EmptyFieldAddedAfterSigning_ThenSigned_KeepsEverythingValid()
+    {
+        string dir = TestPdfs.TempDir();
+        string file = await SignedPdf(dir);
+        byte[] original = File.ReadAllBytes(file);
+
+        PdfSignatureFields.Add(file, 1, 100, 100, 200, 60, "Testemunha", file);
+        var empty = Assert.Single(DocumentPropertiesService.Read(file).Signatures);
+        Assert.Equal(SignatureChanges.Signatures, empty.ChangesAfter); // campo vazio novo é permitido
+
+        string pfx2 = SigningTests.CreatePfx(Directory.CreateDirectory(Path.Combine(dir, "b")).FullName, "Beltrano Teste");
+        await PdfSigning.SignAsync(new SignatureRequest
+        {
+            InputPath = file, OutputPath = file, PfxPath = pfx2, PfxPassword = "senha123", Visible = true, FieldName = "Testemunha",
+        });
+
+        Assert.True(File.ReadAllBytes(file).AsSpan().StartsWith(original));
+        var sigs = DocumentPropertiesService.Read(file).Signatures;
+        Assert.Equal(2, sigs.Count);
+        var b = sigs.Single(s => s.FieldName == "Testemunha");
+        Assert.Equal("Beltrano Teste", b.Signer);
+        Assert.Equal(2, b.PageNumber);
+        Assert.Equal(SignatureStatus.Valid, SignatureReview.Evaluate(b, trustedByUser: true).Status);
+        Assert.Equal(SignatureStatus.ValidWithChanges, SignatureReview.Evaluate(sigs.Single(s => s != b), trustedByUser: true).Status);
+        Assert.DoesNotContain(PdfSignatureFields.List(file), f => !f.Signed);
+    }
+
+    [Fact]
     public async Task UnsignedPdf_IsStillRewrittenAsBefore()
     {
         string dir = TestPdfs.TempDir();

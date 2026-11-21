@@ -44,8 +44,8 @@
                     Title="Este PDF já tem assinatura"
                     IsClosable="False"
                     IsOpen="False"
-                    Message="Ao assinar novamente, o PDF Studio regrava o arquivo e as assinaturas existentes deixam de ser válidas."
-                    Severity="Warning" />
+                    Message="A nova assinatura é acrescentada no fim do arquivo: as assinaturas que já existem continuam válidas."
+                    Severity="Informational" />
             </StackPanel>
 
             <!--  2. Certificado  -->
