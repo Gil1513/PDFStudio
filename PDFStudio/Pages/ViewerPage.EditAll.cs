@@ -123,11 +123,12 @@ public sealed partial class ViewerPage
         PaintBlockOutlines();
         ShowBlockActions(surface, block);
         ToolHintText.Text = block is null ? CommentTools["editartudo"].Hint
-            : Describe(block) + (block.Kind == BlockKind.Text ? " · " + SelectedTextHint : "");
+            : Describe(block) + " · " + (block.Kind == BlockKind.Text ? SelectedTextHint : SelectedImageHint);
         ToolTipService.SetToolTip(ToolHintText, block?.Text);
     }
 
     private const string SelectedTextHint = "Clique de novo para editar, arraste para mover, Delete apaga.";
+    private const string SelectedImageHint = "Arraste para mover, Delete apaga.";
 
     // ---------------- Mover (arrastar) e apagar o bloco de texto ----------------
 
@@ -143,10 +144,10 @@ public sealed partial class ViewerPage
     private BlockDrag? _blockDrag;
     private FrameworkElement? _blockActions;
 
-    /// <summary>Mouse apertado no modo Editar: num texto, espera para ver se é clique ou arrasto; no resto, é clique.</summary>
+    /// <summary>Mouse apertado no modo Editar: num texto ou imagem, espera para ver se é clique ou arrasto; fora, é clique.</summary>
     private async Task PressBlockAsync(DrawingSurface surface, PageSlot slot, Point p)
     {
-        if (BlockAt(slot, p) is { Kind: BlockKind.Text } block)
+        if (BlockAt(slot, p) is { } block)
         {
             _blockDrag = new BlockDrag { Slot = slot, Block = block, Start = p };
             return;
@@ -184,7 +185,7 @@ public sealed partial class ViewerPage
             };
             surface.Children.Add(drag.Ghost);
             surface.SetCursor(InputSystemCursorShape.SizeAll);
-            ToolHintText.Text = "Solte onde o texto deve ficar (Esc cancela).";
+            ToolHintText.Text = $"Solte onde {(drag.Block.Kind == BlockKind.Text ? "o texto deve" : "a imagem deve")} ficar (Esc cancela).";
         }
         var (dx, dy) = DragOffset(surface, drag, p);
         Canvas.SetLeft(drag.Ghost, (drag.Block.X - 2) * DipsPerPoint + dx);
@@ -213,28 +214,30 @@ public sealed partial class ViewerPage
         if (Math.Abs(ddx) < 0.5 && Math.Abs(ddy) < 0.5) { await ClickBlockAsync(surface, drag.Slot, drag.Start); return; }
         int page = drag.Slot.Index;
         var block = drag.Block;
-        ToolHintText.Text = "Movendo o texto…";
-        if (await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, block, ddx, ddy, output), label: "Mover texto"))
-            ShowStatus(InfoBarSeverity.Success, "Texto movido", "A letra continua a mesma. Use Desfazer (Ctrl+Z) para voltar.");
+        bool text = block.Kind == BlockKind.Text;
+        ToolHintText.Text = text ? "Movendo o texto…" : "Movendo a imagem…";
+        if (await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, block, ddx, ddy, output), label: text ? "Mover texto" : "Mover imagem"))
+            ShowStatus(InfoBarSeverity.Success, text ? "Texto movido" : "Imagem movida",
+                (text ? "A letra continua a mesma." : "A imagem continua a mesma.") + " Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
     }
 
-    /// <summary>Apaga o bloco de texto selecionado (com desfazer).</summary>
+    /// <summary>Apaga o texto ou a imagem selecionada (com desfazer).</summary>
     private async Task DeleteSelectedBlockAsync()
     {
-        if (_selectedBlock is not { Kind: BlockKind.Text } block || _blockSurface is not { } surface || SlotOf(surface) is not { } slot) return;
+        if (_selectedBlock is not { } block || _blockSurface is not { } surface || SlotOf(surface) is not { } slot) return;
         if (_blockEditor is not null) return;
         int page = slot.Index;
         TextEditResult? result = null;
-        if (await ApplyEditAsync((input, output) => result = PdfTextEditor.Delete(input, page, block, output), label: "Apagar texto"))
-            ShowStatus(InfoBarSeverity.Success, "Texto apagado",
+        if (await ApplyEditAsync((input, output) => result = PdfTextEditor.Delete(input, page, block, output), label: block.Kind == BlockKind.Text ? "Apagar texto" : "Apagar imagem"))
+            ShowStatus(InfoBarSeverity.Success, block.Kind == BlockKind.Text ? "Texto apagado" : "Imagem apagada",
                 (result?.Covered == true ? "Parte do texto não pôde ser apagada e foi coberta com branco. " : "") + "Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
     }
 
-    /// <summary>Delete (ou Backspace) apaga o texto selecionado; Esc cancela um arrasto.</summary>
+    /// <summary>Delete (ou Backspace) apaga o texto ou a imagem selecionada; Esc cancela um arrasto.</summary>
     private async void BlockKey_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (_tool?.Mode != DrawMode.EditAll || _blockEditor is not null) return;
@@ -247,17 +250,17 @@ public sealed partial class ViewerPage
             return;
         }
         if (e.Key is not (Windows.System.VirtualKey.Delete or Windows.System.VirtualKey.Back)) return;
-        if (_selectedBlock is not { Kind: BlockKind.Text }) return;
+        if (_selectedBlock is null) return;
         if (FocusManager.GetFocusedElement(XamlRoot) is TextBox or PasswordBox or RichEditBox or AutoSuggestBox) return;
         e.Handled = true;
         await DeleteSelectedBlockAsync();
     }
 
-    /// <summary>Botão "Apagar" logo acima do texto selecionado.</summary>
+    /// <summary>Botão "Apagar" ao lado do texto ou imagem selecionada.</summary>
     private void ShowBlockActions(DrawingSurface surface, ContentBlock? block)
     {
         RemoveBlockActions();
-        if (block is not { Kind: BlockKind.Text }) return;
+        if (block is null) return;
         var delete = new Button
         {
             Content = new StackPanel
@@ -268,7 +271,7 @@ public sealed partial class ViewerPage
             },
             Padding = new Thickness(10, 4, 10, 4),
         };
-        ToolTipService.SetToolTip(delete, "Apagar este texto (Delete)");
+        ToolTipService.SetToolTip(delete, $"Apagar {(block.Kind == BlockKind.Text ? "este texto" : "esta imagem")} (Delete)");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(delete, "DeleteBlockButton");
         delete.Click += async (_, _) => await DeleteSelectedBlockAsync();
         var bar = new Border

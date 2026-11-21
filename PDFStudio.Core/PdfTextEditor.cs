@@ -80,8 +80,17 @@ public static class PdfTextEditor
     // ---------------- Apagar e mover o bloco ----------------
 
     /// <summary>Apaga o texto do bloco da página (o que não der para tirar é coberto com branco).</summary>
-    public static TextEditResult Delete(string input, int pageIndex, ContentBlock block, string output) =>
-        Replace(input, pageIndex, block, "", output);
+    /// <summary>Apaga o bloco: texto (o que não der para tirar é coberto com branco) ou imagem.</summary>
+    public static TextEditResult Delete(string input, int pageIndex, ContentBlock block, string output)
+    {
+        if (block.Kind == BlockKind.Text) return Replace(input, pageIndex, block, "", output);
+        PdfAnnotations.Edit(input, output, doc =>
+        {
+            if (RemoveTextIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block) == 0)
+                throw new InvalidOperationException(CannotMoveImage.Replace("mover", "apagar"));
+        });
+        return new TextEditResult("", false);
+    }
 
     /// <summary>
     /// Move o texto do bloco <paramref name="dx"/>, <paramref name="dy"/> pontos (na tela: x para a direita, y para
@@ -91,7 +100,6 @@ public static class PdfTextEditor
     /// </summary>
     public static void Move(string input, int pageIndex, ContentBlock block, double dx, double dy, string output)
     {
-        if (block.Kind != BlockKind.Text) throw new ArgumentException("O bloco escolhido não é de texto.", nameof(block));
         if (Math.Abs(dx) < 0.01 && Math.Abs(dy) < 0.01)
         {
             if (!SamePath(input, output)) File.Copy(input, output, overwrite: true);
@@ -101,6 +109,11 @@ public static class PdfTextEditor
         Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
         try
         {
+            if (block.Kind == BlockKind.Image)
+            {
+                PdfAnnotations.Edit(input, output, doc => MoveImageIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block, dx, dy));
+                return;
+            }
             PdfAnnotations.Edit(input, temp, doc => MoveIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block, dx, dy));
             // Conferência: no lugar antigo não pode sobrar palavra do bloco (fora da área para onde ele foi).
             var moved = block with { X = block.X + dx, Y = block.Y + dy };
@@ -119,6 +132,42 @@ public static class PdfTextEditor
     }
 
     private const string CannotMove = "Este texto está gravado de um jeito que não dá para mover.";
+    private const string CannotMoveImage = "Esta imagem está gravada de um jeito que não dá para mover.";
+
+    /// <summary>
+    /// Move a imagem: o comando que a desenha ganha um deslocamento ("q … cm /Imagem Do Q"). A imagem em si (o
+    /// arquivo dentro do PDF) não muda. Imagem que não está desenhada direto na página: erro, nada muda.
+    /// </summary>
+    private static void MoveImageIn(PdfPage page, ContentBlock block, double dx, double dy)
+    {
+        var streams = Walk(page, block).Where(s => s.Seq is not null && s.Move is null && s.InBlock.Count > 0).ToList();
+        if (streams.Count == 0) throw new InvalidOperationException(CannotMoveImage);
+        var geometry = PageGeometry.Of(page);
+        var from = geometry.ViewToPdf(block.X, block.Y);
+        var to = geometry.ViewToPdf(block.X + dx, block.Y + dy);
+        double tx = to.X - from.X, ty = to.Y - from.Y;
+        foreach (var s in streams)
+        {
+            for (int k = s.InBlock.Count - 1; k >= 0; k--)
+            {
+                int i = s.InBlock[k];
+                var ctm = s.Places![i];
+                // Deslocamento na página (tx, ty) escrito nas medidas de onde a imagem é desenhada: resolve a parte
+                // linear da matriz atual (o "cm" novo é aplicado antes dela).
+                double det = ctm.A * ctm.D - ctm.B * ctm.C;
+                if (Math.Abs(det) < 1e-12) throw new InvalidOperationException(CannotMoveImage);
+                double lx = (tx * ctm.D - ty * ctm.C) / det, ly = (ty * ctm.A - tx * ctm.B) / det;
+                var shift = OpCodes.OperatorFromName("cm");
+                foreach (double v in new[] { 1.0, 0, 0, 1, lx, ly }) shift.Operands.Add(new CReal { Value = v });
+                s.Seq!.Insert(i + 1, OpCodes.OperatorFromName("Q"));
+                s.Seq.Insert(i, shift);
+                s.Seq.Insert(i, OpCodes.OperatorFromName("q"));
+            }
+            s.Stream.Elements.Remove("/Filter");
+            s.Stream.Elements.Remove("/DecodeParms");
+            s.Stream.Stream.Value = s.Seq!.ToContent();
+        }
+    }
 
     private static bool SamePath(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
@@ -222,7 +271,7 @@ public static class PdfTextEditor
     /// página que o desenha e o comando de deslocamento), já lido, com os comandos de texto que começam dentro do bloco.
     /// </summary>
     private sealed record StreamOps(PdfDictionary Stream, CSequence? Seq, List<int> InBlock, bool AppArtifact,
-        int TextOps = 0, (PdfDictionary PageStream, COperator Cm)? Move = null);
+        int TextOps = 0, (PdfDictionary PageStream, COperator Cm)? Move = null, Dictionary<int, M>? Places = null);
 
     /// <summary>Apaga da página os comandos de texto que começam dentro do bloco. Devolve quantos saíram.</summary>
     internal static int RemoveTextIn(PdfPage page, ContentBlock block)
@@ -273,8 +322,23 @@ public static class PdfTextEditor
             tm = tlm;
             positioned = true;
         }
-        (List<int> InBlock, int TextOps) Scan(CSequence seq, bool appArtifact, PdfDictionary? pageStream)
+        bool ImageInBlock()
         {
+            // Imagem = quadrado 1 × 1 transformado pela matriz atual; confere se ocupa a mesma área do bloco.
+            double l = double.MaxValue, t = double.MaxValue, r = double.MinValue, b = double.MinValue;
+            foreach (var (ux, uy) in new[] { (0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0) })
+            {
+                var (px, py) = ctm.Apply(ux, uy);
+                var v = geometry.PdfToView(px, py);
+                l = Math.Min(l, v.X); r = Math.Max(r, v.X); t = Math.Min(t, v.Y); b = Math.Max(b, v.Y);
+            }
+            const double tolerance = 2;
+            return Math.Abs(l - block.X) < tolerance && Math.Abs(t - block.Y) < tolerance
+                && Math.Abs(r - block.Right) < tolerance && Math.Abs(b - block.Bottom) < tolerance;
+        }
+        (List<int> InBlock, int TextOps, Dictionary<int, M> Places) Scan(CSequence seq, bool appArtifact, PdfDictionary? pageStream)
+        {
+            var places = new Dictionary<int, M>();
             var inBlock = new List<int>();
             int textOps = 0;
             for (int i = 0; i < seq.Count; i++)
@@ -301,7 +365,7 @@ public static class PdfTextEditor
                         if (op.OpCode.OpCodeName is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble) MoveLine(0, -leading);
                         // Vários comandos seguidos na mesma linha (sem reposicionar) seguem a decisão do primeiro.
                         if (positioned) { lineInBlock = StartsInBlock(); positioned = false; }
-                        if (lineInBlock && !appArtifact) inBlock.Add(i);
+                        if (lineInBlock && !appArtifact && block.Kind == BlockKind.Text) inBlock.Add(i);
                         textOps++;
                         break;
                     // Bloco já movido: "q 1 0 0 1 x y cm /PSMove1 Do Q".
@@ -310,9 +374,16 @@ public static class PdfTextEditor
                         && cm.Operands.Count == 6 && xobjects?.Elements.GetDictionary(name) is { Stream: not null } form:
                         forms.Add((form, ctm, pageStream, cm));
                         break;
+                    // Imagem do bloco (só as desenhadas direto na página).
+                    case OpCodeName.Do when block.Kind == BlockKind.Image && !appArtifact && pageStream is not null && args.Count == 1
+                        && args[0] is CName { Name: var image } && xobjects?.Elements.GetDictionary(image) is { } x
+                        && x.Elements.GetName("/Subtype") == "/Image" && ImageInBlock():
+                        inBlock.Add(i);
+                        places[i] = ctm;
+                        break;
                 }
             }
-            return (inBlock, textOps);
+            return (inBlock, textOps, places);
         }
 
         for (int s = 0; s < contents.Count; s++)
@@ -327,8 +398,8 @@ public static class PdfTextEditor
                 result.Add(new StreamOps(stream, null, [], appArtifact)); // trecho que o PDFsharp não entende: fica como está
                 continue;
             }
-            var (inBlock, textOps) = Scan(seq, appArtifact, stream);
-            result.Add(new StreamOps(stream, seq, inBlock, appArtifact, textOps));
+            var (inBlock, textOps, places) = Scan(seq, appArtifact, stream);
+            result.Add(new StreamOps(stream, seq, inBlock, appArtifact, textOps, Places: places));
         }
 
         foreach (var (form, at, pageStream, cm) in forms)
@@ -340,7 +411,7 @@ public static class PdfTextEditor
             stack.Clear();
             tm = tlm = M.Identity;
             positioned = true;
-            var (inBlock, textOps) = Scan(seq, false, null);
+            var (inBlock, textOps, _) = Scan(seq, false, null);
             result.Add(new StreamOps(form, seq, inBlock, false, textOps, (pageStream, cm)));
         }
         return result;

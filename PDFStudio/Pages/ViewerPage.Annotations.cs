@@ -459,7 +459,7 @@ public sealed partial class ViewerPage
             "Arraste sobre a área que vai virar link (ex.: um texto). Clique num link existente (contorno azul) para editar ou excluir.",
             UsesColor: false, UsesWidth: false),
         new CommentTool("editartudo", "Editar tudo", AnnotationKind.Other, DrawMode.EditAll,
-            "Textos (azul) e imagens (verde) aparecem contornados. Clique num texto para selecionar, clique de novo para editar, arraste para mover; Delete apaga.",
+            "Textos (azul) e imagens (verde) aparecem contornados. Clique para selecionar; clique de novo num texto para editar. Arraste textos e imagens para mover; Delete apaga.",
             UsesColor: false, UsesWidth: false),
         new CommentTool("redigir", "Redigir", AnnotationKind.Other, DrawMode.Redact,
             "Arraste sobre o que deve sumir (pode marcar várias áreas, em várias páginas). Depois clique em Aplicar redação.",

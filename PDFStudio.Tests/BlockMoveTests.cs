@@ -121,12 +121,72 @@ public class BlockMoveTests
         Assert.Contains("Coluna direita", AllText(input));
     }
 
-    [Fact]
-    public void ImageBlock_CannotBeMoved()
+    private static ContentBlock Image(string path) => Assert.Single(PdfContentBlocks.Detect(path, 0), b => b.Kind == BlockKind.Image);
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    [InlineData(180)]
+    [InlineData(270)]
+    public void Image_MovesWithTheSameSize_OnEveryRotation(int rotation)
     {
-        string input = ContentBlockTests.Sample(TestPdfs.TempDir());
-        var image = Assert.Single(PdfContentBlocks.Detect(input, 0), b => b.Kind == BlockKind.Image);
-        Assert.Throws<ArgumentException>(() => PdfTextEditor.Move(input, 0, image, 10, 10, input));
+        string dir = TestPdfs.TempDir();
+        string input = ContentBlockTests.Sample(dir, rotation);
+        var old = Image(input);
+        string output = Path.Combine(dir, "movida.pdf");
+
+        PdfTextEditor.Move(input, 0, old, 120, 90, output);
+
+        var now = Image(output);
+        Assert.Equal(old.X + 120, now.X, 1.0);
+        Assert.Equal(old.Y + 90, now.Y, 1.0);
+        Assert.Equal(old.Width, now.Width, 0.5);
+        Assert.Equal(old.Height, now.Height, 0.5);
+        Assert.Equal(AllText(input), AllText(output)); // os textos não mudam
+        Assert.Equal(rotation, TestPdfs.Rotations(output)[0]);
+    }
+
+    [Fact]
+    public void Image_MovedTwice_ThenDeleted()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = ContentBlockTests.Sample(dir);
+        var old = Image(input);
+
+        PdfTextEditor.Move(input, 0, old, 0, 100, input);
+        PdfTextEditor.Move(input, 0, Image(input), 50, -20, input);
+        var now = Image(input);
+        Assert.Equal(old.X + 50, now.X, 1.0);
+        Assert.Equal(old.Y + 80, now.Y, 1.0);
+
+        PdfTextEditor.Delete(input, 0, now, input);
+        Assert.DoesNotContain(PdfContentBlocks.Detect(input, 0), b => b.Kind == BlockKind.Image);
+        Assert.Contains("Relatório", AllText(input));
+    }
+
+    [Fact]
+    public void SameImageTwice_OnlyTheChosenOneMoves()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = Path.Combine(dir, "duas.pdf");
+        string png = TestImages.Png(Path.Combine(dir, "foto.png"), 40, 20);
+        using (var doc = new PdfDocument())
+        {
+            var page = doc.AddPage();
+            using var gfx = XGraphics.FromPdfPage(page);
+            using var img = XImage.FromFile(png);
+            gfx.DrawImage(img, 50, 50, 100, 50);
+            gfx.DrawImage(img, 50, 300, 100, 50); // o mesmo objeto de imagem, desenhado duas vezes
+            doc.Save(input);
+        }
+        var images = PdfContentBlocks.Detect(input, 0).Where(b => b.Kind == BlockKind.Image).OrderBy(b => b.Y).ToList();
+        Assert.Equal(2, images.Count);
+
+        PdfTextEditor.Move(input, 0, images[1], 200, 0, input);
+
+        var now = PdfContentBlocks.Detect(input, 0).Where(b => b.Kind == BlockKind.Image).OrderBy(b => b.Y).ToList();
+        Assert.Equal(images[0].X, now[0].X, 0.5);
+        Assert.Equal(images[1].X + 200, now[1].X, 1.0);
     }
 
     /// <summary>Todo o conteúdo da página e dos formulários dela, sem compactação.</summary>
