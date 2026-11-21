@@ -22,7 +22,23 @@ public static partial class PdfOperations
         if (copies is < 1 or > MaxPageCopies)
             throw new ArgumentOutOfRangeException(nameof(copies), $"Escolha de 1 a {MaxPageCopies} cópias.");
         byte[] bytes = File.ReadAllBytes(input); // a saída pode ser o próprio arquivo de entrada
-        using var doc = OpenModify(bytes, input);
+        PdfDocument? baseSource = null;
+        PdfDocument doc;
+        try
+        {
+            doc = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+        }
+        catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
+        {
+            // PDF com restrições de alteração: monta um documento novo com as páginas, como "Inserir páginas"
+            // (o formulário do documento não vem junto).
+            baseSource = OpenImport(bytes, input);
+            doc = new PdfDocument();
+            CopyInfo(baseSource, doc);
+            for (int i = 0; i < baseSource.PageCount; i++) doc.AddPage(baseSource.Pages[i]);
+        }
+        using var _doc = doc;
+        using var _base = baseSource;
         CheckPosition(position, doc.PageCount);
         var pages = PageRanges.Parse(ranges, doc.PageCount).SelectMany(g => g).ToList();
         if (pages.Count * copies > 2000) throw new ArgumentOutOfRangeException(nameof(copies), "Cópias demais de uma vez (máximo de 2000 páginas).");
@@ -34,7 +50,7 @@ public static partial class PdfOperations
         for (int c = 0; c < copies; c++)
         {
             // Cada rodada lê o arquivo de novo: assim cada cópia é independente (nada fica compartilhado).
-            using var source = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+            using var source = OpenImport(bytes, input);
             foreach (int index in pages)
             {
                 var original = source.Pages[index];
@@ -54,8 +70,8 @@ public static partial class PdfOperations
             dest.Elements[0] = doc.Pages[shifted].Reference!;
         }
 
-        // Campos copiados entram no formulário do documento (com nome novo).
-        if (newFields.Count > 0)
+        // Campos copiados entram no formulário do documento (com nome novo). No documento remontado não há formulário.
+        if (newFields.Count > 0 && baseSource is null)
         {
             var acroForm = doc.Internals.Catalog.Elements.GetDictionary("/AcroForm");
             if (acroForm is null)
@@ -79,11 +95,11 @@ public static partial class PdfOperations
         return total;
     }
 
-    private static PdfDocument OpenModify(byte[] bytes, string path)
+    private static PdfDocument OpenImport(byte[] bytes, string path)
     {
         try
         {
-            return PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+            return PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {

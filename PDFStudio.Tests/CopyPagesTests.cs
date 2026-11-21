@@ -82,6 +82,29 @@ public class CopyPagesTests
         Assert.All(fields, f => Assert.False(f.Signed));
     }
 
+    [Fact]
+    public void PdfWithEditRestrictions_IsCopiedLikeInsertPages()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 3, prefix: "P");
+        string restricted = Path.Combine(dir, "restrito.pdf");
+        PdfPasswords.Protect(input, new PasswordOptions("", "dono", AllowEdit: false), restricted);
+        string output = Path.Combine(dir, "b.pdf");
+
+        Assert.Equal(4, PdfOperations.CopyPages(restricted, "3", 1, 1, output));
+        Assert.Equal(["P 1", "P 3", "P 2", "P 3"], TestPdfs.Labels(output));
+    }
+
+    [Fact]
+    public void PdfWithOpenPassword_IsRefusedWithAClearMessage()
+    {
+        string dir = TestPdfs.TempDir();
+        string locked = Path.Combine(dir, "fechado.pdf");
+        PdfPasswords.Protect(TestPdfs.Create(Path.Combine(dir, "a.pdf"), 2), new PasswordOptions("abrir"), locked);
+        var ex = Assert.Throws<InvalidOperationException>(() => PdfOperations.CopyPages(locked, "1", 1, 1, Path.Combine(dir, "b.pdf")));
+        Assert.Contains("senha", ex.Message);
+    }
+
     [Theory]
     [InlineData("1", 0, 5)]   // posição fora do documento
     [InlineData("9", 1, 1)]   // página que não existe
