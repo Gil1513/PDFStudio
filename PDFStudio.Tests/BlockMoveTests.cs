@@ -121,6 +121,66 @@ public class BlockMoveTests
         Assert.Contains("Coluna direita", AllText(input));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    public void SeveralBlocks_MoveTogether_KeepingTheDistanceBetweenThem(int rotation)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = ContentBlockTests.Sample(dir, rotation);
+        var chosen = new[] { BlockStarting(input, "Relatório"), BlockStarting(input, "Primeira"), Image(input) };
+        string output = Path.Combine(dir, "grupo.pdf");
+
+        PdfTextEditor.Move(input, 0, chosen, 30, 250, output);
+
+        var title = BlockStarting(output, "Relatório");
+        var paragraph = BlockStarting(output, "Primeira");
+        var image = Image(output);
+        Assert.Equal(chosen[0].X + 30, title.X, 1.0);
+        Assert.Equal(chosen[0].Y + 250, title.Y, 1.0);
+        Assert.Equal(chosen[1].Y + 250, paragraph.Y, 1.0);
+        Assert.Equal(chosen[2].Y + 250, image.Y, 1.0);
+        Assert.Equal(chosen[1].Lines[2].Baseline - chosen[1].Lines[0].Baseline, paragraph.Lines[2].Baseline - paragraph.Lines[0].Baseline, 0.1);
+        Assert.Equal(chosen[0].FontName, title.FontName);
+        Assert.True(title.Bold);
+        Assert.Equal(chosen[0].Color, title.Color);
+        // O que não foi escolhido fica parado.
+        Assert.Equal(BlockStarting(input, "Coluna direita").Y, BlockStarting(output, "Coluna direita").Y, 0.5);
+    }
+
+    [Fact]
+    public void GroupMovedBefore_OneOfThemCanStillMoveAlone()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = ContentBlockTests.Sample(dir);
+        PdfTextEditor.Move(input, 0, [BlockStarting(input, "Coluna esquerda"), BlockStarting(input, "Coluna direita")], 0, 200, input);
+        var left = BlockStarting(input, "Coluna esquerda");
+        var right = BlockStarting(input, "Coluna direita");
+
+        PdfTextEditor.Move(input, 0, left, 0, 60, input); // só uma das duas, de um formulário que tem as duas
+
+        Assert.Equal(left.Y + 60, BlockStarting(input, "Coluna esquerda").Y, 1.0);
+        Assert.Equal(right.Y, BlockStarting(input, "Coluna direita").Y, 0.5);
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Count(AllText(input), "esquerda"));
+    }
+
+    [Fact]
+    public void SeveralBlocks_DeletedTogether()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = ContentBlockTests.Sample(dir);
+
+        var result = PdfTextEditor.Delete(input, 0, [BlockStarting(input, "Relatório"), BlockStarting(input, "Coluna direita"), Image(input)], input);
+
+        Assert.False(result.Covered);
+        string text = AllText(input);
+        Assert.DoesNotContain("Relatório", text);
+        Assert.DoesNotContain("direita", text);
+        Assert.Contains("Coluna esquerda", text);
+        Assert.Contains("Primeira", text);
+        Assert.DoesNotContain(PdfContentBlocks.Detect(input, 0), b => b.Kind == BlockKind.Image);
+    }
+
     private static ContentBlock Image(string path) => Assert.Single(PdfContentBlocks.Detect(path, 0), b => b.Kind == BlockKind.Image);
 
     [Theory]

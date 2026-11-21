@@ -77,52 +77,97 @@ public static class PdfTextEditor
     /// </summary>
     public static string ChooseFont(string family) => FontLibrary.Resolve(family).Use;
 
-    // ---------------- Apagar e mover o bloco ----------------
+    // ---------------- Apagar e mover blocos ----------------
 
-    /// <summary>Apaga o texto do bloco da página (o que não der para tirar é coberto com branco).</summary>
+    private const string CannotMove = "Este texto está gravado de um jeito que não dá para mover.";
+    private const string CannotMoveImage = "Esta imagem está gravada de um jeito que não dá para mover.";
+    private const string CannotDeleteImage = "Esta imagem está gravada de um jeito que não dá para apagar.";
+
     /// <summary>Apaga o bloco: texto (o que não der para tirar é coberto com branco) ou imagem.</summary>
-    public static TextEditResult Delete(string input, int pageIndex, ContentBlock block, string output)
-    {
-        if (block.Kind == BlockKind.Text) return Replace(input, pageIndex, block, "", output);
-        PdfAnnotations.Edit(input, output, doc =>
-        {
-            if (RemoveTextIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block) == 0)
-                throw new InvalidOperationException(CannotMoveImage.Replace("mover", "apagar"));
-        });
-        return new TextEditResult("", false);
-    }
+    public static TextEditResult Delete(string input, int pageIndex, ContentBlock block, string output) =>
+        Delete(input, pageIndex, [block], output);
 
     /// <summary>
-    /// Move o texto do bloco <paramref name="dx"/>, <paramref name="dy"/> pontos (na tela: x para a direita, y para
-    /// baixo). O texto continua o mesmo de antes (mesma fonte do PDF, letras, cor, espaçamento): os comandos que o
-    /// escrevem saem do lugar antigo e são desenhados de novo, deslocados, dentro de um "formulário" do PDF.
-    /// Se algum pedaço do texto não puder ser movido, nada muda e dá erro.
+    /// Apaga vários blocos (textos e imagens) de uma vez. Texto que não der para tirar de verdade (ex.: guardado
+    /// dentro de outra parte do PDF) é coberto com branco; imagem que não der para tirar: erro, nada muda.
     /// </summary>
-    public static void Move(string input, int pageIndex, ContentBlock block, double dx, double dy, string output)
+    public static TextEditResult Delete(string input, int pageIndex, IReadOnlyList<ContentBlock> blocks, string output)
     {
+        if (blocks.Count == 0) throw new ArgumentException("Escolha o que apagar.", nameof(blocks));
+        var texts = blocks.Where(b => b.Kind == BlockKind.Text).ToList();
+        string temp = TempFile("delete");
+        try
+        {
+            PdfAnnotations.Edit(input, temp, doc =>
+            {
+                var page = doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)];
+                var streams = Walk(page, blocks);
+                int images = streams.Sum(st => st.Places?.Count ?? 0);
+                if (images < blocks.Count(b => b.Kind == BlockKind.Image)) throw new InvalidOperationException(CannotDeleteImage);
+                RemoveHits(streams);
+            });
+
+            // Sobrou palavra de algum texto? Cobre esse texto com branco.
+            var words = texts.Count == 0 ? [] : PdfTextLayout.Words(temp, pageIndex);
+            var cover = texts.Where(t => words.Any(w => t.Contains(w.X + w.Width / 2, w.Y + w.Height / 2))).ToList();
+            if (cover.Count == 0)
+            {
+                File.Copy(temp, output, overwrite: true);
+                return new TextEditResult("", false);
+            }
+            PdfAnnotations.Edit(temp, output, doc => PdfPageContent.DrawInView(doc.Pages[pageIndex], gfx =>
+            {
+                foreach (var t in cover)
+                    gfx.DrawRectangle(XBrushes.White, new XRect(t.X - 1, t.Y - 1, t.Width + 2, t.Height + 2));
+            }));
+            return new TextEditResult("", true);
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch { /* arquivo temporário: tanto faz */ }
+        }
+    }
+
+    /// <summary>Move um bloco (texto ou imagem). Veja <see cref="Move(string, int, IReadOnlyList{ContentBlock}, double, double, string)"/>.</summary>
+    public static void Move(string input, int pageIndex, ContentBlock block, double dx, double dy, string output) =>
+        Move(input, pageIndex, [block], dx, dy, output);
+
+    /// <summary>
+    /// Move os blocos (textos e imagens) <paramref name="dx"/>, <paramref name="dy"/> pontos (na tela: x para a
+    /// direita, y para baixo), todos juntos: a distância entre eles não muda. Nada é escrito de novo: o texto continua
+    /// com a mesma fonte do PDF, letras, cor e espaçamento (os comandos que o escrevem são desenhados deslocados, dentro
+    /// de um "formulário" do PDF) e a imagem continua a mesma. Se algum pedaço não puder ser movido, nada muda e dá erro.
+    /// </summary>
+    public static void Move(string input, int pageIndex, IReadOnlyList<ContentBlock> blocks, double dx, double dy, string output)
+    {
+        if (blocks.Count == 0) throw new ArgumentException("Escolha o que mover.", nameof(blocks));
         if (Math.Abs(dx) < 0.01 && Math.Abs(dy) < 0.01)
         {
             if (!SamePath(input, output)) File.Copy(input, output, overwrite: true);
             return;
         }
-        string temp = Path.Combine(Path.GetTempPath(), "PDFStudio", $"move-{Guid.NewGuid():N}.pdf");
-        Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
+        var texts = blocks.Where(b => b.Kind == BlockKind.Text).ToList();
+        var images = blocks.Where(b => b.Kind == BlockKind.Image).ToList();
+        string temp = TempFile("move");
         try
         {
-            if (block.Kind == BlockKind.Image)
+            PdfAnnotations.Edit(input, temp, doc =>
             {
-                PdfAnnotations.Edit(input, output, doc => MoveImageIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block, dx, dy));
-                return;
-            }
-            PdfAnnotations.Edit(input, temp, doc => MoveIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block, dx, dy));
-            // Conferência: no lugar antigo não pode sobrar palavra do bloco (fora da área para onde ele foi).
-            var moved = block with { X = block.X + dx, Y = block.Y + dy };
-            bool leftover = PdfTextLayout.Words(temp, pageIndex).Any(w =>
-            {
-                double cx = w.X + w.Width / 2, cy = w.Y + w.Height / 2;
-                return block.Contains(cx, cy) && !moved.Contains(cx, cy);
+                var page = doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)];
+                if (images.Count > 0) MoveImagesIn(page, images, dx, dy);
+                if (texts.Count > 0) MoveTextsIn(page, texts, dx, dy);
             });
-            if (leftover) throw new InvalidOperationException(CannotMove);
+            // Conferência: no lugar antigo não pode sobrar palavra dos textos (fora da área para onde eles foram).
+            if (texts.Count > 0)
+            {
+                var moved = texts.Select(t => t with { X = t.X + dx, Y = t.Y + dy }).ToList();
+                bool leftover = PdfTextLayout.Words(temp, pageIndex).Any(w =>
+                {
+                    double cx = w.X + w.Width / 2, cy = w.Y + w.Height / 2;
+                    return texts.Any(t => t.Contains(cx, cy)) && !moved.Any(t => t.Contains(cx, cy));
+                });
+                if (leftover) throw new InvalidOperationException(CannotMove);
+            }
             File.Copy(temp, output, overwrite: true);
         }
         finally
@@ -131,21 +176,34 @@ public static class PdfTextEditor
         }
     }
 
-    private const string CannotMove = "Este texto está gravado de um jeito que não dá para mover.";
-    private const string CannotMoveImage = "Esta imagem está gravada de um jeito que não dá para mover.";
+    private static string TempFile(string kind)
+    {
+        string temp = Path.Combine(Path.GetTempPath(), "PDFStudio", $"{kind}-{Guid.NewGuid():N}.pdf");
+        Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
+        return temp;
+    }
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>O deslocamento da tela (dx, dy) em pontos do PDF, já com a rotação da página.</summary>
+    private static (double X, double Y) PdfShift(PdfPage page, double dx, double dy)
+    {
+        var geometry = PageGeometry.Of(page);
+        var from = geometry.ViewToPdf(0, 0);
+        var to = geometry.ViewToPdf(dx, dy);
+        return (to.X - from.X, to.Y - from.Y);
+    }
 
     /// <summary>
-    /// Move a imagem: o comando que a desenha ganha um deslocamento ("q … cm /Imagem Do Q"). A imagem em si (o
-    /// arquivo dentro do PDF) não muda. Imagem que não está desenhada direto na página: erro, nada muda.
+    /// Move as imagens: o comando que desenha cada uma ganha um deslocamento ("q … cm /Imagem Do Q"). A imagem em si
+    /// (o arquivo dentro do PDF) não muda. Imagem que não está desenhada direto na página: erro.
     /// </summary>
-    private static void MoveImageIn(PdfPage page, ContentBlock block, double dx, double dy)
+    private static void MoveImagesIn(PdfPage page, IReadOnlyList<ContentBlock> images, double dx, double dy)
     {
-        var streams = Walk(page, block).Where(s => s.Seq is not null && s.Move is null && s.InBlock.Count > 0).ToList();
-        if (streams.Count == 0) throw new InvalidOperationException(CannotMoveImage);
-        var geometry = PageGeometry.Of(page);
-        var from = geometry.ViewToPdf(block.X, block.Y);
-        var to = geometry.ViewToPdf(block.X + dx, block.Y + dy);
-        double tx = to.X - from.X, ty = to.Y - from.Y;
+        var streams = Walk(page, images).Where(s => s.Seq is not null && s.Move is null && s.InBlock.Count > 0).ToList();
+        if (streams.Sum(s => s.InBlock.Count) < images.Count) throw new InvalidOperationException(CannotMoveImage);
+        var (tx, ty) = PdfShift(page, dx, dy);
         foreach (var s in streams)
         {
             for (int k = s.InBlock.Count - 1; k >= 0; k--)
@@ -163,82 +221,52 @@ public static class PdfTextEditor
                 s.Seq.Insert(i, shift);
                 s.Seq.Insert(i, OpCodes.OperatorFromName("q"));
             }
-            s.Stream.Elements.Remove("/Filter");
-            s.Stream.Elements.Remove("/DecodeParms");
-            s.Stream.Stream.Value = s.Seq!.ToContent();
+            Rewrite(s);
         }
     }
 
-    private static bool SamePath(string a, string b) =>
-        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+    private static string Num(double v) => v.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static void MoveIn(PdfPage page, ContentBlock block, double dx, double dy)
+    private static void MoveTextsIn(PdfPage page, IReadOnlyList<ContentBlock> texts, double dx, double dy)
     {
-        var streams = Walk(page, block);
+        var streams = Walk(page, texts);
         if (streams.Any(s => s.Seq is null && !s.AppArtifact)) throw new InvalidOperationException(CannotMove);
-        var geometry = PageGeometry.Of(page);
-        var from = geometry.ViewToPdf(block.X, block.Y);
-        var to = geometry.ViewToPdf(block.X + dx, block.Y + dy);
-        static string Num(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var (tx, ty) = PdfShift(page, dx, dy);
+        var hits = streams.Where(s => s.Seq is not null && s.InBlock.Count > 0).ToList();
+        if (hits.Count == 0) throw new InvalidOperationException(CannotMove);
 
-        bool inPage = streams.Any(s => s.Move is null && s.InBlock.Count > 0);
-        var moved = streams.Where(s => s.Move is not null && s.InBlock.Count > 0).ToList();
-        if (!inPage && moved.Count == 0) throw new InvalidOperationException(CannotMove);
-        if (moved.Count > 0)
+        // Só textos já movidos antes, cada um com o formulário inteiro escolhido: muda só o deslocamento deles.
+        if (hits.All(s => s.Move is not null && s.InBlock.Count == s.TextOps))
         {
-            // Texto que já foi movido antes: muda só o deslocamento do formulário dele (se o formulário for só desse bloco).
-            if (inPage || moved.Any(s => s.InBlock.Count != s.TextOps)) throw new InvalidOperationException(CannotMove);
-            foreach (var s in moved)
+            foreach (var s in hits)
             {
-                var (pageStream, cm) = s.Move!.Value;
+                var (pageStream, cm, _) = s.Move!.Value;
                 var args = cm.Operands;
-                double tx = N(args[4]) + to.X - from.X, ty = N(args[5]) + to.Y - from.Y;
-                args[4] = new CReal { Value = tx };
-                args[5] = new CReal { Value = ty };
-                var owner = streams.First(o => ReferenceEquals(o.Stream, pageStream));
-                pageStream.Elements.Remove("/Filter");
-                pageStream.Elements.Remove("/DecodeParms");
-                pageStream.Stream.Value = owner.Seq!.ToContent();
+                args[4] = new CReal { Value = N(args[4]) + tx };
+                args[5] = new CReal { Value = N(args[5]) + ty };
+                Rewrite(streams.First(o => ReferenceEquals(o.Stream, pageStream)));
             }
             return;
         }
 
-        // 1) O "formulário" com só o texto do bloco: o conteúdo da página inteiro (para valerem as mesmas fontes,
-        // cores, posições e recortes), sem desenhos, imagens e sem os outros textos.
-        var form = new StringBuilder();
-        foreach (var s in streams)
+        // 1) O "formulário" com só os textos escolhidos: o conteúdo da página inteiro (para valerem as mesmas fontes,
+        // cores, posições e recortes), sem desenhos, imagens e sem os outros textos. Textos que já estavam num
+        // formulário de mover entram com a posição em que eram desenhados.
+        var form = new StringBuilder("q\n");
+        foreach (var s in streams.Where(s => !s.AppArtifact && s.Seq is not null && s.Move is null))
+            form.Append(OnlyText(s.Seq!, s.InBlock)).Append('\n');
+        form.Append("Q\n");
+        foreach (var s in hits.Where(s => s.Move is not null))
         {
-            if (s.AppArtifact || s.Seq is null || s.Move is not null) continue;
-            var inBlock = s.InBlock.ToHashSet();
-            var kept = new CSequence();
-            for (int i = 0; i < s.Seq.Count; i++)
-            {
-                if (s.Seq[i] is not COperator op) { kept.Add(s.Seq[i]); continue; }
-                switch (op.OpCode.OpCodeName)
-                {
-                    case OpCodeName.Tj or OpCodeName.TJ or OpCodeName.QuoteSingle or OpCodeName.QuoteDouble:
-                        if (inBlock.Contains(i)) kept.Add(op);
-                        else if (op.OpCode.OpCodeName is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble)
-                            kept.Add(OpCodes.OperatorFromName("T*")); // a mudança de linha continua valendo
-                        break;
-                    case OpCodeName.S or OpCodeName.s or OpCodeName.f or OpCodeName.F or OpCodeName.fx
-                        or OpCodeName.B or OpCodeName.Bx or OpCodeName.b or OpCodeName.bx:
-                        kept.Add(OpCodes.OperatorFromName("n")); // o caminho termina sem pintar (o recorte continua)
-                        break;
-                    case OpCodeName.Do or OpCodeName.sh or OpCodeName.BI or OpCodeName.ID or OpCodeName.EI:
-                        break;
-                    default:
-                        kept.Add(op);
-                        break;
-                }
-            }
-            form.Append(Encoding.Latin1.GetString(kept.ToContent())).Append('\n');
+            var at = s.Move!.Value.At;
+            form.Append($"q {Num(at.A)} {Num(at.B)} {Num(at.C)} {Num(at.D)} {Num(at.E)} {Num(at.F)} cm\n")
+                .Append(OnlyText(s.Seq!, s.InBlock)).Append("\nQ\n");
         }
 
-        // 2) Tira o texto do lugar antigo.
-        RemoveTextIn(page, block);
+        // 2) Tira os textos do lugar antigo.
+        RemoveHits(streams);
 
-        // 3) Desenha o formulário deslocado (o deslocamento da tela vira deslocamento no PDF, com a rotação da página).
+        // 3) Desenha o formulário deslocado.
         var doc = page.Owner;
         var xobject = new PdfDictionary(doc);
         xobject.Elements.SetName("/Type", "/XObject");
@@ -260,45 +288,85 @@ public static class PdfTextEditor
         xobjects.Elements[name] = xobject.Reference;
 
         page.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q\n"));
-        page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(
-            $"Q\nq 1 0 0 1 {Num(to.X - from.X)} {Num(to.Y - from.Y)} cm {name} Do Q\n"));
+        page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes($"Q\nq 1 0 0 1 {Num(tx)} {Num(ty)} cm {name} Do Q\n"));
     }
 
-    // ---------------- Tirar os comandos de texto do bloco ----------------
+    /// <summary>O conteúdo com só os comandos de texto escolhidos (o resto do texto sai; desenhos e imagens também).</summary>
+    private static string OnlyText(CSequence seq, List<int> chosen)
+    {
+        var keep = chosen.ToHashSet();
+        var kept = new CSequence();
+        for (int i = 0; i < seq.Count; i++)
+        {
+            if (seq[i] is not COperator op) { kept.Add(seq[i]); continue; }
+            switch (op.OpCode.OpCodeName)
+            {
+                case OpCodeName.Tj or OpCodeName.TJ or OpCodeName.QuoteSingle or OpCodeName.QuoteDouble:
+                    if (keep.Contains(i)) kept.Add(op);
+                    else if (op.OpCode.OpCodeName is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble)
+                        kept.Add(OpCodes.OperatorFromName("T*")); // a mudança de linha continua valendo
+                    break;
+                case OpCodeName.S or OpCodeName.s or OpCodeName.f or OpCodeName.F or OpCodeName.fx
+                    or OpCodeName.B or OpCodeName.Bx or OpCodeName.b or OpCodeName.bx:
+                    kept.Add(OpCodes.OperatorFromName("n")); // o caminho termina sem pintar (o recorte continua)
+                    break;
+                case OpCodeName.Do or OpCodeName.sh or OpCodeName.BI or OpCodeName.ID or OpCodeName.EI:
+                    break;
+                default:
+                    kept.Add(op);
+                    break;
+            }
+        }
+        return Encoding.Latin1.GetString(kept.ToContent());
+    }
+
+    // ---------------- Achar os comandos dos blocos ----------------
 
     /// <summary>
-    /// Um trecho do conteúdo da página (ou do formulário de um bloco já movido, com <see cref="Move"/>: o trecho da
-    /// página que o desenha e o comando de deslocamento), já lido, com os comandos de texto que começam dentro do bloco.
+    /// Um trecho do conteúdo da página (ou do formulário de um texto já movido, com <see cref="Move"/>: o trecho da
+    /// página que o desenha, o comando de deslocamento e a posição em que é desenhado), já lido, com os comandos que
+    /// desenham os blocos (texto que começa dentro de um bloco de texto; imagem que ocupa um bloco de imagem).
     /// </summary>
     private sealed record StreamOps(PdfDictionary Stream, CSequence? Seq, List<int> InBlock, bool AppArtifact,
-        int TextOps = 0, (PdfDictionary PageStream, COperator Cm)? Move = null, Dictionary<int, M>? Places = null);
+        int TextOps = 0, (PdfDictionary PageStream, COperator Cm, M At)? Move = null, Dictionary<int, M>? Places = null);
 
-    /// <summary>Apaga da página os comandos de texto que começam dentro do bloco. Devolve quantos saíram.</summary>
-    internal static int RemoveTextIn(PdfPage page, ContentBlock block)
+    /// <summary>Grava de volta um trecho alterado (sem compactação; o salvamento compacta de novo).</summary>
+    private static void Rewrite(StreamOps s)
+    {
+        s.Stream.Elements.Remove("/Filter");
+        s.Stream.Elements.Remove("/DecodeParms");
+        s.Stream.Stream.Value = s.Seq!.ToContent();
+    }
+
+    /// <summary>Apaga os comandos achados. Devolve quantos saíram.</summary>
+    private static int RemoveHits(List<StreamOps> streams)
     {
         int removed = 0;
-        foreach (var s in Walk(page, block))
+        foreach (var s in streams)
         {
             if (s.Seq is null || s.AppArtifact || s.InBlock.Count == 0) continue;
             for (int k = s.InBlock.Count - 1; k >= 0; k--) s.Seq.RemoveAt(s.InBlock[k]);
-            s.Stream.Elements.Remove("/Filter");
-            s.Stream.Elements.Remove("/DecodeParms");
-            s.Stream.Stream.Value = s.Seq.ToContent();
+            Rewrite(s);
             removed += s.InBlock.Count;
         }
         return removed;
     }
 
+    /// <summary>Apaga da página os comandos de texto que começam dentro do bloco. Devolve quantos saíram.</summary>
+    internal static int RemoveTextIn(PdfPage page, ContentBlock block) => RemoveHits(Walk(page, [block]));
+
     /// <summary>
     /// Percorre os comandos de todos os trechos do conteúdo (acompanhando a posição do texto e as transformações)
-    /// e anota os que escrevem texto começando dentro do bloco. Trechos colocados pelo app (marca d'água,
-    /// cabeçalho…) são lidos, mas nada deles é anotado. Trecho que o PDFsharp não entende: Seq = null.
-    /// Os formulários de blocos já movidos pelo app (/PSMove…) também são percorridos, no lugar onde são desenhados.
+    /// e anota os que desenham os blocos. Trechos colocados pelo app (marca d'água, cabeçalho…) são lidos, mas nada
+    /// deles é anotado. Trecho que o PDFsharp não entende: Seq = null. Os formulários de textos já movidos pelo app
+    /// (/PSMove…) também são percorridos, no lugar onde são desenhados.
     /// </summary>
-    private static List<StreamOps> Walk(PdfPage page, ContentBlock block)
+    private static List<StreamOps> Walk(PdfPage page, IReadOnlyList<ContentBlock> blocks)
     {
         var result = new List<StreamOps>();
         if (page.Elements["/Contents"] is null) return result;
+        var texts = blocks.Where(b => b.Kind == BlockKind.Text).ToList();
+        var images = blocks.Where(b => b.Kind == BlockKind.Image).ToList();
         var geometry = PageGeometry.Of(page);
         var contents = page.Contents.Elements;
         var xobjects = page.Resources.Elements.GetDictionary("/XObject");
@@ -314,7 +382,7 @@ public static class PdfTextEditor
             var (x, y) = tm.Then(ctm).Origin;
             var view = geometry.PdfToView(x, y);
             double vx = view.X, vy = view.Y;
-            return vx >= block.X - 1 && vx <= block.Right + 1 && vy >= block.Y - 1 && vy <= block.Bottom + 1;
+            return texts.Any(b => vx >= b.X - 1 && vx <= b.Right + 1 && vy >= b.Y - 1 && vy <= b.Bottom + 1);
         }
         void MoveLine(double tx, double ty)
         {
@@ -324,7 +392,7 @@ public static class PdfTextEditor
         }
         bool ImageInBlock()
         {
-            // Imagem = quadrado 1 × 1 transformado pela matriz atual; confere se ocupa a mesma área do bloco.
+            // Imagem = quadrado 1 × 1 transformado pela matriz atual; confere se ocupa a mesma área de um bloco.
             double l = double.MaxValue, t = double.MaxValue, r = double.MinValue, b = double.MinValue;
             foreach (var (ux, uy) in new[] { (0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0) })
             {
@@ -333,8 +401,8 @@ public static class PdfTextEditor
                 l = Math.Min(l, v.X); r = Math.Max(r, v.X); t = Math.Min(t, v.Y); b = Math.Max(b, v.Y);
             }
             const double tolerance = 2;
-            return Math.Abs(l - block.X) < tolerance && Math.Abs(t - block.Y) < tolerance
-                && Math.Abs(r - block.Right) < tolerance && Math.Abs(b - block.Bottom) < tolerance;
+            return images.Any(i => Math.Abs(l - i.X) < tolerance && Math.Abs(t - i.Y) < tolerance
+                && Math.Abs(r - i.Right) < tolerance && Math.Abs(b - i.Bottom) < tolerance);
         }
         (List<int> InBlock, int TextOps, Dictionary<int, M> Places) Scan(CSequence seq, bool appArtifact, PdfDictionary? pageStream)
         {
@@ -364,18 +432,18 @@ public static class PdfTextEditor
                     case OpCodeName.Tj or OpCodeName.TJ or OpCodeName.QuoteSingle or OpCodeName.QuoteDouble:
                         if (op.OpCode.OpCodeName is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble) MoveLine(0, -leading);
                         // Vários comandos seguidos na mesma linha (sem reposicionar) seguem a decisão do primeiro.
-                        if (positioned) { lineInBlock = StartsInBlock(); positioned = false; }
-                        if (lineInBlock && !appArtifact && block.Kind == BlockKind.Text) inBlock.Add(i);
+                        if (positioned) { lineInBlock = texts.Count > 0 && StartsInBlock(); positioned = false; }
+                        if (lineInBlock && !appArtifact) inBlock.Add(i);
                         textOps++;
                         break;
-                    // Bloco já movido: "q 1 0 0 1 x y cm /PSMove1 Do Q".
+                    // Texto já movido: "q 1 0 0 1 x y cm /PSMove1 Do Q".
                     case OpCodeName.Do when pageStream is not null && args.Count == 1 && args[0] is CName { Name: var name }
                         && name.StartsWith("/PSMove", StringComparison.Ordinal) && i > 0 && seq[i - 1] is COperator { OpCode.OpCodeName: OpCodeName.cm } cm
                         && cm.Operands.Count == 6 && xobjects?.Elements.GetDictionary(name) is { Stream: not null } form:
                         forms.Add((form, ctm, pageStream, cm));
                         break;
-                    // Imagem do bloco (só as desenhadas direto na página).
-                    case OpCodeName.Do when block.Kind == BlockKind.Image && !appArtifact && pageStream is not null && args.Count == 1
+                    // Imagem de um bloco (só as desenhadas direto na página).
+                    case OpCodeName.Do when images.Count > 0 && !appArtifact && pageStream is not null && args.Count == 1
                         && args[0] is CName { Name: var image } && xobjects?.Elements.GetDictionary(image) is { } x
                         && x.Elements.GetName("/Subtype") == "/Image" && ImageInBlock():
                         inBlock.Add(i);
@@ -412,7 +480,7 @@ public static class PdfTextEditor
             tm = tlm = M.Identity;
             positioned = true;
             var (inBlock, textOps, _) = Scan(seq, false, null);
-            result.Add(new StreamOps(form, seq, inBlock, false, textOps, (pageStream, cm)));
+            result.Add(new StreamOps(form, seq, inBlock, false, textOps, (pageStream, cm, at)));
         }
         return result;
     }

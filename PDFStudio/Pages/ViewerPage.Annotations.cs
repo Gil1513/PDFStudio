@@ -879,7 +879,7 @@ public sealed partial class ViewerPage
         }
         if (_tool?.Mode == DrawMode.EditAll && sender is DrawingSurface blockSurface)
         {
-            if (_blockDrag is not null) { e.Handled = true; DragBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
+            if (BlockGestureActive) { e.Handled = true; DragBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
             else HoverBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position);
             return;
         }
@@ -927,7 +927,7 @@ public sealed partial class ViewerPage
         if (_tool?.Mode == DrawMode.EditAll && sender is DrawingSurface blockSurface)
         {
             blockSurface.ReleasePointerCaptures();
-            if (_blockDrag is not null) { e.Handled = true; await DropBlockAsync(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
+            if (BlockGestureActive) { e.Handled = true; await DropBlockAsync(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
             return;
         }
         if (_tool?.Mode == DrawMode.MoveComment && sender is DrawingSurface moveSurface)

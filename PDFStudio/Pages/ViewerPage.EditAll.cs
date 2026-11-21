@@ -38,20 +38,24 @@ public sealed partial class ViewerPage
         return task.Result.Where(b => b.Contains(x, y)).OrderBy(b => b.Kind == BlockKind.Text ? 0 : 1).ThenBy(b => b.Width * b.Height).FirstOrDefault();
     }
 
-    // ---------------- Contornos ----------------
+    // ---------------- Contornos e seleção ----------------
 
     private readonly List<(ContentBlock Block, Shapes.Rectangle Box)> _blockOutlines = [];
     private DrawingSurface? _blockSurface;
-    private ContentBlock? _hoveredBlock, _selectedBlock;
+    private ContentBlock? _hoveredBlock;
+    /// <summary>Blocos selecionados (textos e imagens), na ordem em que foram escolhidos.</summary>
+    private readonly List<ContentBlock> _selection = [];
 
-    private async Task ShowBlockOutlinesAsync(DrawingSurface surface, bool force = false)
+    private bool IsSelected(ContentBlock block) => _selection.Any(b => ReferenceEquals(b, block));
+
+    private async Task<List<ContentBlock>> ShowBlockOutlinesAsync(DrawingSurface surface, bool force = false)
     {
-        if (!force && ReferenceEquals(surface, _blockSurface)) return;
-        if (SlotOf(surface) is not { } slot || DisplayPath is null) return;
+        if (!force && ReferenceEquals(surface, _blockSurface)) return [];
+        if (SlotOf(surface) is not { } slot || DisplayPath is null) return [];
         RemoveBlockOutlines();
         _blockSurface = surface;
         var blocks = await BlocksOfPage(slot.Index);
-        if (_tool?.Mode != DrawMode.EditAll || !ReferenceEquals(surface, _blockSurface)) return;
+        if (_tool?.Mode != DrawMode.EditAll || !ReferenceEquals(surface, _blockSurface)) return [];
         foreach (var block in blocks)
         {
             var box = new Shapes.Rectangle
@@ -70,6 +74,7 @@ public sealed partial class ViewerPage
         PaintBlockOutlines();
         if (blocks.Count == 0)
             ToolHintText.Text = "Nenhum texto ou imagem encontrado nesta página (se for digitalizada, use OCR antes).";
+        return blocks;
     }
 
     private void RemoveBlockOutlines()
@@ -78,11 +83,13 @@ public sealed partial class ViewerPage
         _blockOutlines.Clear();
         RemoveBlockActions();
         CancelBlockDrag(_blockSurface);
+        CancelMarquee();
         _blockSurface = null;
-        _hoveredBlock = _selectedBlock = null;
+        _hoveredBlock = null;
+        _selection.Clear();
     }
 
-    /// <summary>Texto em azul (cor de destaque), imagem em verde; o bloco sob o mouse fica preenchido e o selecionado, com borda cheia.</summary>
+    /// <summary>Texto em azul (cor de destaque), imagem em verde; o bloco sob o mouse fica preenchido e os selecionados, com borda cheia.</summary>
     private void PaintBlockOutlines()
     {
         var accent = ((SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"]).Color;
@@ -90,7 +97,7 @@ public sealed partial class ViewerPage
         foreach (var (block, box) in _blockOutlines)
         {
             var c = block.Kind == BlockKind.Text ? accent : green;
-            bool selected = ReferenceEquals(block, _selectedBlock), hovered = ReferenceEquals(block, _hoveredBlock);
+            bool selected = IsSelected(block), hovered = ReferenceEquals(block, _hoveredBlock);
             box.Stroke = new SolidColorBrush(c);
             box.StrokeThickness = selected ? 2 : 1;
             box.StrokeDashArray = selected ? null : [4, 3];
@@ -104,174 +111,313 @@ public sealed partial class ViewerPage
         // O mouse pode já estar sobre a página quando o modo é ligado (sem o evento de "entrar").
         if (!ReferenceEquals(surface, _blockSurface)) _ = ShowBlockOutlinesAsync(surface);
         var block = BlockAt(slot, p);
-        surface.SetCursor(block is null ? null : block.Kind == BlockKind.Text ? InputSystemCursorShape.IBeam : InputSystemCursorShape.SizeAll);
+        surface.SetCursor(block is null ? null
+            : block.Kind == BlockKind.Text && !IsSelected(block) ? InputSystemCursorShape.IBeam : InputSystemCursorShape.SizeAll);
         if (ReferenceEquals(block, _hoveredBlock)) return;
         _hoveredBlock = block;
         PaintBlockOutlines();
     }
 
-    /// <summary>Clique no modo "Editar tudo": seleciona o bloco; clicar de novo num texto já selecionado abre a edição.</summary>
-    private async Task ClickBlockAsync(DrawingSurface surface, PageSlot slot, Point p)
+    private static bool CtrlDown() =>
+        InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    /// <summary>
+    /// Clique no modo "Editar tudo": seleciona o bloco (com Ctrl, junta ou tira da seleção); clicar de novo num texto
+    /// que já é o único selecionado abre a edição.
+    /// </summary>
+    private async Task ClickBlockAsync(DrawingSurface surface, PageSlot slot, Point p, bool toggle = false)
     {
         var block = BlockAt(slot, p);
-        if (block is { Kind: BlockKind.Text } && ReferenceEquals(block, _selectedBlock))
+        if (toggle)
+        {
+            if (block is null) return;
+            if (IsSelected(block)) _selection.RemoveAll(b => ReferenceEquals(b, block));
+            else _selection.Add(block);
+        }
+        else if (block is { Kind: BlockKind.Text } && _selection.Count == 1 && ReferenceEquals(_selection[0], block))
         {
             await OpenBlockEditorAsync(surface, slot, block);
             return;
         }
-        _selectedBlock = block;
-        PaintBlockOutlines();
-        ShowBlockActions(surface, block);
-        ToolHintText.Text = block is null ? CommentTools["editartudo"].Hint
-            : Describe(block) + " · " + (block.Kind == BlockKind.Text ? SelectedTextHint : SelectedImageHint);
-        ToolTipService.SetToolTip(ToolHintText, block?.Text);
+        else
+        {
+            _selection.Clear();
+            if (block is not null) _selection.Add(block);
+        }
+        UpdateSelectionUi(surface);
     }
 
-    private const string SelectedTextHint = "Clique de novo para editar, arraste para mover, Delete apaga.";
-    private const string SelectedImageHint = "Arraste para mover, Delete apaga.";
+    private const string SelectedTextHint = "Clique de novo para editar, arraste para mover, Delete apaga. Ctrl+clique junta outros.";
+    private const string SelectedImageHint = "Arraste para mover, Delete apaga. Ctrl+clique junta outros.";
 
-    // ---------------- Mover (arrastar) e apagar o bloco de texto ----------------
+    /// <summary>Contornos, botão "Apagar" e a dica de acordo com o que está selecionado.</summary>
+    private void UpdateSelectionUi(DrawingSurface surface)
+    {
+        PaintBlockOutlines();
+        ShowBlockActions(surface);
+        ToolHintText.Text = _selection.Count switch
+        {
+            0 => CommentTools["editartudo"].Hint,
+            1 => Describe(_selection[0]) + " · " + (_selection[0].Kind == BlockKind.Text ? SelectedTextHint : SelectedImageHint),
+            int n => $"{n} itens selecionados · Arraste qualquer um para mover todos juntos (o espaço entre eles não muda); Delete apaga. Ctrl+clique junta ou tira.",
+        };
+        ToolTipService.SetToolTip(ToolHintText, _selection.Count == 1 ? _selection[0].Text : null);
+    }
 
-    /// <summary>Bloco de texto que pode estar sendo arrastado: onde o mouse apertou e a moldura que acompanha o mouse.</summary>
+    /// <summary>Seleciona os blocos da página que ocupam as mesmas áreas de <paramref name="wanted"/> (depois de mover, os blocos são lidos de novo).</summary>
+    private void SelectMatching(DrawingSurface surface, List<ContentBlock> blocks, IEnumerable<ContentBlock> wanted)
+    {
+        _selection.Clear();
+        foreach (var w in wanted)
+            if (blocks.FirstOrDefault(b => b.Kind == w.Kind && Math.Abs(b.X - w.X) < 2 && Math.Abs(b.Y - w.Y) < 2 && !IsSelected(b)) is { } found)
+                _selection.Add(found);
+        UpdateSelectionUi(surface);
+    }
+
+    // ---------------- Mover (arrastar), selecionar com retângulo e apagar ----------------
+
+    /// <summary>Blocos que podem estar sendo arrastados: onde o mouse apertou e as molduras que acompanham o mouse.</summary>
     private sealed class BlockDrag
     {
         public required PageSlot Slot { get; init; }
-        public required ContentBlock Block { get; init; }
+        public required List<ContentBlock> Blocks { get; init; }
         public required Point Start { get; init; }
-        public Shapes.Rectangle? Ghost { get; set; }
+        public List<Shapes.Rectangle> Ghosts { get; } = [];
+    }
+
+    /// <summary>Retângulo de seleção (arrastar numa área vazia da página).</summary>
+    private sealed class Marquee
+    {
+        public required PageSlot Slot { get; init; }
+        public required Point Start { get; init; }
+        public required bool Add { get; init; }
+        public Shapes.Rectangle? Box { get; set; }
     }
 
     private BlockDrag? _blockDrag;
+    private Marquee? _marquee;
     private FrameworkElement? _blockActions;
 
-    /// <summary>Mouse apertado no modo Editar: num texto ou imagem, espera para ver se é clique ou arrasto; fora, é clique.</summary>
+    /// <summary>Arrastando blocos ou o retângulo de seleção.</summary>
+    private bool BlockGestureActive => _blockDrag is not null || _marquee is not null;
+
+    /// <summary>
+    /// Mouse apertado no modo Editar. Num bloco: espera para ver se é clique ou arrasto (arrasto de um bloco
+    /// selecionado leva todos os selecionados); com Ctrl, junta ou tira o bloco da seleção. Fora: retângulo de seleção.
+    /// </summary>
     private async Task PressBlockAsync(DrawingSurface surface, PageSlot slot, Point p)
     {
+        bool ctrl = CtrlDown();
         if (BlockAt(slot, p) is { } block)
         {
-            _blockDrag = new BlockDrag { Slot = slot, Block = block, Start = p };
+            if (ctrl)
+            {
+                surface.ReleasePointerCaptures();
+                await ClickBlockAsync(surface, slot, p, toggle: true);
+                return;
+            }
+            _blockDrag = new BlockDrag { Slot = slot, Start = p, Blocks = IsSelected(block) ? [.. _selection] : [block] };
             return;
         }
-        surface.ReleasePointerCaptures();
-        await ClickBlockAsync(surface, slot, p);
+        _marquee = new Marquee { Slot = slot, Start = p, Add = ctrl };
     }
 
-    /// <summary>Quanto o bloco anda (DIPs), sem deixar ele sair da página.</summary>
+    /// <summary>Quanto os blocos andam (DIPs), sem deixar nenhum sair da página.</summary>
     private static (double Dx, double Dy) DragOffset(DrawingSurface surface, BlockDrag drag, Point p)
     {
-        var b = drag.Block;
+        double left = drag.Blocks.Min(b => b.X), top = drag.Blocks.Min(b => b.Y);
+        double right = drag.Blocks.Max(b => b.Right), bottom = drag.Blocks.Max(b => b.Bottom);
         double dx = p.X - drag.Start.X, dy = p.Y - drag.Start.Y;
-        dx = Math.Clamp(dx, -b.X * DipsPerPoint, Math.Max(0, surface.ActualWidth - b.Right * DipsPerPoint));
-        dy = Math.Clamp(dy, -b.Y * DipsPerPoint, Math.Max(0, surface.ActualHeight - b.Bottom * DipsPerPoint));
+        dx = Math.Clamp(dx, -left * DipsPerPoint, Math.Max(0, surface.ActualWidth - right * DipsPerPoint));
+        dy = Math.Clamp(dy, -top * DipsPerPoint, Math.Max(0, surface.ActualHeight - bottom * DipsPerPoint));
         return (dx, dy);
     }
 
+    /// <summary>Mouse movendo com o botão apertado no modo Editar: molduras dos blocos ou retângulo de seleção.</summary>
     private void DragBlock(DrawingSurface surface, Point p)
     {
+        if (_marquee is { } marquee)
+        {
+            if (marquee.Box is null)
+            {
+                if (Math.Abs(p.X - marquee.Start.X) + Math.Abs(p.Y - marquee.Start.Y) < 5) return;
+                marquee.Box = new Shapes.Rectangle
+                {
+                    Stroke = (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                    StrokeThickness = 1,
+                    StrokeDashArray = [3, 2],
+                    Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(25, 0, 95, 184)),
+                    IsHitTestVisible = false,
+                };
+                surface.Children.Add(marquee.Box);
+            }
+            var r = MarqueeRect(surface, marquee, p);
+            Canvas.SetLeft(marquee.Box, r.X);
+            Canvas.SetTop(marquee.Box, r.Y);
+            marquee.Box.Width = r.Width;
+            marquee.Box.Height = r.Height;
+            return;
+        }
         if (_blockDrag is not { } drag) return;
-        if (drag.Ghost is null)
+        if (drag.Ghosts.Count == 0)
         {
             if (Math.Abs(p.X - drag.Start.X) + Math.Abs(p.Y - drag.Start.Y) < 5) return; // ainda é um clique
             RemoveBlockActions();
-            drag.Ghost = new Shapes.Rectangle
+            foreach (var block in drag.Blocks)
             {
-                Width = (drag.Block.Width + 4) * DipsPerPoint,
-                Height = (drag.Block.Height + 4) * DipsPerPoint,
-                Stroke = (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
-                StrokeThickness = 2,
-                StrokeDashArray = [4, 3],
-                Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 95, 184)),
-                IsHitTestVisible = false,
-            };
-            surface.Children.Add(drag.Ghost);
+                var ghost = new Shapes.Rectangle
+                {
+                    Width = (block.Width + 4) * DipsPerPoint,
+                    Height = (block.Height + 4) * DipsPerPoint,
+                    Stroke = (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                    StrokeThickness = 2,
+                    StrokeDashArray = [4, 3],
+                    Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 95, 184)),
+                    IsHitTestVisible = false,
+                };
+                surface.Children.Add(ghost);
+                drag.Ghosts.Add(ghost);
+            }
             surface.SetCursor(InputSystemCursorShape.SizeAll);
-            ToolHintText.Text = $"Solte onde {(drag.Block.Kind == BlockKind.Text ? "o texto deve" : "a imagem deve")} ficar (Esc cancela).";
+            ToolHintText.Text = drag.Blocks.Count > 1 ? "Solte onde os itens devem ficar (Esc cancela)."
+                : $"Solte onde {(drag.Blocks[0].Kind == BlockKind.Text ? "o texto" : "a imagem")} deve ficar (Esc cancela).";
         }
         var (dx, dy) = DragOffset(surface, drag, p);
-        Canvas.SetLeft(drag.Ghost, (drag.Block.X - 2) * DipsPerPoint + dx);
-        Canvas.SetTop(drag.Ghost, (drag.Block.Y - 2) * DipsPerPoint + dy);
+        for (int i = 0; i < drag.Blocks.Count; i++)
+        {
+            Canvas.SetLeft(drag.Ghosts[i], (drag.Blocks[i].X - 2) * DipsPerPoint + dx);
+            Canvas.SetTop(drag.Ghosts[i], (drag.Blocks[i].Y - 2) * DipsPerPoint + dy);
+        }
+    }
+
+    private static Rect MarqueeRect(DrawingSurface surface, Marquee marquee, Point p)
+    {
+        double x2 = Math.Clamp(p.X, 0, surface.ActualWidth), y2 = Math.Clamp(p.Y, 0, surface.ActualHeight);
+        return new Rect(Math.Min(marquee.Start.X, x2), Math.Min(marquee.Start.Y, y2),
+            Math.Abs(x2 - marquee.Start.X), Math.Abs(y2 - marquee.Start.Y));
     }
 
     private void CancelBlockDrag(DrawingSurface? surface)
     {
-        if (_blockDrag?.Ghost is { } ghost) surface?.Children.Remove(ghost);
+        if (_blockDrag is { } drag) foreach (var ghost in drag.Ghosts) surface?.Children.Remove(ghost);
         _blockDrag = null;
     }
 
-    /// <summary>Mouse solto: se arrastou, move o texto na página (com desfazer); se não, é um clique comum.</summary>
+    private void CancelMarquee()
+    {
+        if (_marquee?.Box is { Parent: Panel parent } box) parent.Children.Remove(box);
+        _marquee = null;
+    }
+
+    /// <summary>Mouse solto: move os blocos arrastados (com desfazer), conclui o retângulo de seleção ou é um clique comum.</summary>
     private async Task DropBlockAsync(DrawingSurface surface, Point p)
     {
+        if (_marquee is { } marquee)
+        {
+            bool drawn = marquee.Box is not null;
+            var r = MarqueeRect(surface, marquee, p);
+            CancelMarquee();
+            if (!marquee.Add) _selection.Clear();
+            if (drawn && _blockOutlines.Count > 0)
+            {
+                // Entra o que o retângulo encosta (em pontos do PDF).
+                double x1 = r.X / DipsPerPoint, y1 = r.Y / DipsPerPoint, x2 = r.Right / DipsPerPoint, y2 = r.Bottom / DipsPerPoint;
+                foreach (var (block, _) in _blockOutlines)
+                    if (block.X < x2 && block.Right > x1 && block.Y < y2 && block.Bottom > y1 && !IsSelected(block))
+                        _selection.Add(block);
+            }
+            UpdateSelectionUi(surface);
+            return;
+        }
         if (_blockDrag is not { } drag) return;
-        bool dragged = drag.Ghost is not null;
+        bool dragged = drag.Ghosts.Count > 0;
         var (dx, dy) = DragOffset(surface, drag, p);
         CancelBlockDrag(surface);
-        if (!dragged)
+        double ddx = dx / DipsPerPoint, ddy = dy / DipsPerPoint;
+        if (!dragged || (Math.Abs(ddx) < 0.5 && Math.Abs(ddy) < 0.5))
         {
             await ClickBlockAsync(surface, drag.Slot, drag.Start);
             return;
         }
-        double ddx = dx / DipsPerPoint, ddy = dy / DipsPerPoint;
-        if (Math.Abs(ddx) < 0.5 && Math.Abs(ddy) < 0.5) { await ClickBlockAsync(surface, drag.Slot, drag.Start); return; }
         int page = drag.Slot.Index;
-        var block = drag.Block;
-        bool text = block.Kind == BlockKind.Text;
-        ToolHintText.Text = text ? "Movendo o texto…" : "Movendo a imagem…";
-        if (await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, block, ddx, ddy, output), label: text ? "Mover texto" : "Mover imagem"))
-            ShowStatus(InfoBarSeverity.Success, text ? "Texto movido" : "Imagem movida",
-                (text ? "A letra continua a mesma." : "A imagem continua a mesma.") + " Use Desfazer (Ctrl+Z) para voltar.");
+        var blocks = drag.Blocks;
+        bool single = blocks.Count == 1, text = single && blocks[0].Kind == BlockKind.Text;
+        ToolHintText.Text = single ? (text ? "Movendo o texto…" : "Movendo a imagem…") : $"Movendo {blocks.Count} itens…";
+        bool done = await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, blocks, ddx, ddy, output),
+            label: single ? (text ? "Mover texto" : "Mover imagem") : "Mover itens");
+        if (done)
+            ShowStatus(InfoBarSeverity.Success, single ? (text ? "Texto movido" : "Imagem movida") : $"{blocks.Count} itens movidos",
+                (single ? "" : "O espaço entre eles não mudou. ") + "A formatação continua a mesma. Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
-        if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
+        if (_tool?.Mode != DrawMode.EditAll) return;
+        var now = await ShowBlockOutlinesAsync(surface, force: true);
+        // Continua selecionado o que foi movido (para ajustar de novo, se quiser).
+        if (done) SelectMatching(surface, now, blocks.Select(b => b with { X = b.X + ddx, Y = b.Y + ddy }));
     }
 
-    /// <summary>Apaga o texto ou a imagem selecionada (com desfazer).</summary>
+    /// <summary>Apaga os textos e imagens selecionados (com desfazer).</summary>
     private async Task DeleteSelectedBlockAsync()
     {
-        if (_selectedBlock is not { } block || _blockSurface is not { } surface || SlotOf(surface) is not { } slot) return;
+        if (_selection.Count == 0 || _blockSurface is not { } surface || SlotOf(surface) is not { } slot) return;
         if (_blockEditor is not null) return;
         int page = slot.Index;
+        var blocks = _selection.ToList();
+        bool single = blocks.Count == 1, text = single && blocks[0].Kind == BlockKind.Text;
         TextEditResult? result = null;
-        if (await ApplyEditAsync((input, output) => result = PdfTextEditor.Delete(input, page, block, output), label: block.Kind == BlockKind.Text ? "Apagar texto" : "Apagar imagem"))
-            ShowStatus(InfoBarSeverity.Success, block.Kind == BlockKind.Text ? "Texto apagado" : "Imagem apagada",
+        if (await ApplyEditAsync((input, output) => result = PdfTextEditor.Delete(input, page, blocks, output),
+                label: single ? (text ? "Apagar texto" : "Apagar imagem") : "Apagar itens"))
+            ShowStatus(InfoBarSeverity.Success, single ? (text ? "Texto apagado" : "Imagem apagada") : $"{blocks.Count} itens apagados",
                 (result?.Covered == true ? "Parte do texto não pôde ser apagada e foi coberta com branco. " : "") + "Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
     }
 
-    /// <summary>Delete (ou Backspace) apaga o texto ou a imagem selecionada; Esc cancela um arrasto.</summary>
+    /// <summary>Delete (ou Backspace) apaga o que está selecionado; Ctrl+A seleciona tudo da página; Esc cancela um arrasto.</summary>
     private async void BlockKey_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (_tool?.Mode != DrawMode.EditAll || _blockEditor is not null) return;
-        if (e.Key == Windows.System.VirtualKey.Escape && _blockDrag is not null)
+        if (e.Key == Windows.System.VirtualKey.Escape && BlockGestureActive)
         {
             e.Handled = true;
             _blockSurface?.ReleasePointerCaptures();
             CancelBlockDrag(_blockSurface);
-            ToolHintText.Text = CommentTools["editartudo"].Hint;
+            CancelMarquee();
+            if (_blockSurface is { } s) UpdateSelectionUi(s);
             return;
         }
-        if (e.Key is not (Windows.System.VirtualKey.Delete or Windows.System.VirtualKey.Back)) return;
-        if (_selectedBlock is null) return;
         if (FocusManager.GetFocusedElement(XamlRoot) is TextBox or PasswordBox or RichEditBox or AutoSuggestBox) return;
+        if (e.Key == Windows.System.VirtualKey.A && CtrlDown() && _blockSurface is { } surface && _blockOutlines.Count > 0)
+        {
+            e.Handled = true;
+            _selection.Clear();
+            _selection.AddRange(_blockOutlines.Select(o => o.Block));
+            UpdateSelectionUi(surface);
+            return;
+        }
+        if (e.Key is not (Windows.System.VirtualKey.Delete or Windows.System.VirtualKey.Back) || _selection.Count == 0) return;
         e.Handled = true;
         await DeleteSelectedBlockAsync();
     }
 
-    /// <summary>Botão "Apagar" ao lado do texto ou imagem selecionada.</summary>
-    private void ShowBlockActions(DrawingSurface surface, ContentBlock? block)
+    /// <summary>Botão "Apagar" ao lado do que está selecionado (do último escolhido).</summary>
+    private void ShowBlockActions(DrawingSurface surface)
     {
         RemoveBlockActions();
-        if (block is null) return;
+        if (_selection.Count == 0) return;
+        var block = _selection[^1];
+        int n = _selection.Count;
         var delete = new Button
         {
             Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 6,
-                Children = { new FontIcon { Glyph = "", FontSize = 14 }, new TextBlock { Text = "Apagar" } },
+                Children = { new FontIcon { Glyph = "\uE74D", FontSize = 14 }, new TextBlock { Text = n > 1 ? $"Apagar ({n})" : "Apagar" } },
             },
             Padding = new Thickness(10, 4, 10, 4),
         };
-        ToolTipService.SetToolTip(delete, $"Apagar {(block.Kind == BlockKind.Text ? "este texto" : "esta imagem")} (Delete)");
+        ToolTipService.SetToolTip(delete, n > 1 ? $"Apagar os {n} itens selecionados (Delete)"
+            : $"Apagar {(block.Kind == BlockKind.Text ? "este texto" : "esta imagem")} (Delete)");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(delete, "DeleteBlockButton");
         delete.Click += async (_, _) => await DeleteSelectedBlockAsync();
         var bar = new Border
@@ -283,8 +429,8 @@ public sealed partial class ViewerPage
             Padding = new Thickness(2),
             Child = delete,
         };
-        // Ao lado direito do texto (para não cobrir o que está em cima); sem espaço, logo abaixo dele.
-        const double barWidth = 110;
+        // Ao lado direito (para não cobrir o que está em cima); sem espaço, logo abaixo.
+        const double barWidth = 130;
         double left = (block.Right + 6) * DipsPerPoint, top = (block.Y - 2) * DipsPerPoint;
         if (left + barWidth > surface.ActualWidth)
         {
