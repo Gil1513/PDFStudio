@@ -50,6 +50,8 @@ public static class PdfCompressor
 
     /// <summary>Imagem pequena (menos que isso em pixels) não compensa mexer.</summary>
     private const int MinPixels = 250_000;
+    /// <summary>Acima disso (100 megapixels) a imagem não é mexida: abrir os pixels gastaria memória demais.</summary>
+    private const long MaxPixels = 100_000_000;
 
     public static CompressResult Compress(string input, string output, CompressLevel level,
         Func<PdfImageData, int, int, ShrunkImage?>? shrink = null, string? password = null, IProgress<double>? progress = null)
@@ -130,7 +132,8 @@ public static class PdfCompressor
     {
         var e = image.Elements;
         int width = e.GetInteger("/Width"), height = e.GetInteger("/Height");
-        if ((long)width * height < MinPixels) return false;
+        if (width <= 0 || height <= 0) return false;
+        if ((long)width * height < MinPixels || (long)width * height > MaxPixels) return false; // muito grande: fica como está
         if (e.GetBoolean("/ImageMask") || e.ContainsKey("/Mask") || e.ContainsKey("/Decode")) return false;
         if (e.GetInteger("/BitsPerComponent") != 8) return false;
         if (e.GetValue("/SMask") is PdfReference { Value: PdfDictionary mask } && mask.Elements.ContainsKey("/Matte")) return false;
@@ -148,7 +151,7 @@ public static class PdfCompressor
         {
             if (e.GetValue("/DecodeParms") is PdfDictionary parms && parms.Elements.GetInteger("/Predictor") > 1) return false;
             byte[] pixels = filter is null ? current : image.Stream.UnfilteredValue;
-            if (pixels.Length != width * height * components) return false; // não deu para ler direito
+            if (pixels.Length != (long)width * height * components) return false; // não deu para ler direito
             data = new PdfImageData(pixels, false, width, height, components);
         }
         else

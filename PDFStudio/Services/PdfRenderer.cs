@@ -104,11 +104,11 @@ public static class PdfRenderer
         {
             cancel.ThrowIfCancellationRequested();
             using var page = doc.GetPage(i);
-            double scale = 40 / 96.0;
+            var (width, height) = PageImages.ScreenSize(page.Size.Width, page.Size.Height, 40 / 96.0);
             var options = new PdfPageRenderOptions
             {
-                DestinationWidth = (uint)Math.Max(8, Math.Round(page.Size.Width * scale)),
-                DestinationHeight = (uint)Math.Max(8, Math.Round(page.Size.Height * scale)),
+                DestinationWidth = Math.Max(8, width),
+                DestinationHeight = Math.Max(8, height),
                 BackgroundColor = Windows.UI.Color.FromArgb(255, 255, 255, 255),
             };
             using var stream = new InMemoryRandomAccessStream();
@@ -167,11 +167,8 @@ public static class PdfRenderer
     {
         using var page = doc.GetPage((uint)index);
         using var stream = new InMemoryRandomAccessStream();
-        var options = new PdfPageRenderOptions
-        {
-            DestinationWidth = (uint)Math.Max(1, Math.Round(page.Size.Width * scale)),
-            DestinationHeight = (uint)Math.Max(1, Math.Round(page.Size.Height * scale)),
-        };
+        var (width, height) = PageImages.ScreenSize(page.Size.Width, page.Size.Height, scale); // com teto: página gigante não trava
+        var options = new PdfPageRenderOptions { DestinationWidth = width, DestinationHeight = height };
         if (transparent) options.BackgroundColor = Windows.UI.Color.FromArgb(0, 255, 255, 255);
         await page.RenderToStreamAsync(stream, options);
 

@@ -15,6 +15,17 @@ public class PageImagesTests
     }
 
     [Fact]
+    public void ScreenSize_HugePageIsShrunk_NormalPageIsNot()
+    {
+        Assert.Equal((1587u, 2245u), PageImages.ScreenSize(793.3, 1122.7, 2)); // A4 com zoom: sem mudança
+        var (w, h) = PageImages.ScreenSize(200 * 96, 200 * 96, 4); // 200 × 200 polegadas, zoom 4×
+        Assert.True((long)w * h <= PageImages.MaxScreenPixels);
+        Assert.Equal(w, h); // mesma proporção
+        var (tw, th) = PageImages.ScreenSize(100000, 10, 1); // faixa comprida
+        Assert.True(tw <= PageImages.MaxSide && th >= 1);
+    }
+
+    [Fact]
     public void PixelSize_FollowsTheResolution()
     {
         // A4 em DIPs (595 × 842 pontos = 793,3 × 1122,7 DIPs).

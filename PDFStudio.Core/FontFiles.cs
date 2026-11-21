@@ -34,6 +34,8 @@ public static class FontFiles
     public static readonly string[] Extensions = [".ttf", ".otf", ".zip"];
 
     private const int MaxFontBytes = 30 * 1024 * 1024; // nenhuma fonte de verdade chega perto disso
+    private const int MaxFontsInZip = 200;
+    private const long MaxZipBytes = 300L * 1024 * 1024; // soma das fontes de um .zip
 
     /// <summary>
     /// Adiciona as fontes do arquivo <paramref name="file"/> (fonte avulsa ou .zip). <paramref name="folder"/>:
@@ -109,6 +111,8 @@ public static class FontFiles
         try
         {
             using var zip = ZipFile.OpenRead(file);
+            long total = 0;
+            int fonts = 0;
             foreach (var entry in zip.Entries)
             {
                 string ext = Path.GetExtension(entry.Name);
@@ -118,10 +122,21 @@ public static class FontFiles
                     problems.Add($"{entry.Name}: arquivo grande demais para ser uma fonte.");
                     continue;
                 }
+                if (++fonts > MaxFontsInZip || (total += entry.Length) > MaxZipBytes)
+                {
+                    problems.Add($"{Path.GetFileName(file)}: fontes demais dentro do .zip; só as primeiras foram lidas.");
+                    break;
+                }
                 // Só a memória: o nome de dentro do .zip nunca vira caminho no disco.
                 using var stream = entry.Open();
                 using var copy = new MemoryStream();
-                stream.CopyTo(copy);
+                var buffer = new byte[81920];
+                int read;
+                while ((read = stream.Read(buffer)) > 0)
+                {
+                    copy.Write(buffer, 0, read);
+                    if (copy.Length > MaxFontBytes) throw new InvalidDataException(); // o .zip mentiu o tamanho
+                }
                 list.Add((entry.Name, copy.ToArray()));
             }
         }

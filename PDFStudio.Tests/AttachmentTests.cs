@@ -8,6 +8,38 @@ namespace PDFStudio.Tests;
 public class AttachmentTests
 {
     [Fact]
+    public void TrapNameTree_RepeatedBranches_IsReadQuickly()
+    {
+        // Árvore de anexos malfeita: cada nível aponta 10 vezes para o mesmo nó, 25 níveis (10^25 caminhos).
+        string dir = TestPdfs.TempDir();
+        string input = TestPdfs.Create(Path.Combine(dir, "a.pdf"), 1);
+        string trap = Path.Combine(dir, "armadilha.pdf");
+        using (var doc = PdfReader.Open(input, PdfDocumentOpenMode.Modify))
+        {
+            var leaf = new PdfDictionary(doc);
+            leaf.Elements["/Names"] = new PdfArray(doc);
+            doc.Internals.AddObject(leaf);
+            var node = leaf;
+            for (int level = 0; level < 25; level++)
+            {
+                var parent = new PdfDictionary(doc);
+                var kids = new PdfArray(doc);
+                for (int i = 0; i < 10; i++) kids.Elements.Add(node.Reference!);
+                parent.Elements["/Kids"] = kids;
+                doc.Internals.AddObject(parent);
+                node = parent;
+            }
+            var names = new PdfDictionary(doc);
+            names.Elements["/EmbeddedFiles"] = node.Reference!;
+            doc.Internals.Catalog.Elements["/Names"] = names;
+            doc.Save(trap);
+        }
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Empty(PdfAttachments.List(trap));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
     public void Add_List_Read_AndRemove()
     {
         string dir = TestPdfs.TempDir();

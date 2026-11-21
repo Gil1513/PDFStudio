@@ -210,16 +210,17 @@ public static class PdfAttachments
         return result;
     }
 
-    private static void Collect(PdfDictionary node, List<(string, PdfDictionary)> result, int depth)
+    private static void Collect(PdfDictionary node, List<(string, PdfDictionary)> result, int depth, HashSet<PdfDictionary>? seen = null)
     {
-        if (depth > 20) return;
+        seen ??= new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
+        if (depth > 20 || !seen.Add(node)) return; // nó repetido: PDF malfeito
         if (node.Elements.GetArray("/Names") is { } names)
             for (int i = 0; i + 1 < names.Elements.Count; i += 2)
                 if (names.Elements[i] is PdfString key && names.Elements.GetDictionary(i + 1) is { } spec)
                     result.Add((key.Value, spec));
         if (node.Elements.GetArray("/Kids") is { } kids)
             for (int i = 0; i < kids.Elements.Count; i++)
-                if (kids.Elements.GetDictionary(i) is { } kid) Collect(kid, result, depth + 1);
+                if (kids.Elements.GetDictionary(i) is { } kid) Collect(kid, result, depth + 1, seen);
     }
 
     private static List<(int Page, PdfDictionary Spec)> PageEntries(PdfDocument doc)

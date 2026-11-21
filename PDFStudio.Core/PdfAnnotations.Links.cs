@@ -166,15 +166,16 @@ public static partial class PdfAnnotations
         return catalog.Elements.GetDictionary("/Names")?.Elements.GetDictionary("/Dests") is { } tree ? FindInNameTree(tree, name, 0) : null;
     }
 
-    private static PdfItem? FindInNameTree(PdfDictionary node, string name, int depth)
+    private static PdfItem? FindInNameTree(PdfDictionary node, string name, int depth, HashSet<PdfDictionary>? seen = null)
     {
-        if (depth > 20) return null;
+        seen ??= new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
+        if (depth > 20 || !seen.Add(node)) return null; // nó repetido: PDF malfeito (laço ou ramos que se repetem)
         if (node.Elements.GetArray("/Names") is { } names)
             for (int i = 0; i + 1 < names.Elements.Count; i += 2)
                 if (names.Elements[i] is PdfString key && key.Value == name) return names.Elements[i + 1];
         if (node.Elements.GetArray("/Kids") is { } kids)
             for (int i = 0; i < kids.Elements.Count; i++)
-                if (kids.Elements.GetDictionary(i) is { } kid && FindInNameTree(kid, name, depth + 1) is { } found) return found;
+                if (kids.Elements.GetDictionary(i) is { } kid && FindInNameTree(kid, name, depth + 1, seen) is { } found) return found;
         return null;
     }
 }

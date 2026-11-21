@@ -261,15 +261,16 @@ public static class PdfBookmarks
         }
     }
 
-    private static PdfItem? LookupName(PdfDictionary node, string key, int depth)
+    private static PdfItem? LookupName(PdfDictionary node, string key, int depth, HashSet<PdfDictionary>? seen = null)
     {
-        if (depth > 32) return null;
+        seen ??= new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
+        if (depth > 32 || !seen.Add(node)) return null; // nó repetido: PDF malfeito
         if (node.Elements.GetArray("/Names") is { } names)
             for (int i = 0; i + 1 < names.Elements.Count; i += 2)
                 if (names.Elements[i] is PdfString s && s.Value == key) return names.Elements[i + 1];
         if (node.Elements.GetArray("/Kids") is { } kids)
             for (int i = 0; i < kids.Elements.Count; i++)
-                if (kids.Elements.GetDictionary(i) is { } kid && LookupName(kid, key, depth + 1) is { } found) return found;
+                if (kids.Elements.GetDictionary(i) is { } kid && LookupName(kid, key, depth + 1, seen) is { } found) return found;
         return null;
     }
 

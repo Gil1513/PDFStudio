@@ -134,9 +134,9 @@ public static class PdfFormData
         return result;
     }
 
-    private static void Walk(PdfDictionary field, string parentName, string? parentType, List<FormFieldValue> result, HashSet<PdfDictionary> seen)
+    private static void Walk(PdfDictionary field, string parentName, string? parentType, List<FormFieldValue> result, HashSet<PdfDictionary> seen, int depth = 0)
     {
-        if (!seen.Add(field)) return; // PDF malfeito com laço
+        if (depth > 64 || !seen.Add(field)) return; // PDF malfeito com laço ou fundo demais
         string part = field.Elements.GetString("/T");
         string name = part.Length == 0 ? parentName : parentName.Length == 0 ? part : $"{parentName}.{part}";
         string? type = field.Elements.GetName("/FT") is { Length: > 0 } ft ? ft : parentType; // o tipo pode vir do "pai"
@@ -148,7 +148,7 @@ public static class PdfFormData
                 if (kids.Elements.GetDictionary(i) is { } kid && kid.Elements.ContainsKey("/T")) namedKids.Add(kid);
         if (namedKids.Count > 0)
         {
-            foreach (var kid in namedKids) Walk(kid, name, type, result, seen);
+            foreach (var kid in namedKids) Walk(kid, name, type, result, seen, depth + 1);
             return;
         }
         if (name.Length == 0 || type == "/Sig") return;

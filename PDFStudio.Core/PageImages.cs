@@ -46,6 +46,22 @@ public static class PageImages
         return ((uint)Math.Max(1, Math.Round(w)), (uint)Math.Max(1, Math.Round(h)));
     }
 
+    /// <summary>Teto de pixels de uma página desenhada na tela (~4096 × 4096): uma página gigante não esgota a memória.</summary>
+    public const long MaxScreenPixels = 16_777_216;
+
+    /// <summary>
+    /// Tamanho em pixels de uma página desenhada na tela com <paramref name="scale"/> (2 = nítido com zoom). Se
+    /// passar de <see cref="MaxScreenPixels"/> ou de <see cref="MaxSide"/> num lado, diminui mantendo a proporção.
+    /// </summary>
+    public static (uint Width, uint Height) ScreenSize(double widthDips, double heightDips, double scale)
+    {
+        double w = Math.Max(1, widthDips * scale), h = Math.Max(1, heightDips * scale);
+        if (!double.IsFinite(w) || !double.IsFinite(h)) return (1, 1);
+        double shrink = Math.Min(1, Math.Sqrt(MaxScreenPixels / (w * h)));
+        shrink = Math.Min(shrink, MaxSide / Math.Max(w, h));
+        return ((uint)Math.Max(1, Math.Round(w * shrink)), (uint)Math.Max(1, Math.Round(h * shrink)));
+    }
+
     /// <summary>
     /// Nome do arquivo de uma página: "contrato-pagina-03.png". O número tem tantos dígitos quanto o total
     /// de páginas (assim a lista de arquivos fica em ordem). Caracteres proibidos no nome viram "_".

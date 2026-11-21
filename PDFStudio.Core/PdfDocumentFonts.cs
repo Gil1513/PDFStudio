@@ -62,9 +62,9 @@ public static class PdfDocumentFonts
         return result;
     }
 
-    private static void Scan(PdfDictionary? resources, HashSet<string> result, HashSet<PdfDictionary> seen)
+    private static void Scan(PdfDictionary? resources, HashSet<string> result, HashSet<PdfDictionary> seen, int depth = 0)
     {
-        if (resources is null || !seen.Add(resources)) return;
+        if (resources is null || depth > 64 || !seen.Add(resources)) return; // laço ou desenhos dentro de desenhos demais
         if (resources.Elements.GetDictionary("/Font") is { } fonts)
             foreach (var key in fonts.Elements.Keys)
                 if (fonts.Elements.GetDictionary(key) is { } font && IsEmbedded(font))
@@ -72,7 +72,7 @@ public static class PdfDocumentFonts
         if (resources.Elements.GetDictionary("/XObject") is { } xobjects)
             foreach (var key in xobjects.Elements.Keys)
                 if (xobjects.Elements.GetDictionary(key) is { } x && x.Elements.GetName("/Subtype") == "/Form")
-                    Scan(x.Elements.GetDictionary("/Resources"), result, seen);
+                    Scan(x.Elements.GetDictionary("/Resources"), result, seen, depth + 1);
     }
 
     private static bool IsEmbedded(PdfDictionary font)
