@@ -100,9 +100,10 @@ public sealed partial class ViewerPage
             Content = new TextBlock
             {
                 Text = $"{Plural(_redactMarks.Count, "área", "áreas")} em {Plural(pages, "página", "páginas")} vão ser cobertas com tarja preta, " +
-                       "e o que estiver embaixo será apagado do arquivo: letras, imagens inteiras dentro da área, comentários, links e campos.\n\n" +
-                       "Limites: texto guardado dentro de “formulários” internos do PDF e imagens que só encostam na área " +
-                       "ficam apenas cobertos (o app avisa quando isso acontecer). Desenhos (linhas, formas) também ficam só cobertos.\n\n" +
+                       "e o que estiver embaixo será apagado do arquivo: letras, imagens (a parte embaixo da área), desenhos inteiros " +
+                       "dentro da área, comentários, links e campos com o valor guardado.\n\n" +
+                       "Se alguma coisa embaixo da área não puder ser apagada com segurança (ex.: imagem num formato especial), " +
+                       "o app avisa e não altera nada.\n\n" +
                        "Até salvar, Desfazer (Ctrl+Z) volta atrás. Depois de salvar, o que foi apagado não pode ser recuperado.",
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth = 460,
@@ -117,19 +118,20 @@ public sealed partial class ViewerPage
             .Select(m => new RedactionArea(m.Slot.Index, m.Box.X / DipsPerPoint, m.Box.Y / DipsPerPoint, m.Box.Width / DipsPerPoint, m.Box.Height / DipsPerPoint))
             .ToList();
         RedactionResult? result = null;
-        if (!await ApplyEditAsync((input, output) => result = PdfRedaction.Apply(input, areas, output), label: "Redigir")) return;
+        if (!await ApplyEditAsync((input, output) => result = PdfRedaction.Apply(input, areas, output, new AnnotationColor(0, 0, 0), ImageShrinker.DecodeJpegPixels), label: "Redigir")) return;
         ClearRedactMarks();
         UpdateRedactHint();
         if (result is null) return;
 
         var parts = new List<string>();
         if (result.Letters > 0) parts.Add(Plural(result.Letters, "letra apagada", "letras apagadas"));
-        if (result.Images > 0) parts.Add(Plural(result.Images, "imagem apagada", "imagens apagadas"));
+        if (result.Images > 0) parts.Add(Plural(result.Images, "imagem apagada", "imagens apagadas") + " (inteira ou só a parte embaixo da tarja)");
+        if (result.Drawings > 0) parts.Add(Plural(result.Drawings, "desenho apagado", "desenhos apagados"));
         if (result.Annotations > 0) parts.Add(Plural(result.Annotations, "comentário/link/campo apagado", "comentários/links/campos apagados"));
         string summary = parts.Count > 0 ? string.Join(", ", parts) + "." : "Nada para apagar embaixo das áreas; ficaram só as tarjas.";
         if (result.CoveredOnly > 0)
             ShowStatus(InfoBarSeverity.Warning, "Redação aplicada, com ressalva",
-                $"{summary} {Plural(result.CoveredOnly, "item ficou", "itens ficaram")} só coberto(s) pela tarja (texto em formulário interno ou imagem só em parte na área). Salve com Ctrl+S.");
+                $"{summary} {Plural(result.CoveredOnly, "item ficou", "itens ficaram")} só coberto(s) pela tarja (texto com fonte desenhada, que não dá para apagar letra por letra). Salve com Ctrl+S.");
         else
             ShowStatus(InfoBarSeverity.Success, "Redação aplicada", $"{summary} Salve com Ctrl+S para gravar no arquivo; Ctrl+Z desfaz.");
     }

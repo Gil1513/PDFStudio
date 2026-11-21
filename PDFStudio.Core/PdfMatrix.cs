@@ -14,4 +14,12 @@ internal readonly record struct PdfMatrix(double A, double B, double C, double D
     public (double X, double Y) Origin => (E, F);
 
     public (double X, double Y) Apply(double x, double y) => (A * x + C * y + E, B * x + D * y + F);
+
+    /// <summary>A matriz que desfaz esta (null se ela "achata" tudo e não tem volta).</summary>
+    public PdfMatrix? Invert()
+    {
+        double det = A * D - B * C;
+        if (Math.Abs(det) < 1e-12) return null;
+        return new(D / det, -B / det, -C / det, A / det, (C * F - D * E) / det, (B * E - A * F) / det);
+    }
 }

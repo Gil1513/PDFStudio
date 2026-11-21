@@ -44,6 +44,44 @@ public static class ImageShrinker
         return new ShrunkImage(bytes, (int)newWidth, (int)newHeight);
     }
 
+    /// <summary>
+    /// JPG do PDF → pixels crus (cinza: 1 byte por pixel; cor: R, G, B), linha a linha de cima para baixo. Usado
+    /// pela redação para apagar só a parte de uma foto que fica embaixo da tarja. null = não conseguiu.
+    /// </summary>
+    public static byte[]? DecodeJpegPixels(byte[] jpeg, int components)
+    {
+        try
+        {
+            return Task.Run(() => DecodeJpegPixelsAsync(jpeg, components)).GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<byte[]?> DecodeJpegPixelsAsync(byte[] jpeg, int components)
+    {
+        if (components is not (1 or 3)) return null;
+        using var stream = new InMemoryRandomAccessStream();
+        await stream.WriteAsync(jpeg.AsBuffer());
+        stream.Seek(0);
+        var decoder = await BitmapDecoder.CreateAsync(BitmapDecoder.JpegDecoderId, stream);
+        var format = components == 1 ? BitmapPixelFormat.Gray8 : BitmapPixelFormat.Bgra8;
+        var data = await decoder.GetPixelDataAsync(format, BitmapAlphaMode.Ignore, new BitmapTransform(),
+            ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+        byte[] pixels = data.DetachPixelData();
+        if (components == 1) return pixels;
+        var rgb = new byte[pixels.Length / 4 * 3];
+        for (int i = 0, o = 0; i + 3 < pixels.Length; i += 4, o += 3)
+        {
+            rgb[o] = pixels[i + 2];
+            rgb[o + 1] = pixels[i + 1];
+            rgb[o + 2] = pixels[i];
+        }
+        return rgb;
+    }
+
     private static async Task<SoftwareBitmap> DecodeJpegAsync(byte[] jpeg, BitmapPixelFormat format)
     {
         using var stream = new InMemoryRandomAccessStream();
