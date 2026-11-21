@@ -1,4 +1,4 @@
-using PdfSharp.Drawing;
+﻿using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PDFStudio.Core;
 
@@ -179,6 +179,109 @@ public class BlockMoveTests
         Assert.Contains("Coluna esquerda", text);
         Assert.Contains("Primeira", text);
         Assert.DoesNotContain(PdfContentBlocks.Detect(input, 0), b => b.Kind == BlockKind.Image);
+    }
+
+    /// <summary>Página com um título, uma linha azul embaixo dele e uma caixa (preenchida e com contorno).</summary>
+    private static string WithShapes(string dir, int rotation = 0)
+    {
+        string input = Path.Combine(dir, "desenhos.pdf");
+        using (var doc = new PdfDocument())
+        {
+            var page = doc.AddPage();
+            using (var gfx = XGraphics.FromPdfPage(page))
+            {
+                gfx.DrawString("Tipo de contrato", new XFont("Arial", 12), XBrushes.Black, new XPoint(60, 100));
+                gfx.DrawLine(new XPen(XColors.RoyalBlue, 1), 60, 106, 260, 106);
+                gfx.DrawRectangle(new XPen(XColors.Black, 1), XBrushes.LightYellow, 60, 200, 150, 60);
+            }
+            doc.Save(input);
+        }
+        if (rotation != 0) PdfOperations.Reorganize(input, [new(0, rotation)], input);
+        return input;
+    }
+
+    private static List<ContentBlock> ShapesOf(string path) =>
+        PdfTextEditor.Shapes(path, 0).OrderBy(b => b.Y).ToList();
+
+    [Fact]
+    public void Shapes_AreFound_LineAndBox()
+    {
+        var shapes = ShapesOf(WithShapes(TestPdfs.TempDir()));
+        Assert.Equal(2, shapes.Count); // a caixa (preenchimento + contorno) conta uma vez só
+        Assert.InRange(shapes[0].Width, 199, 201); // a linha
+        Assert.InRange(shapes[0].Height, 0, 1);
+        Assert.InRange(shapes[1].Width, 149, 151); // a caixa
+        Assert.InRange(shapes[1].Height, 59, 61);
+    }
+
+    [Fact]
+    public void LineAndText_MoveTogether()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = WithShapes(dir);
+        var text = BlockStarting(input, "Tipo");
+        var line = ShapesOf(input).OrderBy(b => b.Height).First();
+        string output = Path.Combine(dir, "saida.pdf");
+
+        PdfTextEditor.Move(input, 0, [text, line], 25, 40, output);
+
+        var movedText = BlockStarting(output, "Tipo");
+        var movedLine = PdfTextEditor.Shapes(output, 0).OrderBy(b => Math.Min(b.Width, b.Height)).First();
+        Assert.Equal(text.X + 25, movedText.X, 1.0);
+        Assert.Equal(line.X + 25, movedLine.X, 1.0);
+        Assert.Equal(line.Y + 40, movedLine.Y, 1.0);
+        Assert.Equal(line.Y - text.Y, movedLine.Y - movedText.Y, 1.0); // a distância entre a linha e o texto não muda
+        Assert.Equal(2, PdfTextEditor.Shapes(output, 0).Count); // a caixa continua lá, uma só
+    }
+
+    [Theory]
+    [InlineData(90)]
+    [InlineData(180)]
+    [InlineData(270)]
+    public void Shapes_MoveOnRotatedPage(int rotation)
+    {
+        string dir = TestPdfs.TempDir();
+        string input = WithShapes(dir, rotation);
+        var shapes = ShapesOf(input);
+        Assert.Equal(2, shapes.Count);
+        var box = shapes.OrderByDescending(b => b.Width * b.Height).First();
+
+        PdfTextEditor.Move(input, 0, box, 30, 50, input);
+
+        var now = PdfTextEditor.Shapes(input, 0).OrderByDescending(b => b.Width * b.Height).First();
+        Assert.Equal(box.X + 30, now.X, 1.0);
+        Assert.Equal(box.Y + 50, now.Y, 1.0);
+        Assert.Equal(rotation, TestPdfs.Rotations(input)[0]);
+    }
+
+    [Fact]
+    public void Line_CanBeDeleted_TextStays()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = WithShapes(dir);
+        var line = ShapesOf(input)[0];
+
+        PdfTextEditor.Delete(input, 0, line, input);
+
+        var left = Assert.Single(PdfTextEditor.Shapes(input, 0));
+        Assert.InRange(left.Height, 59, 61); // sobrou só a caixa
+        Assert.Contains("Tipo de contrato", AllText(input));
+    }
+
+    [Fact]
+    public void Box_MovedTwice()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = WithShapes(dir);
+        var box = ShapesOf(input)[1];
+
+        PdfTextEditor.Move(input, 0, box, 100, 0, input);
+        PdfTextEditor.Move(input, 0, ShapesOf(input)[1], 0, 300, input);
+
+        var now = ShapesOf(input)[1];
+        Assert.Equal(box.X + 100, now.X, 1.0);
+        Assert.Equal(box.Y + 300, now.Y, 1.0);
+        Assert.Equal(box.Width, now.Width, 0.5);
     }
 
     private static ContentBlock Image(string path) => Assert.Single(PdfContentBlocks.Detect(path, 0), b => b.Kind == BlockKind.Image);

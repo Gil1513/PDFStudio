@@ -24,7 +24,7 @@ public sealed partial class ViewerPage
         string path = DisplayPath!;
         if (_blockCachePath != path) { _blockCache.Clear(); _blockCachePath = path; }
         if (!_blockCache.TryGetValue(page, out var task))
-            _blockCache[page] = task = Task.Run(() => PdfContentBlocks.Detect(path, page));
+            _blockCache[page] = task = Task.Run(() => PdfContentBlocks.Detect(path, page).Concat(PdfTextEditor.Shapes(path, page)).ToList());
         return task;
     }
 
@@ -35,7 +35,12 @@ public sealed partial class ViewerPage
         var task = BlocksOfPage(slot.Index);
         if (!task.IsCompletedSuccessfully) return null;
         double x = p.X / DipsPerPoint, y = p.Y / DipsPerPoint;
-        return task.Result.Where(b => b.Contains(x, y)).OrderBy(b => b.Kind == BlockKind.Text ? 0 : 1).ThenBy(b => b.Width * b.Height).FirstOrDefault();
+        // Desenhos finos (linhas) ganham uma folga para dar para clicar neles.
+        static bool Hit(ContentBlock b, double x, double y, double pad) =>
+            x >= b.X - pad && x <= b.Right + pad && y >= b.Y - pad && y <= b.Bottom + pad;
+        return task.Result.Where(b => Hit(b, x, y, b.Kind == BlockKind.Shape ? 3 : 0))
+            .OrderBy(b => b.Kind switch { BlockKind.Text => 0, BlockKind.Image => 1, _ => 2 })
+            .ThenBy(b => b.Width * b.Height).FirstOrDefault();
     }
 
     // ---------------- Contornos e seleção ----------------
@@ -94,9 +99,10 @@ public sealed partial class ViewerPage
     {
         var accent = ((SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"]).Color;
         var green = Windows.UI.Color.FromArgb(255, 46, 160, 67);
+        var orange = Windows.UI.Color.FromArgb(255, 230, 120, 0);
         foreach (var (block, box) in _blockOutlines)
         {
-            var c = block.Kind == BlockKind.Text ? accent : green;
+            var c = block.Kind switch { BlockKind.Text => accent, BlockKind.Image => green, _ => orange };
             bool selected = IsSelected(block), hovered = ReferenceEquals(block, _hoveredBlock);
             box.Stroke = new SolidColorBrush(c);
             box.StrokeThickness = selected ? 2 : 1;
@@ -146,6 +152,14 @@ public sealed partial class ViewerPage
         }
         UpdateSelectionUi(surface);
     }
+
+    /// <summary>Como chamar o item nas mensagens: "Texto"/"o texto"/"este texto", "Imagem"…, "Desenho"….</summary>
+    private static (string Name, string The, string This, bool Female) Noun(ContentBlock b) => b.Kind switch
+    {
+        BlockKind.Text => ("Texto", "o texto", "este texto", false),
+        BlockKind.Image => ("Imagem", "a imagem", "esta imagem", true),
+        _ => ("Desenho", "o desenho", "este desenho", false),
+    };
 
     private const string SelectedTextHint = "Clique de novo para editar, arraste para mover, Delete apaga. Ctrl+clique junta outros.";
     private const string SelectedImageHint = "Arraste para mover, Delete apaga. Ctrl+clique junta outros.";
@@ -280,7 +294,7 @@ public sealed partial class ViewerPage
             }
             surface.SetCursor(InputSystemCursorShape.SizeAll);
             ToolHintText.Text = drag.Blocks.Count > 1 ? "Solte onde os itens devem ficar (Esc cancela)."
-                : $"Solte onde {(drag.Blocks[0].Kind == BlockKind.Text ? "o texto" : "a imagem")} deve ficar (Esc cancela).";
+                : $"Solte onde {Noun(drag.Blocks[0]).The} deve ficar (Esc cancela).";
         }
         var (dx, dy) = DragOffset(surface, drag, p);
         for (int i = 0; i < drag.Blocks.Count; i++)
@@ -341,12 +355,13 @@ public sealed partial class ViewerPage
         }
         int page = drag.Slot.Index;
         var blocks = drag.Blocks;
-        bool single = blocks.Count == 1, text = single && blocks[0].Kind == BlockKind.Text;
-        ToolHintText.Text = single ? (text ? "Movendo o texto…" : "Movendo a imagem…") : $"Movendo {blocks.Count} itens…";
+        bool single = blocks.Count == 1;
+        var noun = Noun(blocks[0]);
+        ToolHintText.Text = single ? $"Movendo {noun.The}…" : $"Movendo {blocks.Count} itens…";
         bool done = await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, blocks, ddx, ddy, output),
-            label: single ? (text ? "Mover texto" : "Mover imagem") : "Mover itens");
+            label: single ? $"Mover {noun.Name.ToLowerInvariant()}" : "Mover itens");
         if (done)
-            ShowStatus(InfoBarSeverity.Success, single ? (text ? "Texto movido" : "Imagem movida") : $"{blocks.Count} itens movidos",
+            ShowStatus(InfoBarSeverity.Success, single ? $"{noun.Name} {(noun.Female ? "movida" : "movido")}" : $"{blocks.Count} itens movidos",
                 (single ? "" : "O espaço entre eles não mudou. ") + "A formatação continua a mesma. Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode != DrawMode.EditAll) return;
@@ -362,11 +377,12 @@ public sealed partial class ViewerPage
         if (_blockEditor is not null) return;
         int page = slot.Index;
         var blocks = _selection.ToList();
-        bool single = blocks.Count == 1, text = single && blocks[0].Kind == BlockKind.Text;
+        bool single = blocks.Count == 1;
+        var noun = Noun(blocks[0]);
         TextEditResult? result = null;
         if (await ApplyEditAsync((input, output) => result = PdfTextEditor.Delete(input, page, blocks, output),
-                label: single ? (text ? "Apagar texto" : "Apagar imagem") : "Apagar itens"))
-            ShowStatus(InfoBarSeverity.Success, single ? (text ? "Texto apagado" : "Imagem apagada") : $"{blocks.Count} itens apagados",
+                label: single ? $"Apagar {noun.Name.ToLowerInvariant()}" : "Apagar itens"))
+            ShowStatus(InfoBarSeverity.Success, single ? $"{noun.Name} {(noun.Female ? "apagada" : "apagado")}" : $"{blocks.Count} itens apagados",
                 (result?.Covered == true ? "Parte do texto não pôde ser apagada e foi coberta com branco. " : "") + "Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
@@ -417,7 +433,7 @@ public sealed partial class ViewerPage
             Padding = new Thickness(10, 4, 10, 4),
         };
         ToolTipService.SetToolTip(delete, n > 1 ? $"Apagar os {n} itens selecionados (Delete)"
-            : $"Apagar {(block.Kind == BlockKind.Text ? "este texto" : "esta imagem")} (Delete)");
+            : $"Apagar {Noun(block).This} (Delete)");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(delete, "DeleteBlockButton");
         delete.Click += async (_, _) => await DeleteSelectedBlockAsync();
         var bar = new Border
@@ -535,6 +551,8 @@ public sealed partial class ViewerPage
     {
         static string Cm(double pt) => (pt / 72 * 2.54).ToString("0.0");
         if (b.Kind == BlockKind.Image) return $"Imagem · {Cm(b.Width)} × {Cm(b.Height)} cm";
+        if (b.Kind == BlockKind.Shape)
+            return b.Width < 1.5 || b.Height < 1.5 ? $"Linha · {Cm(Math.Max(b.Width, b.Height))} cm" : $"Desenho · {Cm(b.Width)} × {Cm(b.Height)} cm";
         var style = new List<string> { $"{b.FontFamily} {b.FontSize:0.#} pt" };
         if (b.Bold) style.Add("negrito");
         if (b.Italic) style.Add("itálico");

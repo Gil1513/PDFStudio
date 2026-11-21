@@ -3,7 +3,8 @@ using Pig = UglyToad.PdfPig;
 
 namespace PDFStudio.Core;
 
-public enum BlockKind { Text, Image }
+/// <summary>Texto, imagem ou desenho (linha, traço, retângulo… feito com comandos de desenho do PDF).</summary>
+public enum BlockKind { Text, Image, Shape }
 
 /// <summary>
 /// Uma linha de texto de um bloco, na posição da tela (pontos a partir do canto superior esquerdo da página
