@@ -109,6 +109,20 @@ public sealed partial class ViewerPage
         await ApplyPageToolAsync("Páginas inseridas", "-com-paginas", d.ReplaceOriginal, operation, goToPage: position);
     }
 
+    // ---------------- Copiar páginas ----------------
+
+    private async Task CopyPagesAsync()
+    {
+        if (_path is null) return;
+        var d = Prepare(new CopyPagesDialog(_slots.Count, CurrentIndex + 1, await IsSignedAsync(_path)));
+        if (await d.ShowAsync() != ContentDialogResult.Primary) return;
+
+        string ranges = d.Ranges; int copies = d.Copies, position = d.Position;
+        // Depois, mostra a primeira cópia.
+        await ApplyPageToolAsync(copies == 1 ? "Páginas copiadas" : $"Páginas copiadas ({copies} vezes)", "-com-copias",
+            d.ReplaceOriginal, (input, output) => PdfOperations.CopyPages(input, ranges, copies, position, output), goToPage: position);
+    }
+
     // ---------------- 3.4 Recortar ----------------
 
     private async Task CropPagesAsync()

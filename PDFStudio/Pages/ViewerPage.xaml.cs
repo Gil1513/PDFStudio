@@ -88,7 +88,7 @@ public sealed partial class ViewerPage : Page
         ["organizar"] =
         [
             new("\uF0E2", "Organizar páginas", "organizar", NeedsFile: true), Sep,
-            new("\uE710", "Inserir", "inserir", NeedsFile: true), new("\uEDE1", "Extrair", "extrair", NeedsFile: true), new("\uE74D", "Excluir", "excluir", NeedsFile: true), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), new("\uE740", "Redimensionar", "redimensionar", NeedsFile: true), Sep,
+            new("\uE710", "Inserir", "inserir", NeedsFile: true), new("\uE8C8", "Copiar p\u00E1ginas", "copiarpaginas", NeedsFile: true), new("\uEDE1", "Extrair", "extrair", NeedsFile: true), new("\uE74D", "Excluir", "excluir", NeedsFile: true), new("\uE7A8", "Recortar", "recortar", NeedsFile: true), new("\uE740", "Redimensionar", "redimensionar", NeedsFile: true), Sep,
             new("\uE8C6", "Dividir", "dividir"), new("\uE8C8", "Combinar", "combinar"),
         ],
         ["ferramentas"] =
@@ -463,6 +463,7 @@ public sealed partial class ViewerPage : Page
             case "excluir": await DeletePagesAsync(); break;
             case "extrair": await ExtractPagesAsync(); break;
             case "inserir": await InsertPagesAsync(); break;
+            case "copiarpaginas": await CopyPagesAsync(); break;
             case "recortar": await CropPagesAsync(); break;
             case "redimensionar": await ResizePagesAsync(); break;
             case "marcadagua": await WatermarkAsync(); break;
