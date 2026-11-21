@@ -52,3 +52,28 @@ _ReSharper*/
 # Generated files
 Generated\ Files/
 *_wpftmp.csproj
+
+# ---- Dados pessoais e segredos: nunca vão para o GitHub ----
+*.pdf
+*.pfx
+*.p12
+*.cer
+*.crt
+*.key
+*.pem
+*.env
+.env*
+*.docx
+*.jpg
+*.jpeg
+recent.json
+erros.log
+.claude/settings.local.json
+
+# ---- Dependências baixadas (o "dotnet restore" baixa de novo) ----
+packages/
+node_modules/
+*.nupkg
+
+# ---- Anotações locais ----
+ESTUDO-MOBILE.md
