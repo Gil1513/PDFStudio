@@ -145,6 +145,20 @@ public class PasswordTests
         Assert.True(PdfPasswords.IsEncrypted(locked));
     }
 
+    [Theory]
+    [InlineData(1024 * 1024 - 3, true)]  // "/Encrypt" cortado entre dois pedaços da leitura
+    [InlineData(10, true)]
+    [InlineData(-1, false)]              // a palavra não aparece
+    public void IsEncrypted_UnknownStructure_SearchesTheWholeFile(int at, bool expected)
+    {
+        string path = Path.Combine(TestPdfs.TempDir(), "estranho.bin");
+        var bytes = new byte[2 * 1024 * 1024];
+        Array.Fill(bytes, (byte)'x');
+        if (at >= 0) "/Encrypt"u8.CopyTo(bytes.AsSpan(at));
+        File.WriteAllBytes(path, bytes);
+        Assert.Equal(expected, PdfPasswords.IsEncrypted(path));
+    }
+
     [Fact]
     public void ForgottenWorkFolders_AreRemoved_UnlessInUse()
     {

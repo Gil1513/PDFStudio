@@ -205,10 +205,19 @@ public static class PdfPasswords
         }
         catch (IOException) { }
         // Estrutura que não reconhecemos: procura no arquivo todo.
+        // Em pedaços (sem carregar o arquivo inteiro na memória); a sobreposição pega a palavra cortada entre dois pedaços.
         file.Seek(0, SeekOrigin.Begin);
-        using var all = new MemoryStream();
-        file.CopyTo(all);
-        return System.Text.Encoding.Latin1.GetString(all.GetBuffer(), 0, (int)all.Length).Contains("/Encrypt", StringComparison.Ordinal);
+        ReadOnlySpan<byte> word = "/Encrypt"u8;
+        var chunk = new byte[1024 * 1024 + word.Length];
+        int kept = 0, read;
+        while ((read = file.Read(chunk, kept, chunk.Length - kept)) > 0)
+        {
+            int filled = kept + read;
+            if (chunk.AsSpan(0, filled).IndexOf(word) >= 0) return true;
+            kept = Math.Min(word.Length - 1, filled);
+            chunk.AsSpan(filled - kept, kept).CopyTo(chunk);
+        }
+        return false;
     }
 
     private static bool IsPasswordError(PdfReaderException ex) =>
