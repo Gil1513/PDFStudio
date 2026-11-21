@@ -125,6 +125,7 @@ public sealed partial class ViewerPage : Page
         CategoryList.SelectedIndex = 0;
         InitCommentOptions();
         InitCommentsPanel();
+        PreviewKeyDown += CopyKey_PreviewKeyDown;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -776,7 +777,14 @@ public sealed partial class ViewerPage : Page
     private void SetZoom(float zoom, bool disableAnimation = false)
     {
         zoom = Math.Clamp(zoom, Scroller.MinZoomFactor, Scroller.MaxZoomFactor);
-        Scroller.ChangeView(null, null, zoom, disableAnimation);
+        // Mantém parado o ponto do documento que está no meio da tela. (Só trocar o zoom deixaria a rolagem no
+        // mesmo número de pixels, e a página "subia" para outra parte do documento.)
+        float old = Math.Max(0.01f, Scroller.ZoomFactor);
+        double centerX = (Scroller.HorizontalOffset + Scroller.ViewportWidth / 2) / old;
+        double centerY = (Scroller.VerticalOffset + Scroller.ViewportHeight / 2) / old;
+        double x = Math.Max(0, centerX * zoom - Scroller.ViewportWidth / 2);
+        double y = Math.Max(0, centerY * zoom - Scroller.ViewportHeight / 2);
+        Scroller.ChangeView(x, y, zoom, disableAnimation);
         UpdateZoomDisplay(zoom);
     }
 

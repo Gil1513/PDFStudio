@@ -103,6 +103,24 @@ public sealed partial class ViewerPage
         var package = new DataPackage();
         package.SetText(PdfTextLayout.TextOf(_copySelected));
         Clipboard.SetContent(package);
+        // Grava de vez: o texto continua copiado mesmo depois de fechar o app.
+        try { Clipboard.Flush(); } catch (Exception) { /* outro programa usando a área de transferência */ }
+        ShowStatus(InfoBarSeverity.Success, "Texto copiado", "Cole com Ctrl+V onde quiser.");
+    }
+
+    /// <summary>
+    /// Ctrl+C com texto da página selecionado. Pego antes de chegar a uma caixa de texto com o cursor (ex.:
+    /// número da página ou pesquisa), que "engoliria" a tecla mesmo sem nada marcado nela.
+    /// </summary>
+    private void CopyKey_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.C || !HasCopySelection) return;
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
+        if (!ctrl.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
+        // Numa caixa de texto com algo marcado, o Ctrl+C é dela.
+        if (FocusManager.GetFocusedElement(XamlRoot) is TextBox { SelectionLength: > 0 } or PasswordBox or RichEditBox) return;
+        e.Handled = true;
+        CopySelectedText();
     }
 
     /// <summary>Botão direito sobre a página com texto selecionado: menu com "Copiar".</summary>
