@@ -138,7 +138,7 @@ public sealed partial class ViewerPage : Page
         {
             if (!string.Equals(request.Path, _path, StringComparison.OrdinalIgnoreCase)) await OpenAsync(request.Path);
             else await ReloadIfChangedAsync();
-            if (string.Equals(request.Path, _path, StringComparison.OrdinalIgnoreCase)) await RunCommandAsync(request.Command);
+            if (string.Equals(request.Path, _path, StringComparison.OrdinalIgnoreCase)) await RunHomeCommandAsync(request.Command);
         }
         else await ReloadIfChangedAsync();
     }
@@ -388,6 +388,37 @@ public sealed partial class ViewerPage : Page
         await RunCommandAsync(cmd.Key);
     }
 
+    /// <summary>
+    /// Cartão da tela inicial: mostra a aba do visualizador onde a ferramenta mora e, quando ela é uma ação
+    /// só, já a executa. (Chave do cartão → aba, comando.)
+    /// </summary>
+    private static readonly Dictionary<string, (string Tab, string? Command)> HomeCommands = new()
+    {
+        ["editar"] = ("editar", "editartudo"),
+        ["comentar"] = ("comentario", null),
+        ["marcadagua"] = ("editar", "marcadagua"),
+        ["cabecalho"] = ("editar", "cabecalho"),
+        ["paginas"] = ("organizar", null),
+        ["imagens"] = ("converter", "paraimagem"),
+        ["formulario"] = ("formulario", null),
+        ["senha"] = ("proteger", null),
+        ["redigir"] = ("proteger", "redigir"),
+        ["achatar"] = ("proteger", "achatar"),
+    };
+
+    private async Task RunHomeCommandAsync(string key)
+    {
+        if (!HomeCommands.TryGetValue(key, out var target))
+        {
+            await RunCommandAsync(key);
+            return;
+        }
+        if (Categories.FirstOrDefault(c => c.Key == target.Tab) is { } tab) CategoryList.SelectedItem = tab;
+        // Ferramenta de desenho já ligada fica ligada (RunCommandAsync alternaria e a desligaria).
+        if (target.Command is { } command && !(CommentTools.ContainsKey(command) && _tool?.Key == command))
+            await RunCommandAsync(command);
+    }
+
     private async Task RunCommandAsync(string key)
     {
         // Ferramentas de comentário: liga/desliga o modo de desenho.
@@ -423,10 +454,6 @@ public sealed partial class ViewerPage : Page
             case "paraword": await ConvertToWordAsync(); break;
             case "lervoz": await ReadAloudAsync(); break;
             case "converter": ShowConverterTab(); break;
-            case "editar": // cartão "Editar PDF" da tela inicial: aba Editar com o "Editar tudo" ligado
-                if (Categories.FirstOrDefault(c => c.Key == "editar") is { } editTab) CategoryList.SelectedItem = editTab;
-                if (_tool?.Key != "editartudo") SetTool("editartudo");
-                break;
             case "ocr": await OcrAsync(); break;
             case "imagemparapdf":
                 // Cria o PDF a partir de imagens e abre (OpenAsync pergunta antes se há alterações não salvas).

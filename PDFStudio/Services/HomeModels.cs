@@ -47,7 +47,7 @@ public static class ToolCatalog
     public static readonly ToolInfo Organize = new("organizar", "Organizar páginas", "Gire e reordene as páginas do documento.", "", Purple, true);
     public static readonly ToolInfo Sign = new("assinar", "Assinar PDF", "Assinatura digital com certificado .pfx.", "", Pink, true);
     public static readonly ToolInfo Compress = new("comprimir", "Comprimir PDF", "Reduza o tamanho do arquivo.", "", Amber, true);
-    public static readonly ToolInfo Form = new("formulario", "Preencher formulário", "Preencha campos e marque opções.", "", Green, false);
+    public static readonly ToolInfo Form = new("formulario", "Preencher formulário", "Preencha campos e marque opções.", "", Green, true);
     public static readonly ToolInfo Batch = new("lote", "PDFs em lote", "Aplique uma ação em vários arquivos de uma vez.", "", Slate, true);
 
     /// <summary>Cartões da seção "Ferramentas rápidas".</summary>
@@ -60,18 +60,18 @@ public static class ToolCatalog
     public static IReadOnlyList<ToolGroup> All { get; } =
     [
         new("Visualizar e organizar", [Viewer, Merge, Split, Organize,
-            new("paginas", "Inserir e excluir páginas", "Extraia, exclua, insira e recorte páginas.", "", Purple, false)]),
+            new("paginas", "Inserir e excluir páginas", "Extraia, exclua, insira e recorte páginas.", "", Purple, true)]),
         new("Editar e comentar", [Edit,
-            new("comentar", "Comentários", "Realce, sublinhe, desenhe e adicione notas.", "", Orange, false),
-            new("marcadagua", "Marca d'água", "Adicione texto ou imagem por trás do conteúdo.", "", Teal, false),
-            new("cabecalho", "Cabeçalho e rodapé", "Números de página, datas e textos fixos.", "", Slate, false)]),
+            new("comentar", "Comentários", "Realce, sublinhe, desenhe e adicione notas.", "", Orange, true),
+            new("marcadagua", "Marca d'água", "Adicione texto ou imagem por trás do conteúdo.", "", Teal, true),
+            new("cabecalho", "Cabeçalho e rodapé", "Números de página, datas e textos fixos.", "", Slate, true)]),
         new("Converter", [Convert, Ocr,
-            new("imagens", "PDF para imagem", "Salve cada página como PNG ou JPG.", "", Cyan, false),
+            new("imagens", "PDF para imagem", "Salve cada página como PNG ou JPG.", "", Cyan, true),
             new("criarimagem", "Imagem para PDF", "Junte fotos e digitalizações em um PDF.", "", Green, true)]),
         new("Proteger e assinar", [Sign,
-            new("senha", "Proteger com senha", "Coloque ou remova a senha do PDF.", "", Red, false),
-            new("redigir", "Redigir", "Cubra informações sensíveis.", "", Slate, false),
-            new("achatar", "Achatar", "Fixe comentários e campos no conteúdo.", "", Amber, false)]),
+            new("senha", "Proteger com senha", "Coloque ou remova a senha do PDF.", "", Red, true),
+            new("redigir", "Redigir", "Cubra informações sensíveis.", "", Slate, true),
+            new("achatar", "Achatar", "Fixe comentários e campos no conteúdo.", "", Amber, true)]),
         new("Otimizar e automatizar", [Compress, Form, Batch]),
     ];
 }

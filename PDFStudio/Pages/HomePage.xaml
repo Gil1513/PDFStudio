@@ -331,7 +331,7 @@
                                 <FontIcon Glyph="&#xE8C8;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem IsEnabled="False" Text="A partir de imagens (em breve)">
+                        <MenuFlyoutItem Click="CreateFromImages_Click" Text="A partir de imagens…">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xEB9F;" />
                             </MenuFlyoutItem.Icon>

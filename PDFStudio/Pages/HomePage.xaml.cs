@@ -45,6 +45,11 @@ public sealed partial class HomePage : Page
 
     private void CreateFromMerge_Click(object sender, RoutedEventArgs e) => App.MainWindow!.OpenTool("combinar");
 
+    private async void CreateFromImages_Click(object sender, RoutedEventArgs e)
+    {
+        if (await Dialogs.ImagesToPdfDialog.RunAsync(XamlRoot) is { } created) App.MainWindow!.OpenInViewer(created);
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e) => App.MainWindow!.OpenTool("configuracoes");
 
     private async void CreateBlank_Click(object sender, RoutedEventArgs e)
@@ -132,7 +137,8 @@ public sealed partial class HomePage : Page
             return;
         }
         if (tool.Key == "viewer") await App.MainWindow!.PickAndOpenAsync();
-        else if (tool.Key is "comprimir" or "ocr" or "converter" or "editar")
+        else if (tool.Key is "comprimir" or "ocr" or "converter" or "editar" or "comentar" or "marcadagua" or "cabecalho"
+                 or "paginas" or "imagens" or "formulario" or "senha" or "redigir" or "achatar")
         {
             // Etapas 7.6 a 7.8: escolhe o PDF, abre no visualizador e já mostra a janela da ferramenta
             // ("editar": já liga o "Editar tudo").
