@@ -120,7 +120,7 @@ public class SignatureReviewTests
         var cert = new SignerCertificate("X", null, null, null, null, null, null, "CN=X", "X", "CN=X", "01",
             new DateTime(2020, 1, 1), new DateTime(2021, 1, 1), "AA", "BB", true, false, "RSA 2048 bits", "sha256RSA", []);
         var sig = new SignatureDetails("Assinatura1", 1, "X", "X", null, null, null, new DateTime(2022, 5, 1),
-            true, true, cert, new DateTime(2022, 5, 1, 10, 0, 0), 1);
+            true, true, cert, new DateTime(2022, 5, 1, 10, 0, 0), 1, TimestampState: TimestampCheck.Trusted);
         var report = SignatureReview.Evaluate(sig, trustedByUser: true);
         Assert.Equal(SignatureStatus.Invalid, report.Status);
         Assert.Contains(report.Summary, l => l.Contains("fora do prazo"));

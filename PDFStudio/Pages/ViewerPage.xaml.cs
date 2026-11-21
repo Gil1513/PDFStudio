@@ -524,7 +524,9 @@ public sealed partial class ViewerPage : Page
                 ShowStatus(InfoBarSeverity.Informational, "Sem assinaturas", "Este documento não tem assinaturas digitais. Para assinar, use Proteger → Assinar.");
                 return;
             }
-            var dialog = new SignaturePropertiesDialog(signatures) { XamlRoot = XamlRoot, RequestedTheme = App.Settings.Theme };
+            var dialog = new SignaturePropertiesDialog(signatures,
+                recheckOnline: async () => (await Task.Run(() => DocumentPropertiesService.Read(path, checkRevocationOnline: true))).Signatures)
+            { XamlRoot = XamlRoot, RequestedTheme = App.Settings.Theme };
             await dialog.ShowAsync();
         }
         catch (Exception ex)

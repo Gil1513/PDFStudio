@@ -122,6 +122,12 @@
                     <Button
                         x:Name="TrustButton"
                         Click="Trust_Click" />
+                    <Button
+                        x:Name="RevocationButton"
+                        Click="Revocation_Click"
+                        Content="Conferir cancelamento (internet)"
+                        ToolTipService.ToolTip="Pergunta à autoridade que emitiu o certificado se ele foi cancelado. Usa a internet só agora, quando você clica."
+                        Visibility="Collapsed" />
                 </StackPanel>
             </Grid>
 

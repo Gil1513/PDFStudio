@@ -45,14 +45,35 @@ public sealed record SignatureDetails(
     /// <summary>Hora do carimbo de tempo de um servidor (null = só o relógio de quem assinou).</summary>
     DateTime? TimestampAt = null,
     /// <summary>Assinatura de certificação (DocMDP): 1 = nada pode mudar, 2 = formulários e assinar, 3 = também comentar.</summary>
-    int? CertificationLevel = null);
+    int? CertificationLevel = null,
+    /// <summary>O que o documento recebeu depois desta assinatura (nada, comentários, outra assinatura, algo proibido…).</summary>
+    SignatureChanges ChangesAfter = SignatureChanges.None,
+    /// <summary>Se o carimbo de tempo (TimestampAt) foi conferido e de quem é.</summary>
+    TimestampCheck TimestampState = TimestampCheck.None,
+    /// <summary>A assinatura está montada de um jeito irregular (o trecho assinado não bate com o lugar dela no arquivo).</summary>
+    bool BadLayout = false);
+
+/// <summary>Situação do carimbo de tempo de uma assinatura.</summary>
+public enum TimestampCheck
+{
+    /// <summary>Sem carimbo de tempo.</summary>
+    None,
+    /// <summary>Carimbo conferido, de um servidor que o Windows reconhece: o horário é confiável.</summary>
+    Trusted,
+    /// <summary>Carimbo íntegro, mas de um servidor que o Windows não reconhece.</summary>
+    UnknownServer,
+    /// <summary>O carimbo não confere com a assinatura.</summary>
+    Broken,
+}
 
 public enum PageSizeUnit { Centimeters, Millimeters, Inches, Points }
 
 /// <summary>Leitura e gravação das propriedades do documento (PDFsharp 6.2.4, MIT).</summary>
 public static class DocumentPropertiesService
 {
-    public static DocumentProperties Read(string path)
+    /// <param name="checkRevocationOnline">Também pergunta pela internet se o certificado foi cancelado (revogado).
+    /// Sem isso, só usa o que o Windows já tem guardado, e abrir o PDF não acessa a internet.</param>
+    public static DocumentProperties Read(string path, bool checkRevocationOnline = false)
     {
         var file = new FileInfo(path);
         using var doc = PdfOperations.OpenForImport(path);
@@ -80,7 +101,7 @@ public static class DocumentPropertiesService
             ValidDate(info.CreationDate),
             ValidDate(info.ModificationDate),
             IsEncrypted(path),
-            ReadSignatures(doc, path));
+            ReadSignatures(doc, path, checkRevocationOnline));
     }
 
     /// <summary>
@@ -145,12 +166,37 @@ public static class DocumentPropertiesService
     public static bool HasSignatures(string path)
     {
         using var doc = PdfOperations.OpenForImport(path);
+        return HasSignatures(doc);
+    }
+
+    /// <summary>
+    /// <paramref name="current"/> é o <paramref name="original"/> com coisas só acrescentadas no fim (os bytes do
+    /// original estão intactos no começo) — ou seja, as assinaturas do original continuam valendo para a parte delas.
+    /// </summary>
+    public static bool OnlyAppended(string original, string current)
+    {
+        using var a = File.OpenRead(original);
+        using var b = File.OpenRead(current);
+        if (b.Length < a.Length) return false;
+        var bufA = new byte[81920];
+        var bufB = new byte[81920];
+        int read;
+        while ((read = a.Read(bufA, 0, bufA.Length)) > 0)
+        {
+            b.ReadExactly(bufB, 0, read);
+            if (!bufA.AsSpan(0, read).SequenceEqual(bufB.AsSpan(0, read))) return false;
+        }
+        return true;
+    }
+
+    internal static bool HasSignatures(PdfDocument doc)
+    {
         var fields = doc.Internals.Catalog.Elements.GetDictionary("/AcroForm")?.Elements.GetArray("/Fields");
         return fields is not null && Flatten(fields).Any(f =>
             f.Elements.GetName("/FT") == "/Sig" && f.Elements.GetDictionary("/V") is not null);
     }
 
-    private static List<SignatureDetails> ReadSignatures(PdfDocument doc, string path)
+    private static List<SignatureDetails> ReadSignatures(PdfDocument doc, string path, bool online)
     {
         var result = new List<SignatureDetails>();
         var fields = doc.Internals.Catalog.Elements.GetDictionary("/AcroForm")?.Elements.GetArray("/Fields");
@@ -164,19 +210,23 @@ public static class DocumentPropertiesService
             if (v is null) continue; // campo de assinatura vazio
 
             bytes ??= File.ReadAllBytes(path);
-            var (intact, whole, cert, info, timestamp) = Verify(bytes, v.Elements.GetArray("/ByteRange"));
+            var check = Verify(bytes, v.Elements.GetArray("/ByteRange"), online);
+            int? level = CertificationLevelOf(v);
+            var changes = check.Whole || check.Intact != true ? SignatureChanges.None
+                : SignatureRevisions.After(bytes, check.SignedEnd, doc, level);
 
             result.Add(new SignatureDetails(
                 field.Elements.GetString("/T"),
                 PageOf(doc, field),
-                cert?.GetNameInfo(X509NameType.SimpleName, false) ?? NullIfEmpty(v.Elements.GetString("/Name")),
-                cert?.GetNameInfo(X509NameType.SimpleName, true),
+                check.Cert?.GetNameInfo(X509NameType.SimpleName, false) ?? NullIfEmpty(v.Elements.GetString("/Name")),
+                check.Cert?.GetNameInfo(X509NameType.SimpleName, true),
                 NullIfEmpty(v.Elements.GetString("/Reason")),
                 NullIfEmpty(v.Elements.GetString("/Location")),
                 NullIfEmpty(v.Elements.GetString("/ContactInfo")),
-                ParsePdfDate(v.Elements.GetString("/M")),
-                intact, whole, info, timestamp, CertificationLevelOf(v)));
-            cert?.Dispose();
+                // A hora gravada dentro da assinatura vale mais que o /M (que fica fora dela e qualquer um muda).
+                check.SigningTime ?? ParsePdfDate(v.Elements.GetString("/M")),
+                check.Intact, check.Whole, check.Info, check.TimestampAt, level, changes, check.TimestampState, check.BadLayout));
+            check.Cert?.Dispose();
         }
         return result;
     }
@@ -195,15 +245,22 @@ public static class DocumentPropertiesService
         return null;
     }
 
+    /// <summary>Todos os campos, descendo nos /Kids (com limite e sem repetir: um arquivo malfeito pode ter laços).</summary>
     private static IEnumerable<PdfDictionary> Flatten(PdfArray fields)
     {
-        for (int i = 0; i < fields.Elements.Count; i++)
+        var seen = new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
+        var stack = new Stack<(PdfArray Array, int Depth)>();
+        stack.Push((fields, 0));
+        while (stack.Count > 0)
         {
-            var f = fields.Elements.GetDictionary(i);
-            if (f is null) continue;
-            yield return f;
-            if (f.Elements.GetArray("/Kids") is { } kids)
-                foreach (var k in Flatten(kids)) yield return k;
+            var (array, depth) = stack.Pop();
+            for (int i = 0; i < array.Elements.Count; i++)
+            {
+                var f = array.Elements.GetDictionary(i);
+                if (f is null || !seen.Add(f) || seen.Count > 100_000) continue;
+                yield return f;
+                if (depth < 32 && f.Elements.GetArray("/Kids") is { } kids) stack.Push((kids, depth + 1));
+            }
         }
     }
 
@@ -223,49 +280,89 @@ public static class DocumentPropertiesService
         return null;
     }
 
-    /// <summary>Confere o CMS contra os bytes do /ByteRange, como um leitor de PDF faria.</summary>
-    private static (bool? Intact, bool Whole, X509Certificate2? Cert, SignerCertificate? Info, DateTime? Timestamp) Verify(byte[] bytes, PdfArray? byteRange)
+    private sealed record Checked(bool? Intact, bool Whole, long SignedEnd, X509Certificate2? Cert, SignerCertificate? Info,
+        DateTime? TimestampAt, TimestampCheck TimestampState, DateTime? SigningTime, bool BadLayout)
     {
-        if (byteRange is null || byteRange.Elements.Count != 4) return (null, false, null, null, null);
+        public static readonly Checked Nothing = new(null, false, 0, null, null, null, TimestampCheck.None, null, false);
+    }
+
+    /// <summary>Confere o CMS contra os bytes do /ByteRange, como um leitor de PDF faria.</summary>
+    private static Checked Verify(byte[] bytes, PdfArray? byteRange, bool online)
+    {
+        if (byteRange is null || byteRange.Elements.Count != 4) return Checked.Nothing;
         try
         {
             long a = byteRange.Elements.GetInteger(0), b = byteRange.Elements.GetInteger(1),
                  c = byteRange.Elements.GetInteger(2), d = byteRange.Elements.GetInteger(3);
-            if (a != 0 || b <= 0 || c <= b || c + d > bytes.Length) return (null, false, null, null, null);
+            if (a != 0 || b <= 0 || c <= b || d < 0 || c + d > bytes.Length) return Checked.Nothing;
             bool whole = c + d == bytes.Length;
 
-            // O trecho entre b e c é o valor hexadecimal de /Contents: <....>
-            string hex = Encoding.ASCII.GetString(bytes, (int)b, (int)(c - b)).Trim();
-            if (!hex.StartsWith('<') || !hex.EndsWith('>')) return (null, whole, null, null, null);
+            // O trecho entre b e c tem de ser exatamente o valor hexadecimal de /Contents: <....>, logo depois de "/Contents".
+            string hex = Encoding.ASCII.GetString(bytes, (int)b, (int)(c - b));
+            bool layoutOk = hex.Length >= 2 && hex[0] == '<' && hex[^1] == '>' && ContentsKeyBefore(bytes, (int)b)
+                            && ByteRangeInsideSignedPart(bytes, a, b, c, d);
+            if (!layoutOk)
+                return Checked.Nothing with { Intact = false, Whole = whole, SignedEnd = c + d, BadLayout = true };
             byte[] cms = TrimDer(System.Convert.FromHexString(hex[1..^1]));
 
             byte[] signedData = [.. bytes.AsSpan(0, (int)b), .. bytes.AsSpan((int)c, (int)d)];
             var signed = new SignedCms(new ContentInfo(signedData), detached: true);
             signed.Decode(cms);
-            var cert = signed.SignerInfos.Count > 0 && signed.SignerInfos[0].Certificate is { } sc
-                ? X509CertificateLoader.LoadCertificate(sc.RawData) : null;
+            var signer = signed.SignerInfos.Count > 0 ? signed.SignerInfos[0] : null;
+            var cert = signer?.Certificate is { } sc ? X509CertificateLoader.LoadCertificate(sc.RawData) : null;
+
+            DateTime? timestamp = null, signingTime = null;
+            var tsState = TimestampCheck.None;
             SignerCertificate? info = null;
-            DateTime? timestamp = null;
             try
             {
-                if (cert is not null) info = SignerCertificate.From(cert, signed.Certificates);
-                if (signed.SignerInfos.Count > 0) timestamp = SignerCertificate.TimestampOf(signed.SignerInfos[0]);
+                if (signer is not null)
+                {
+                    (timestamp, tsState) = SignerCertificate.CheckTimestamp(signer, signed.Certificates);
+                    signingTime = SignerCertificate.SigningTimeOf(signer);
+                }
+                if (cert is not null)
+                    info = SignerCertificate.From(cert, signed.Certificates,
+                        tsState == TimestampCheck.Trusted ? timestamp : signingTime, online);
             }
             catch (CryptographicException) { } // detalhes do certificado são extras: a verificação continua
+
+            bool intact;
             try
             {
                 signed.CheckSignature(verifySignatureOnly: true);
-                return (true, whole, cert, info, timestamp);
+                intact = true;
             }
             catch (CryptographicException)
             {
-                return (false, whole, cert, info, timestamp);
+                intact = false;
             }
+            return new Checked(intact, whole, c + d, cert, info, timestamp, tsState, signingTime, false);
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return (null, false, null, null, null);
+            return Checked.Nothing;
         }
+    }
+
+    /// <summary>Logo antes do valor assinado tem de vir a chave /Contents (o trecho pulado é a própria assinatura).</summary>
+    private static bool ContentsKeyBefore(byte[] bytes, int at)
+    {
+        int i = at - 1;
+        while (i >= 0 && bytes[i] is (byte)' ' or (byte)'\n' or (byte)'\r' or (byte)'\t') i--;
+        const string key = "/Contents";
+        return i + 1 >= key.Length && Encoding.ASCII.GetString(bytes, i + 1 - key.Length, key.Length) == key;
+    }
+
+    /// <summary>O próprio /ByteRange tem de estar dentro da parte assinada, perto da assinatura (senão alguém o trocou).</summary>
+    private static bool ByteRangeInsideSignedPart(byte[] bytes, long a, long b, long c, long d)
+    {
+        const int window = 64 * 1024;
+        var pattern = new System.Text.RegularExpressions.Regex($@"/ByteRange\s*\[\s*{a}\s+{b}\s+{c}\s+{d}\s*\]");
+        int from = (int)Math.Max(0, b - window);
+        if (pattern.IsMatch(Encoding.Latin1.GetString(bytes, from, (int)(b - from)))) return true;
+        int length = (int)Math.Min(window, d);
+        return pattern.IsMatch(Encoding.Latin1.GetString(bytes, (int)c, length));
     }
 
     /// <summary>Remove os zeros de preenchimento depois da estrutura DER.</summary>

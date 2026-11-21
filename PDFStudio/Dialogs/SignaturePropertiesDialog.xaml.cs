@@ -12,13 +12,17 @@ namespace PDFStudio.Dialogs;
 /// </summary>
 public sealed partial class SignaturePropertiesDialog : ContentDialog
 {
-    private readonly IReadOnlyList<SignatureDetails> _signatures;
+    private IReadOnlyList<SignatureDetails> _signatures;
+    private readonly Func<Task<IReadOnlyList<SignatureDetails>>>? _recheckOnline;
     private SignatureDetails? _current;
 
-    public SignaturePropertiesDialog(IReadOnlyList<SignatureDetails> signatures, int start = 0)
+    /// <param name="recheckOnline">Lê as assinaturas de novo consultando a internet sobre cancelamento (opcional).</param>
+    public SignaturePropertiesDialog(IReadOnlyList<SignatureDetails> signatures, int start = 0,
+        Func<Task<IReadOnlyList<SignatureDetails>>>? recheckOnline = null)
     {
         InitializeComponent();
         _signatures = signatures;
+        _recheckOnline = recheckOnline;
         if (signatures.Count > 1)
         {
             foreach (var s in signatures)
@@ -50,6 +54,7 @@ public sealed partial class SignaturePropertiesDialog : ContentDialog
         (StatusIcon.Glyph, StatusBadge.Background) = report.Status switch
         {
             SignatureStatus.Valid => ("", Brush(0x2E, 0x7D, 0x32)),
+            SignatureStatus.ValidWithChanges => ("", Brush(0x2E, 0x7D, 0x32)),
             SignatureStatus.Invalid => ("", Brush(0xC6, 0x28, 0x28)),
             _ => ("", Brush(0xEF, 0x6C, 0x00)),
         };
@@ -65,6 +70,8 @@ public sealed partial class SignaturePropertiesDialog : ContentDialog
         TrustButton.IsEnabled = cert is not null && !cert.IsTrustedBySystem;
         TrustButton.Content = IsTrusted(cert) ? "Deixar de confiar" : "Confiar neste certificado";
         TrustNote.Visibility = TrustButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        RevocationButton.Visibility = _recheckOnline is not null && cert?.Revocation == RevocationCheck.NotChecked
+            ? Visibility.Visible : Visibility.Collapsed;
         ShowCertButton.IsEnabled = cert is not null;
         if (cert is null) ShowCertButton.IsChecked = false;
         FillCertificate(cert);
@@ -120,6 +127,38 @@ public sealed partial class SignaturePropertiesDialog : ContentDialog
 
     private void ShowCert_Changed(object sender, RoutedEventArgs e) =>
         CertPanel.Visibility = ShowCertButton.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+
+    private async void Revocation_Click(object sender, RoutedEventArgs e)
+    {
+        if (_recheckOnline is null || _current is null) return;
+        int index = Math.Max(0, IndexOf(_current));
+        RevocationButton.IsEnabled = false;
+        RevocationButton.Content = "Consultando…";
+        try
+        {
+            var fresh = await _recheckOnline();
+            if (index < fresh.Count)
+            {
+                _signatures = fresh;
+                Show(fresh[index]);
+            }
+        }
+        catch (Exception)
+        {
+            SummaryPanel.Children.Add(new TextBlock { Text = "Não foi possível consultar pela internet agora.", TextWrapping = TextWrapping.Wrap });
+        }
+        finally
+        {
+            RevocationButton.IsEnabled = true;
+            RevocationButton.Content = "Conferir cancelamento (internet)";
+        }
+    }
+
+    private int IndexOf(SignatureDetails sig)
+    {
+        for (int i = 0; i < _signatures.Count; i++) if (ReferenceEquals(_signatures[i], sig)) return i;
+        return -1;
+    }
 
     private void Trust_Click(object sender, RoutedEventArgs e)
     {

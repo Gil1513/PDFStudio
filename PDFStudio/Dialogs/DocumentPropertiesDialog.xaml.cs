@@ -113,13 +113,15 @@ public sealed partial class DocumentPropertiesDialog : ContentDialog
 
     private static UIElement SignatureCard(SignatureDetails sig)
     {
-        var (severity, status) = sig.IsIntact switch
+        bool trusted = sig.Certificate is { } c && App.Settings.TrustedCertificates.Contains(c.Sha256, StringComparer.OrdinalIgnoreCase);
+        var report = SignatureReview.Evaluate(sig, trusted);
+        var severity = report.Status switch
         {
-            true when sig.CoversWholeFile => (InfoBarSeverity.Success, "O documento não foi alterado desde esta assinatura."),
-            true => (InfoBarSeverity.Informational, "A parte assinada está íntegra, mas o arquivo recebeu alterações depois da assinatura."),
-            false => (InfoBarSeverity.Error, "O documento foi ALTERADO depois de assinado. A assinatura não é válida."),
-            null => (InfoBarSeverity.Warning, "Não foi possível verificar a integridade desta assinatura."),
+            SignatureStatus.Valid or SignatureStatus.ValidWithChanges => InfoBarSeverity.Success,
+            SignatureStatus.Invalid => InfoBarSeverity.Error,
+            _ => InfoBarSeverity.Warning,
         };
+        string status = report.Headline + " " + report.Summary[0];
 
         var lines = new List<string>();
         if (sig.Issuer is { } issuer) lines.Add($"Emitido por: {issuer}");

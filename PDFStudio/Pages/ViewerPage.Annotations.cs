@@ -49,6 +49,7 @@ public sealed partial class ViewerPage
     /// disso é jogada fora em vez de ser aplicada ao arquivo novo.
     /// </summary>
     private int _docGeneration;
+    private bool _signatureLossWarned; // já avisou que a alteração invalida a assinatura (uma vez por documento)
 
     // =====================================================================
     // Cópia de trabalho: aplicar, salvar, desfazer/refazer
@@ -126,9 +127,23 @@ public sealed partial class ViewerPage
         await RefreshDocumentAsync();
         if (generation != _docGeneration) return false;
         UpdateEditState();
-        if (first && await IsSignedAsync(path) && generation == _docGeneration)
-            ShowStatus(InfoBarSeverity.Warning, "Este PDF tem assinatura digital",
-                "Ao salvar, as alterações invalidam as assinaturas existentes. Para manter o original assinado, use \"Salvar como\".");
+        if (first) _signatureLossWarned = false;
+        if (await IsSignedAsync(path) && generation == _docGeneration && _work is { } workCopy)
+        {
+            // Comentários vão para o fim do arquivo sem tocar nos bytes assinados; outras alterações regravam tudo.
+            bool kept = await Task.Run(() => DocumentPropertiesService.OnlyAppended(path, workCopy.CurrentPath));
+            if (generation != _docGeneration) return true;
+            if (!kept && !_signatureLossWarned)
+            {
+                _signatureLossWarned = true;
+                ShowStatus(InfoBarSeverity.Warning, "Este PDF tem assinatura digital",
+                    "Esta alteração invalida as assinaturas existentes ao salvar. Para manter o original assinado, use \"Salvar como\". " +
+                    "(Comentários não invalidam: eles são gravados no fim do arquivo.)");
+            }
+            else if (kept && first)
+                ShowStatus(InfoBarSeverity.Informational, "A assinatura continua válida",
+                    "Comentários são gravados no fim do arquivo, sem mexer na parte assinada.");
+        }
         return true;
     }
 

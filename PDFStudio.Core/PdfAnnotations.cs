@@ -238,10 +238,13 @@ public static partial class PdfAnnotations
     /// <summary>Abre o PDF para edição (lido da memória, então pode gravar por cima dele mesmo), aplica e salva.</summary>
     internal static void Edit(string input, string output, Action<PdfDocument> edit)
     {
+        byte[] original = File.ReadAllBytes(input);
+        if (TryEditIncrementally(original, output, edit)) return;
+
         PdfDocument doc;
         try
         {
-            doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(input)), PdfDocumentOpenMode.Modify);
+            doc = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {
@@ -251,6 +254,30 @@ public static partial class PdfAnnotations
         {
             edit(doc);
             PdfOperations.SaveSafely(doc, output);
+        }
+    }
+
+    /// <summary>
+    /// PDF assinado: grava só o que mudou no fim do arquivo, e a assinatura continua valendo. Abre em modo
+    /// "Import" porque o modo "Modify" do PDFsharp renumera os objetos ao abrir (e a gravação no fim precisa dos
+    /// números que estão no arquivo). false = não é assinado ou não deu; aí o chamador grava do jeito comum.
+    /// </summary>
+    private static bool TryEditIncrementally(byte[] original, string output, Action<PdfDocument> edit)
+    {
+        PdfDocument doc;
+        try { doc = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Import); }
+        catch (PdfReaderException) { return false; }
+        using (doc)
+        {
+            if (!DocumentPropertiesService.HasSignatures(doc)) return false;
+            try
+            {
+                var before = PdfIncrementalUpdate.Snapshot(doc);
+                edit(doc);
+                PdfIncrementalUpdate.Write(original, doc, before, output);
+                return true;
+            }
+            catch (NotSupportedException) { return false; } // algo que não sabemos regravar: grava do jeito comum
         }
     }
 
