@@ -68,12 +68,9 @@ Generated\ Files/
 *.jpeg
 recent.json
 erros.log
-.claude/settings.local.json
 
 # ---- Dependências baixadas (o "dotnet restore" baixa de novo) ----
 packages/
 node_modules/
 *.nupkg
 
-# ---- Anotações locais ----
-ESTUDO-MOBILE.md
