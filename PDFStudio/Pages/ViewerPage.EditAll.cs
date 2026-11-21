@@ -1,6 +1,7 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using PDFStudio.Controls;
 using PDFStudio.Core;
@@ -75,6 +76,8 @@ public sealed partial class ViewerPage
     {
         foreach (var (_, box) in _blockOutlines) _blockSurface?.Children.Remove(box);
         _blockOutlines.Clear();
+        RemoveBlockActions();
+        CancelBlockDrag(_blockSurface);
         _blockSurface = null;
         _hoveredBlock = _selectedBlock = null;
     }
@@ -118,9 +121,183 @@ public sealed partial class ViewerPage
         }
         _selectedBlock = block;
         PaintBlockOutlines();
+        ShowBlockActions(surface, block);
         ToolHintText.Text = block is null ? CommentTools["editartudo"].Hint
-            : Describe(block) + (block.Kind == BlockKind.Text ? " · Clique de novo para editar." : "");
+            : Describe(block) + (block.Kind == BlockKind.Text ? " · " + SelectedTextHint : "");
         ToolTipService.SetToolTip(ToolHintText, block?.Text);
+    }
+
+    private const string SelectedTextHint = "Clique de novo para editar, arraste para mover, Delete apaga.";
+
+    // ---------------- Mover (arrastar) e apagar o bloco de texto ----------------
+
+    /// <summary>Bloco de texto que pode estar sendo arrastado: onde o mouse apertou e a moldura que acompanha o mouse.</summary>
+    private sealed class BlockDrag
+    {
+        public required PageSlot Slot { get; init; }
+        public required ContentBlock Block { get; init; }
+        public required Point Start { get; init; }
+        public Shapes.Rectangle? Ghost { get; set; }
+    }
+
+    private BlockDrag? _blockDrag;
+    private FrameworkElement? _blockActions;
+
+    /// <summary>Mouse apertado no modo Editar: num texto, espera para ver se é clique ou arrasto; no resto, é clique.</summary>
+    private async Task PressBlockAsync(DrawingSurface surface, PageSlot slot, Point p)
+    {
+        if (BlockAt(slot, p) is { Kind: BlockKind.Text } block)
+        {
+            _blockDrag = new BlockDrag { Slot = slot, Block = block, Start = p };
+            return;
+        }
+        surface.ReleasePointerCaptures();
+        await ClickBlockAsync(surface, slot, p);
+    }
+
+    /// <summary>Quanto o bloco anda (DIPs), sem deixar ele sair da página.</summary>
+    private static (double Dx, double Dy) DragOffset(DrawingSurface surface, BlockDrag drag, Point p)
+    {
+        var b = drag.Block;
+        double dx = p.X - drag.Start.X, dy = p.Y - drag.Start.Y;
+        dx = Math.Clamp(dx, -b.X * DipsPerPoint, Math.Max(0, surface.ActualWidth - b.Right * DipsPerPoint));
+        dy = Math.Clamp(dy, -b.Y * DipsPerPoint, Math.Max(0, surface.ActualHeight - b.Bottom * DipsPerPoint));
+        return (dx, dy);
+    }
+
+    private void DragBlock(DrawingSurface surface, Point p)
+    {
+        if (_blockDrag is not { } drag) return;
+        if (drag.Ghost is null)
+        {
+            if (Math.Abs(p.X - drag.Start.X) + Math.Abs(p.Y - drag.Start.Y) < 5) return; // ainda é um clique
+            RemoveBlockActions();
+            drag.Ghost = new Shapes.Rectangle
+            {
+                Width = (drag.Block.Width + 4) * DipsPerPoint,
+                Height = (drag.Block.Height + 4) * DipsPerPoint,
+                Stroke = (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                StrokeThickness = 2,
+                StrokeDashArray = [4, 3],
+                Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 95, 184)),
+                IsHitTestVisible = false,
+            };
+            surface.Children.Add(drag.Ghost);
+            surface.SetCursor(InputSystemCursorShape.SizeAll);
+            ToolHintText.Text = "Solte onde o texto deve ficar (Esc cancela).";
+        }
+        var (dx, dy) = DragOffset(surface, drag, p);
+        Canvas.SetLeft(drag.Ghost, (drag.Block.X - 2) * DipsPerPoint + dx);
+        Canvas.SetTop(drag.Ghost, (drag.Block.Y - 2) * DipsPerPoint + dy);
+    }
+
+    private void CancelBlockDrag(DrawingSurface? surface)
+    {
+        if (_blockDrag?.Ghost is { } ghost) surface?.Children.Remove(ghost);
+        _blockDrag = null;
+    }
+
+    /// <summary>Mouse solto: se arrastou, move o texto na página (com desfazer); se não, é um clique comum.</summary>
+    private async Task DropBlockAsync(DrawingSurface surface, Point p)
+    {
+        if (_blockDrag is not { } drag) return;
+        bool dragged = drag.Ghost is not null;
+        var (dx, dy) = DragOffset(surface, drag, p);
+        CancelBlockDrag(surface);
+        if (!dragged)
+        {
+            await ClickBlockAsync(surface, drag.Slot, drag.Start);
+            return;
+        }
+        double ddx = dx / DipsPerPoint, ddy = dy / DipsPerPoint;
+        if (Math.Abs(ddx) < 0.5 && Math.Abs(ddy) < 0.5) { await ClickBlockAsync(surface, drag.Slot, drag.Start); return; }
+        int page = drag.Slot.Index;
+        var block = drag.Block;
+        ToolHintText.Text = "Movendo o texto…";
+        if (await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, block, ddx, ddy, output), label: "Mover texto"))
+            ShowStatus(InfoBarSeverity.Success, "Texto movido", "A letra continua a mesma. Use Desfazer (Ctrl+Z) para voltar.");
+        ToolHintText.Text = CommentTools["editartudo"].Hint;
+        if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
+    }
+
+    /// <summary>Apaga o bloco de texto selecionado (com desfazer).</summary>
+    private async Task DeleteSelectedBlockAsync()
+    {
+        if (_selectedBlock is not { Kind: BlockKind.Text } block || _blockSurface is not { } surface || SlotOf(surface) is not { } slot) return;
+        if (_blockEditor is not null) return;
+        int page = slot.Index;
+        TextEditResult? result = null;
+        if (await ApplyEditAsync((input, output) => result = PdfTextEditor.Delete(input, page, block, output), label: "Apagar texto"))
+            ShowStatus(InfoBarSeverity.Success, "Texto apagado",
+                (result?.Covered == true ? "Parte do texto não pôde ser apagada e foi coberta com branco. " : "") + "Use Desfazer (Ctrl+Z) para voltar.");
+        ToolHintText.Text = CommentTools["editartudo"].Hint;
+        if (_tool?.Mode == DrawMode.EditAll) await ShowBlockOutlinesAsync(surface, force: true);
+    }
+
+    /// <summary>Delete (ou Backspace) apaga o texto selecionado; Esc cancela um arrasto.</summary>
+    private async void BlockKey_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (_tool?.Mode != DrawMode.EditAll || _blockEditor is not null) return;
+        if (e.Key == Windows.System.VirtualKey.Escape && _blockDrag is not null)
+        {
+            e.Handled = true;
+            _blockSurface?.ReleasePointerCaptures();
+            CancelBlockDrag(_blockSurface);
+            ToolHintText.Text = CommentTools["editartudo"].Hint;
+            return;
+        }
+        if (e.Key is not (Windows.System.VirtualKey.Delete or Windows.System.VirtualKey.Back)) return;
+        if (_selectedBlock is not { Kind: BlockKind.Text }) return;
+        if (FocusManager.GetFocusedElement(XamlRoot) is TextBox or PasswordBox or RichEditBox or AutoSuggestBox) return;
+        e.Handled = true;
+        await DeleteSelectedBlockAsync();
+    }
+
+    /// <summary>Botão "Apagar" logo acima do texto selecionado.</summary>
+    private void ShowBlockActions(DrawingSurface surface, ContentBlock? block)
+    {
+        RemoveBlockActions();
+        if (block is not { Kind: BlockKind.Text }) return;
+        var delete = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { new FontIcon { Glyph = "", FontSize = 14 }, new TextBlock { Text = "Apagar" } },
+            },
+            Padding = new Thickness(10, 4, 10, 4),
+        };
+        ToolTipService.SetToolTip(delete, "Apagar este texto (Delete)");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(delete, "DeleteBlockButton");
+        delete.Click += async (_, _) => await DeleteSelectedBlockAsync();
+        var bar = new Border
+        {
+            Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(2),
+            Child = delete,
+        };
+        // Ao lado direito do texto (para não cobrir o que está em cima); sem espaço, logo abaixo dele.
+        const double barWidth = 110;
+        double left = (block.Right + 6) * DipsPerPoint, top = (block.Y - 2) * DipsPerPoint;
+        if (left + barWidth > surface.ActualWidth)
+        {
+            left = Math.Max(0, (block.Right + 2) * DipsPerPoint - barWidth);
+            top = (block.Bottom + 6) * DipsPerPoint;
+        }
+        Canvas.SetLeft(bar, left);
+        Canvas.SetTop(bar, top);
+        surface.Children.Add(bar);
+        _blockActions = bar;
+    }
+
+    private void RemoveBlockActions()
+    {
+        if (_blockActions is { Parent: Panel parent }) parent.Children.Remove(_blockActions);
+        _blockActions = null;
     }
 
     // ---------------- Etapa 5.9: editar o texto do bloco ----------------
@@ -132,6 +309,7 @@ public sealed partial class ViewerPage
     {
         string font = await ChooseEditFontAsync(block.FontFamily);
         if (_tool?.Mode != DrawMode.EditAll || _blockEditor is not null) return; // o usuário saiu do modo enquanto isso
+        RemoveBlockActions();
         var c = block.Color;
         // Atenção: AcceptsReturn precisa vir ANTES do texto. Uma caixa de uma linha só corta o texto na primeira
         // quebra de linha; ao aplicar, as outras linhas do bloco eram apagadas da página.

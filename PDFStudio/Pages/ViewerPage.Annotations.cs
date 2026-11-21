@@ -459,7 +459,7 @@ public sealed partial class ViewerPage
             "Arraste sobre a área que vai virar link (ex.: um texto). Clique num link existente (contorno azul) para editar ou excluir.",
             UsesColor: false, UsesWidth: false),
         new CommentTool("editartudo", "Editar tudo", AnnotationKind.Other, DrawMode.EditAll,
-            "Textos (azul) e imagens (verde) aparecem contornados. Clique num texto para selecionar e clique de novo para editar.",
+            "Textos (azul) e imagens (verde) aparecem contornados. Clique num texto para selecionar, clique de novo para editar, arraste para mover; Delete apaga.",
             UsesColor: false, UsesWidth: false),
         new CommentTool("redigir", "Redigir", AnnotationKind.Other, DrawMode.Redact,
             "Arraste sobre o que deve sumir (pode marcar várias áreas, em várias páginas). Depois clique em Aplicar redação.",
@@ -772,9 +772,10 @@ public sealed partial class ViewerPage
         if (_tool.Mode == DrawMode.EditAll)
         {
             if (_blockEditor is not null) { await FinishBlockEditorAsync(commit: true); return; } // clicar fora aplica
+            surface.CapturePointer(e.Pointer); // antes de esperar: o bloco de texto pode ser arrastado
             await BlocksOfPage(slot.Index); // a leitura pode ter começado agora há pouco (mouse chegando)
             await ShowBlockOutlinesAsync(surface);
-            await ClickBlockAsync(surface, slot, point.Position);
+            await PressBlockAsync(surface, slot, point.Position);
             return;
         }
         if (_tool.Mode == DrawMode.Redact)
@@ -878,7 +879,8 @@ public sealed partial class ViewerPage
         }
         if (_tool?.Mode == DrawMode.EditAll && sender is DrawingSurface blockSurface)
         {
-            HoverBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position);
+            if (_blockDrag is not null) { e.Handled = true; DragBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
+            else HoverBlock(blockSurface, e.GetCurrentPoint(blockSurface).Position);
             return;
         }
         if (_tool is null && sender is DrawingSurface plain)
@@ -922,6 +924,12 @@ public sealed partial class ViewerPage
 
     private async void Surface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_tool?.Mode == DrawMode.EditAll && sender is DrawingSurface blockSurface)
+        {
+            blockSurface.ReleasePointerCaptures();
+            if (_blockDrag is not null) { e.Handled = true; await DropBlockAsync(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
+            return;
+        }
         if (_tool?.Mode == DrawMode.MoveComment && sender is DrawingSurface moveSurface)
         {
             e.Handled = true;

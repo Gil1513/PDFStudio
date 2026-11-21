@@ -126,6 +126,7 @@ public sealed partial class ViewerPage : Page
         InitCommentOptions();
         InitCommentsPanel();
         PreviewKeyDown += CopyKey_PreviewKeyDown;
+        PreviewKeyDown += BlockKey_PreviewKeyDown;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)

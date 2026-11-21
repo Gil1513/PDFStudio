@@ -77,24 +77,188 @@ public static class PdfTextEditor
     /// </summary>
     public static string ChooseFont(string family) => FontLibrary.Resolve(family).Use;
 
+    // ---------------- Apagar e mover o bloco ----------------
+
+    /// <summary>Apaga o texto do bloco da página (o que não der para tirar é coberto com branco).</summary>
+    public static TextEditResult Delete(string input, int pageIndex, ContentBlock block, string output) =>
+        Replace(input, pageIndex, block, "", output);
+
+    /// <summary>
+    /// Move o texto do bloco <paramref name="dx"/>, <paramref name="dy"/> pontos (na tela: x para a direita, y para
+    /// baixo). O texto continua o mesmo de antes (mesma fonte do PDF, letras, cor, espaçamento): os comandos que o
+    /// escrevem saem do lugar antigo e são desenhados de novo, deslocados, dentro de um "formulário" do PDF.
+    /// Se algum pedaço do texto não puder ser movido, nada muda e dá erro.
+    /// </summary>
+    public static void Move(string input, int pageIndex, ContentBlock block, double dx, double dy, string output)
+    {
+        if (block.Kind != BlockKind.Text) throw new ArgumentException("O bloco escolhido não é de texto.", nameof(block));
+        if (Math.Abs(dx) < 0.01 && Math.Abs(dy) < 0.01)
+        {
+            if (!SamePath(input, output)) File.Copy(input, output, overwrite: true);
+            return;
+        }
+        string temp = Path.Combine(Path.GetTempPath(), "PDFStudio", $"move-{Guid.NewGuid():N}.pdf");
+        Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
+        try
+        {
+            PdfAnnotations.Edit(input, temp, doc => MoveIn(doc.Pages[PdfPageContent.CheckPage(doc, pageIndex)], block, dx, dy));
+            // Conferência: no lugar antigo não pode sobrar palavra do bloco (fora da área para onde ele foi).
+            var moved = block with { X = block.X + dx, Y = block.Y + dy };
+            bool leftover = PdfTextLayout.Words(temp, pageIndex).Any(w =>
+            {
+                double cx = w.X + w.Width / 2, cy = w.Y + w.Height / 2;
+                return block.Contains(cx, cy) && !moved.Contains(cx, cy);
+            });
+            if (leftover) throw new InvalidOperationException(CannotMove);
+            File.Copy(temp, output, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch { /* arquivo temporário: tanto faz */ }
+        }
+    }
+
+    private const string CannotMove = "Este texto está gravado de um jeito que não dá para mover.";
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    private static void MoveIn(PdfPage page, ContentBlock block, double dx, double dy)
+    {
+        var streams = Walk(page, block);
+        if (streams.Any(s => s.Seq is null && !s.AppArtifact)) throw new InvalidOperationException(CannotMove);
+        var geometry = PageGeometry.Of(page);
+        var from = geometry.ViewToPdf(block.X, block.Y);
+        var to = geometry.ViewToPdf(block.X + dx, block.Y + dy);
+        static string Num(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+        bool inPage = streams.Any(s => s.Move is null && s.InBlock.Count > 0);
+        var moved = streams.Where(s => s.Move is not null && s.InBlock.Count > 0).ToList();
+        if (!inPage && moved.Count == 0) throw new InvalidOperationException(CannotMove);
+        if (moved.Count > 0)
+        {
+            // Texto que já foi movido antes: muda só o deslocamento do formulário dele (se o formulário for só desse bloco).
+            if (inPage || moved.Any(s => s.InBlock.Count != s.TextOps)) throw new InvalidOperationException(CannotMove);
+            foreach (var s in moved)
+            {
+                var (pageStream, cm) = s.Move!.Value;
+                var args = cm.Operands;
+                double tx = N(args[4]) + to.X - from.X, ty = N(args[5]) + to.Y - from.Y;
+                args[4] = new CReal { Value = tx };
+                args[5] = new CReal { Value = ty };
+                var owner = streams.First(o => ReferenceEquals(o.Stream, pageStream));
+                pageStream.Elements.Remove("/Filter");
+                pageStream.Elements.Remove("/DecodeParms");
+                pageStream.Stream.Value = owner.Seq!.ToContent();
+            }
+            return;
+        }
+
+        // 1) O "formulário" com só o texto do bloco: o conteúdo da página inteiro (para valerem as mesmas fontes,
+        // cores, posições e recortes), sem desenhos, imagens e sem os outros textos.
+        var form = new StringBuilder();
+        foreach (var s in streams)
+        {
+            if (s.AppArtifact || s.Seq is null || s.Move is not null) continue;
+            var inBlock = s.InBlock.ToHashSet();
+            var kept = new CSequence();
+            for (int i = 0; i < s.Seq.Count; i++)
+            {
+                if (s.Seq[i] is not COperator op) { kept.Add(s.Seq[i]); continue; }
+                switch (op.OpCode.OpCodeName)
+                {
+                    case OpCodeName.Tj or OpCodeName.TJ or OpCodeName.QuoteSingle or OpCodeName.QuoteDouble:
+                        if (inBlock.Contains(i)) kept.Add(op);
+                        else if (op.OpCode.OpCodeName is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble)
+                            kept.Add(OpCodes.OperatorFromName("T*")); // a mudança de linha continua valendo
+                        break;
+                    case OpCodeName.S or OpCodeName.s or OpCodeName.f or OpCodeName.F or OpCodeName.fx
+                        or OpCodeName.B or OpCodeName.Bx or OpCodeName.b or OpCodeName.bx:
+                        kept.Add(OpCodes.OperatorFromName("n")); // o caminho termina sem pintar (o recorte continua)
+                        break;
+                    case OpCodeName.Do or OpCodeName.sh or OpCodeName.BI or OpCodeName.ID or OpCodeName.EI:
+                        break;
+                    default:
+                        kept.Add(op);
+                        break;
+                }
+            }
+            form.Append(Encoding.Latin1.GetString(kept.ToContent())).Append('\n');
+        }
+
+        // 2) Tira o texto do lugar antigo.
+        RemoveTextIn(page, block);
+
+        // 3) Desenha o formulário deslocado (o deslocamento da tela vira deslocamento no PDF, com a rotação da página).
+        var doc = page.Owner;
+        var xobject = new PdfDictionary(doc);
+        xobject.Elements.SetName("/Type", "/XObject");
+        xobject.Elements.SetName("/Subtype", "/Form");
+        xobject.Elements["/BBox"] = new PdfArray(doc, new PdfReal(-20000), new PdfReal(-20000), new PdfReal(20000), new PdfReal(20000));
+        if (page.Elements["/Resources"] is { } resources) xobject.Elements["/Resources"] = resources;
+        xobject.CreateStream(Encoding.Latin1.GetBytes(form.ToString()));
+        doc.Internals.AddObject(xobject);
+
+        var xobjects = page.Resources.Elements.GetDictionary("/XObject");
+        if (xobjects is null)
+        {
+            xobjects = new PdfDictionary(doc);
+            page.Resources.Elements["/XObject"] = xobjects;
+        }
+        string name;
+        int n = 1;
+        do name = $"/PSMove{n++}"; while (xobjects.Elements.ContainsKey(name));
+        xobjects.Elements[name] = xobject.Reference;
+
+        page.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q\n"));
+        page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(
+            $"Q\nq 1 0 0 1 {Num(to.X - from.X)} {Num(to.Y - from.Y)} cm {name} Do Q\n"));
+    }
+
     // ---------------- Tirar os comandos de texto do bloco ----------------
 
     /// <summary>
-    /// Percorre os comandos de todos os trechos do conteúdo (acompanhando a posição do texto e as transformações)
-    /// e apaga os que escrevem texto começando dentro do bloco. Trechos colocados pelo app (marca d'água,
-    /// cabeçalho…) são lidos, mas não alterados. Devolve quantos comandos saíram.
+    /// Um trecho do conteúdo da página (ou do formulário de um bloco já movido, com <see cref="Move"/>: o trecho da
+    /// página que o desenha e o comando de deslocamento), já lido, com os comandos de texto que começam dentro do bloco.
     /// </summary>
+    private sealed record StreamOps(PdfDictionary Stream, CSequence? Seq, List<int> InBlock, bool AppArtifact,
+        int TextOps = 0, (PdfDictionary PageStream, COperator Cm)? Move = null);
+
+    /// <summary>Apaga da página os comandos de texto que começam dentro do bloco. Devolve quantos saíram.</summary>
     internal static int RemoveTextIn(PdfPage page, ContentBlock block)
     {
-        if (page.Elements["/Contents"] is null) return 0;
+        int removed = 0;
+        foreach (var s in Walk(page, block))
+        {
+            if (s.Seq is null || s.AppArtifact || s.InBlock.Count == 0) continue;
+            for (int k = s.InBlock.Count - 1; k >= 0; k--) s.Seq.RemoveAt(s.InBlock[k]);
+            s.Stream.Elements.Remove("/Filter");
+            s.Stream.Elements.Remove("/DecodeParms");
+            s.Stream.Stream.Value = s.Seq.ToContent();
+            removed += s.InBlock.Count;
+        }
+        return removed;
+    }
+
+    /// <summary>
+    /// Percorre os comandos de todos os trechos do conteúdo (acompanhando a posição do texto e as transformações)
+    /// e anota os que escrevem texto começando dentro do bloco. Trechos colocados pelo app (marca d'água,
+    /// cabeçalho…) são lidos, mas nada deles é anotado. Trecho que o PDFsharp não entende: Seq = null.
+    /// Os formulários de blocos já movidos pelo app (/PSMove…) também são percorridos, no lugar onde são desenhados.
+    /// </summary>
+    private static List<StreamOps> Walk(PdfPage page, ContentBlock block)
+    {
+        var result = new List<StreamOps>();
+        if (page.Elements["/Contents"] is null) return result;
         var geometry = PageGeometry.Of(page);
         var contents = page.Contents.Elements;
+        var xobjects = page.Resources.Elements.GetDictionary("/XObject");
         var ctm = M.Identity;
         var stack = new Stack<M>();
         M tm = M.Identity, tlm = M.Identity;
         double leading = 0;
         bool lineInBlock = false, positioned = true;
-        int removed = 0;
+        var forms = new List<(PdfDictionary Form, M Ctm, PdfDictionary PageStream, COperator Cm)>();
 
         bool StartsInBlock()
         {
@@ -109,16 +273,10 @@ public static class PdfTextEditor
             tm = tlm;
             positioned = true;
         }
-
-        for (int s = 0; s < contents.Count; s++)
+        (List<int> InBlock, int TextOps) Scan(CSequence seq, bool appArtifact, PdfDictionary? pageStream)
         {
-            if (contents.GetDictionary(s) is not { Stream: not null } stream) continue;
-            byte[] data = stream.Stream.UnfilteredValue;
-            bool appArtifact = Encoding.Latin1.GetString(data, 0, Math.Min(data.Length, 64)).TrimStart('q', ' ', '\r', '\n', '\t').StartsWith("/Artifact <</PDFStudio");
-            CSequence seq;
-            try { seq = ContentReader.ReadContent(data); }
-            catch (ContentReaderException) { continue; } // trecho que o PDFsharp não entende: fica como está
-            var drop = new List<int>();
+            var inBlock = new List<int>();
+            int textOps = 0;
             for (int i = 0; i < seq.Count; i++)
             {
                 if (seq[i] is not COperator op) continue;
@@ -143,18 +301,49 @@ public static class PdfTextEditor
                         if (op.OpCode.OpCodeName is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble) MoveLine(0, -leading);
                         // Vários comandos seguidos na mesma linha (sem reposicionar) seguem a decisão do primeiro.
                         if (positioned) { lineInBlock = StartsInBlock(); positioned = false; }
-                        if (lineInBlock && !appArtifact) drop.Add(i);
+                        if (lineInBlock && !appArtifact) inBlock.Add(i);
+                        textOps++;
+                        break;
+                    // Bloco já movido: "q 1 0 0 1 x y cm /PSMove1 Do Q".
+                    case OpCodeName.Do when pageStream is not null && args.Count == 1 && args[0] is CName { Name: var name }
+                        && name.StartsWith("/PSMove", StringComparison.Ordinal) && i > 0 && seq[i - 1] is COperator { OpCode.OpCodeName: OpCodeName.cm } cm
+                        && cm.Operands.Count == 6 && xobjects?.Elements.GetDictionary(name) is { Stream: not null } form:
+                        forms.Add((form, ctm, pageStream, cm));
                         break;
                 }
             }
-            if (drop.Count == 0) continue;
-            for (int k = drop.Count - 1; k >= 0; k--) seq.RemoveAt(drop[k]);
-            stream.Elements.Remove("/Filter");
-            stream.Elements.Remove("/DecodeParms");
-            stream.Stream.Value = seq.ToContent();
-            removed += drop.Count;
+            return (inBlock, textOps);
         }
-        return removed;
+
+        for (int s = 0; s < contents.Count; s++)
+        {
+            if (contents.GetDictionary(s) is not { Stream: not null } stream) continue;
+            byte[] data = stream.Stream.UnfilteredValue;
+            bool appArtifact = Encoding.Latin1.GetString(data, 0, Math.Min(data.Length, 64)).TrimStart('q', ' ', '\r', '\n', '\t').StartsWith("/Artifact <</PDFStudio");
+            CSequence seq;
+            try { seq = ContentReader.ReadContent(data); }
+            catch (ContentReaderException)
+            {
+                result.Add(new StreamOps(stream, null, [], appArtifact)); // trecho que o PDFsharp não entende: fica como está
+                continue;
+            }
+            var (inBlock, textOps) = Scan(seq, appArtifact, stream);
+            result.Add(new StreamOps(stream, seq, inBlock, appArtifact, textOps));
+        }
+
+        foreach (var (form, at, pageStream, cm) in forms)
+        {
+            CSequence seq;
+            try { seq = ContentReader.ReadContent(form.Stream.UnfilteredValue); }
+            catch (ContentReaderException) { continue; }
+            ctm = at;
+            stack.Clear();
+            tm = tlm = M.Identity;
+            positioned = true;
+            var (inBlock, textOps) = Scan(seq, false, null);
+            result.Add(new StreamOps(form, seq, inBlock, false, textOps, (pageStream, cm)));
+        }
+        return result;
     }
 
     private static double N(CObject o) => o switch
