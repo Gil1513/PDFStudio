@@ -558,7 +558,7 @@ public sealed partial class ViewerPage : Page
     private void ShowInFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_path is not null)
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_path}\"") { UseShellExecute = true });
+            Explorer.ShowFile(_path);
     }
 
     private async void CloseFile_Click(object sender, RoutedEventArgs e)

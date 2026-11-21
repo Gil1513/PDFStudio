@@ -355,7 +355,7 @@ public sealed partial class BatchPage : Page
         int failed = results.Count(r => !r.Ok);
         bool stopped = results.Count < total;
         string? folder = _outputFolder ?? (results.FirstOrDefault(r => r.Output is not null)?.Output is { } first ? Path.GetDirectoryName(first) : null);
-        Action? open = folder is null ? null : () => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+        Action? open = folder is null ? null : () => Explorer.OpenFolder(folder);
         string made = SelectedAction.Key switch
         {
             "paraimagem" => $"{ok} {(ok == 1 ? "PDF convertido" : "PDFs convertidos")} em imagens",

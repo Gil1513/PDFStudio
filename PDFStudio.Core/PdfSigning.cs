@@ -96,18 +96,7 @@ public static partial class PdfSigning
         cert.NotBefore, cert.NotAfter, cert.HasPrivateKey);
 
     /// <summary>Indica se o PDF já contém assinaturas (que seriam invalidadas por uma nova gravação).</summary>
-    public static bool HasSignatures(string pdfPath)
-    {
-        using var doc = PdfReader.Open(pdfPath, PdfDocumentOpenMode.Import);
-        var fields = doc.Internals.Catalog.Elements.GetDictionary("/AcroForm")?.Elements.GetArray("/Fields");
-        if (fields is null) return false;
-        for (int i = 0; i < fields.Elements.Count; i++)
-        {
-            var field = fields.Elements.GetDictionary(i);
-            if (field?.Elements.GetName("/FT") == "/Sig" && field.Elements.ContainsKey("/V")) return true;
-        }
-        return false;
-    }
+    public static bool HasSignatures(string pdfPath) => DocumentPropertiesService.HasSignatures(pdfPath); // inclui campos dentro de grupos (/Kids)
 
     public static async Task<CertificateSummary> SignAsync(SignatureRequest request)
     {

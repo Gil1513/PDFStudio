@@ -22,6 +22,12 @@ public sealed partial class SignPage : Page
 
     // ---------- Documento ----------
 
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        base.OnNavigatedFrom(e);
+        PasswordInput.Password = ""; // saiu da tela: esquece a senha do certificado
+    }
+
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
@@ -244,10 +250,14 @@ public sealed partial class SignPage : Page
             ShowStatus(InfoBarSeverity.Success, "Documento assinado",
                 $"Assinado por {cert.Name} ({(request.FieldName is { } field ? $"no campo “{field}”" : request.Visible ? $"visível, página {request.PageNumber}" : "invisível")}). Salvo em {output}.",
                 "Abrir no visualizador", () => App.MainWindow!.OpenInViewer(output));
+            PasswordInput.Password = ""; // a senha não fica na tela depois de usada
         }
         catch (Exception ex)
         {
-            string message = ex.InnerException is System.Net.Http.HttpRequestException
+            bool tsaFailed = request.TimestampUrl is not null
+                && (ex is System.Net.Http.HttpRequestException or TaskCanceledException
+                    || ex.InnerException is System.Net.Http.HttpRequestException or TaskCanceledException);
+            string message = tsaFailed
                 ? "Não foi possível contatar o servidor de carimbo de tempo. Verifique a internet ou deixe o campo em branco."
                 : ex.Message;
             ShowStatus(InfoBarSeverity.Error, "Não foi possível assinar", message);

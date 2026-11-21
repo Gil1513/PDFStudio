@@ -252,7 +252,7 @@ public sealed partial class HomePage : Page
         if (item.IsFolder)
         {
             if (Directory.Exists(item.Path))
-                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{item.Path}\"") { UseShellExecute = true });
+                Explorer.OpenFolder(item.Path);
             else
                 ShowNotice(InfoBarSeverity.Warning, "Pasta não encontrada", item.Path);
             return;
@@ -329,8 +329,7 @@ public sealed partial class HomePage : Page
     private void MenuShowInFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_contextItem is null) return;
-        string args = File.Exists(_contextItem.Path) ? $"/select,\"{_contextItem.Path}\"" : $"\"{_contextItem.Folder}\"";
-        Process.Start(new ProcessStartInfo("explorer.exe", args) { UseShellExecute = true });
+        if (!Explorer.ShowFile(_contextItem.Path)) Explorer.OpenFolder(_contextItem.Folder);
     }
 
     private void MenuCopyPath_Click(object sender, RoutedEventArgs e)

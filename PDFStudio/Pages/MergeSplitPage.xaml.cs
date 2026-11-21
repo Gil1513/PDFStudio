@@ -212,7 +212,7 @@ public sealed partial class MergeSplitPage : Page
                 : PdfOperations.SplitEveryPage(input, folder));
             ShowStatus(InfoBarSeverity.Success, "PDF dividido",
                 $"{files.Count} {(files.Count == 1 ? "arquivo criado" : "arquivos criados")} em {folder}.",
-                "Abrir pasta", () => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"")));
+                "Abrir pasta", () => Explorer.OpenFolder(folder));
         }
         catch (FormatException ex)
         {

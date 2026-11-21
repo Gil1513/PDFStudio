@@ -72,7 +72,7 @@ public sealed partial class ViewerPage
 
             if (separately)
                 ShowStatus(InfoBarSeverity.Success, "Páginas extraídas", message, "Abrir pasta",
-                    () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{target}\"") { UseShellExecute = true }));
+                    () => Explorer.OpenFolder(target));
             else
                 ShowStatus(InfoBarSeverity.Success, "Páginas extraídas", message, "Abrir o arquivo extraído", async () => await OpenAsync(target));
         }

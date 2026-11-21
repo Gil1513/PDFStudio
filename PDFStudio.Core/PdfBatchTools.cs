@@ -190,11 +190,11 @@ public static class PdfFormData
         return sb.ToString();
     }
 
-    /// <summary>Célula do CSV: entre aspas se tiver ";", aspas ou quebra de linha. Começando com =, +, - ou @ ganha um
+    /// <summary>Célula do CSV: entre aspas se tiver ";", aspas ou quebra de linha. Começando com =, +, -, @, tab ou retorno ganha um
     /// apóstrofo, para o Excel não tratar o valor como fórmula.</summary>
     public static string Cell(string value)
     {
-        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@') value = "'" + value;
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r') value = "'" + value;
         return value.IndexOfAny([';', '"', '\n', '\r']) >= 0 ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
     }
 }

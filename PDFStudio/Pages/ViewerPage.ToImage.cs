@@ -102,7 +102,7 @@ public sealed partial class ViewerPage
                 saved.Count == 1 ? "Imagem salva" : $"{saved.Count} imagens salvas",
                 saved.Count == 1 ? Path.GetFileName(first) : $"Na pasta {folder}",
                 "Mostrar na pasta",
-                () => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{first}\"") { UseShellExecute = true }));
+                () => Explorer.ShowFile(first));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
         {

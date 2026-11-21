@@ -74,7 +74,8 @@ public static class CertificateMaker
 
         var start = DateTimeOffset.Now.AddMinutes(-5); // folga para relógios um pouco atrasados
         using var cert = request.CreateSelfSigned(start, start.AddYears(years));
-        byte[] pfx = cert.ExportPkcs12(Pkcs12ExportPbeParameters.Pbes2Aes256Sha256, password);
+        byte[] pfx = cert.ExportPkcs12(
+            new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 200_000), password); // senha mais difícil de adivinhar por força bruta
         string full = Path.GetFullPath(pfxPath), temp = full + ".tmp";
         try
         {

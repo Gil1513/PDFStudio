@@ -30,7 +30,7 @@ public sealed partial class ViewerPage
         folder.Click += (_, _) =>
         {
             Directory.CreateDirectory(FontLibrary.DownloadedFontsFolder);
-            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{FontLibrary.DownloadedFontsFolder}\"") { UseShellExecute = true });
+            Explorer.OpenFolder(FontLibrary.DownloadedFontsFolder);
         };
 
         var content = new StackPanel

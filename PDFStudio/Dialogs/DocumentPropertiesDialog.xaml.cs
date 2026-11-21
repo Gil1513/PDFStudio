@@ -106,7 +106,7 @@ public sealed partial class DocumentPropertiesDialog : ContentDialog
     private void LocationLink_Click(object sender, RoutedEventArgs e)
     {
         // Abre o Explorer com o arquivo selecionado.
-        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_props.FilePath}\"") { UseShellExecute = true });
+        PDFStudio.Services.Explorer.ShowFile(_props.FilePath);
     }
 
     // ---------- Assinaturas ----------

@@ -505,6 +505,16 @@ public class BatchTests
     }
 
     /// <summary>IProgress que chama na hora (o Progress padrão chama depois, em outra thread).</summary>
+    [Theory]
+    [InlineData("=1+1", "'=1+1")]
+    [InlineData("\t=1", "'\t=1")]
+    [InlineData("\r=1", "\"'\r=1\"")]
+    [InlineData("@soma", "'@soma")]
+    [InlineData("texto", "texto")]
+    [InlineData("a;b", "\"a;b\"")]
+    public void CsvCell_NeverStartsAsAFormula(string value, string expected) =>
+        Assert.Equal(expected, PdfFormData.Cell(value));
+
     private sealed class SyncProgress<T>(Action<T> report) : IProgress<T>
     {
         public void Report(T value) => report(value);
