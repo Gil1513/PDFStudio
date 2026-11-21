@@ -58,7 +58,7 @@ public static class PdfWatermark
     /// <summary>Quantas páginas têm marca d'água colocada pelo PDF Studio.</summary>
     public static int Count(string path)
     {
-        using var doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
         return doc.Pages.Cast<PdfPage>().Count(p => PdfPageContent.CountArtifacts(p, PdfPageContent.ArtifactKind.Watermark) > 0);
     }
 

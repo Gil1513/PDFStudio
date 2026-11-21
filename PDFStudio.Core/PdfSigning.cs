@@ -111,7 +111,7 @@ public static partial class PdfSigning
         PdfDocument doc;
         try
         {
-            doc = PdfReader.Open(request.InputPath, PdfDocumentOpenMode.Modify);
+            doc = PdfLoad.Open(request.InputPath, PdfDocumentOpenMode.Modify);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {

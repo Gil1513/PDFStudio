@@ -134,7 +134,7 @@ public static partial class PdfOperations
     {
         try
         {
-            return PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            return PdfLoad.Open(path, PdfDocumentOpenMode.Import);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {

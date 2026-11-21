@@ -23,7 +23,7 @@ public static class PdfBookmarks
 
     public static List<Bookmark> List(string path)
     {
-        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(path, PdfDocumentOpenMode.Import);
         if (Root(doc, create: false) is not { } root) return [];
         var visited = new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
         return Read(doc, root, 0, visited);

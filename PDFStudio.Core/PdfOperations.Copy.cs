@@ -26,7 +26,7 @@ public static partial class PdfOperations
         PdfDocument doc;
         try
         {
-            doc = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+            doc = PdfLoad.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {
@@ -99,7 +99,7 @@ public static partial class PdfOperations
     {
         try
         {
-            return PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+            return PdfLoad.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {

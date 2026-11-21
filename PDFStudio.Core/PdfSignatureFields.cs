@@ -20,7 +20,7 @@ public static class PdfSignatureFields
     /// <summary>Todos os campos de assinatura do PDF, na ordem das páginas.</summary>
     public static List<SignatureField> List(string path)
     {
-        using var doc = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(path, PdfDocumentOpenMode.Import);
         var list = new List<SignatureField>();
         for (int p = 0; p < doc.PageCount; p++)
         {

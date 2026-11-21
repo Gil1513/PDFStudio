@@ -199,7 +199,7 @@ public static class PdfAttachments
     // ---------------- Leitura ----------------
 
     private static PdfDocument Open(string path, PdfDocumentOpenMode mode) =>
-        PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), mode);
+        PdfLoad.Open(new MemoryStream(File.ReadAllBytes(path)), mode);
 
     /// <summary>Entradas da árvore /Names /EmbeddedFiles (com /Kids, se houver), em ordem.</summary>
     private static List<(string Key, PdfDictionary Spec)> DocumentEntries(PdfDocument doc)

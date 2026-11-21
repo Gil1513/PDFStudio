@@ -113,7 +113,7 @@ public static class DocumentPropertiesService
         PdfDocument doc;
         try
         {
-            doc = PdfReader.Open(inputPath, PdfDocumentOpenMode.Modify);
+            doc = PdfLoad.Open(inputPath, PdfDocumentOpenMode.Modify);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {

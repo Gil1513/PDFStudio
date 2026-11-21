@@ -58,8 +58,8 @@ public static class PdfCompressor
     {
         long before = new FileInfo(input).Length;
         using var doc = string.IsNullOrEmpty(password)
-            ? PdfReader.Open(input, PdfDocumentOpenMode.Modify)
-            : PdfReader.Open(input, password, PdfDocumentOpenMode.Modify);
+            ? PdfLoad.Open(input, PdfDocumentOpenMode.Modify)
+            : PdfLoad.Open(input, password, PdfDocumentOpenMode.Modify);
 
         // Dados que só servem para outros programas (Illustrator etc.) e miniaturas antigas de página.
         doc.Internals.Catalog.Elements.Remove("/PieceInfo");

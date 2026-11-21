@@ -189,7 +189,7 @@ public static partial class PdfAnnotations
     /// <summary>Lista os comentários de todas as páginas, na ordem em que aparecem.</summary>
     public static List<AnnotationInfo> List(string path)
     {
-        using var doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
         var result = new List<AnnotationInfo>();
         for (int p = 0; p < doc.PageCount; p++)
         {
@@ -244,7 +244,7 @@ public static partial class PdfAnnotations
         PdfDocument doc;
         try
         {
-            doc = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
+            doc = PdfLoad.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
         }
         catch (PdfReaderException ex) when (ex.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
         {

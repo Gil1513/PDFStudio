@@ -76,7 +76,7 @@ public static partial class PdfAnnotations
     /// <summary>Links da página <paramref name="pageIndex"/> (ou de todas, com null).</summary>
     public static List<LinkInfo> ListLinks(string path, int? pageIndex = null)
     {
-        using var doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
         var pageNumbers = new Dictionary<PdfReference, int>();
         for (int p = 0; p < doc.PageCount; p++)
             if (doc.Pages[p].Reference is { } r) pageNumbers[r] = p;

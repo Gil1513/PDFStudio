@@ -67,7 +67,7 @@ public static class PdfHeaderFooter
     /// <summary>Quantas páginas têm cabeçalho ou rodapé colocado pelo PDF Studio.</summary>
     public static int Count(string path)
     {
-        using var doc = PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(new MemoryStream(File.ReadAllBytes(path)), PdfDocumentOpenMode.Import);
         return doc.Pages.Cast<PdfPage>().Count(p =>
             PdfPageContent.CountArtifacts(p, PdfPageContent.ArtifactKind.Header) + PdfPageContent.CountArtifacts(p, PdfPageContent.ArtifactKind.Footer) > 0);
     }

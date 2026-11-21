@@ -54,7 +54,7 @@ public static class PdfPasswords
     {
         try
         {
-            PdfReader.Open(path, PdfDocumentOpenMode.Import).Dispose();
+            PdfLoad.Open(path, PdfDocumentOpenMode.Import).Dispose();
             return IsEncrypted(path) ? PasswordState.Restricted : PasswordState.None;
         }
         catch (PdfReaderException ex) when (IsPasswordError(ex))
@@ -106,8 +106,8 @@ public static class PdfPasswords
         try
         {
             return string.IsNullOrEmpty(password)
-                ? PdfReader.Open(input, PdfDocumentOpenMode.Modify)
-                : PdfReader.Open(input, password, PdfDocumentOpenMode.Modify);
+                ? PdfLoad.Open(input, PdfDocumentOpenMode.Modify)
+                : PdfLoad.Open(input, password, PdfDocumentOpenMode.Modify);
         }
         catch (PdfReaderException ex) when (IsPasswordError(ex))
         {
@@ -137,8 +137,8 @@ public static class PdfPasswords
         {
             if (!IsEncrypted(path)) return PdfPermissions.All;
             using var doc = string.IsNullOrEmpty(password)
-                ? PdfReader.Open(path, PdfDocumentOpenMode.Import)
-                : PdfReader.Open(path, password, PdfDocumentOpenMode.Import);
+                ? PdfLoad.Open(path, PdfDocumentOpenMode.Import)
+                : PdfLoad.Open(path, password, PdfDocumentOpenMode.Import);
             var security = doc.SecuritySettings;
             if (IsOwner(path, password)) return PdfPermissions.All;
             return new PdfPermissions(security.PermitPrint, security.PermitExtractContent,
@@ -157,8 +157,8 @@ public static class PdfPasswords
         try
         {
             using var doc = string.IsNullOrEmpty(password)
-                ? PdfReader.Open(path, PdfDocumentOpenMode.Modify)
-                : PdfReader.Open(path, password, PdfDocumentOpenMode.Modify);
+                ? PdfLoad.Open(path, PdfDocumentOpenMode.Modify)
+                : PdfLoad.Open(path, password, PdfDocumentOpenMode.Modify);
             return true;
         }
         catch (PdfReaderException)

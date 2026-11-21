@@ -68,7 +68,7 @@ public static class PdfBates
     /// <summary>Quantas páginas têm número Bates colocado pelo PDF Studio.</summary>
     public static int Count(string path)
     {
-        using var doc = PdfSharp.Pdf.IO.PdfReader.Open(new MemoryStream(File.ReadAllBytes(path)), PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(new MemoryStream(File.ReadAllBytes(path)), PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
         return doc.Pages.Cast<PdfPage>().Count(p => PdfPageContent.CountArtifacts(p, PdfPageContent.ArtifactKind.Bates) > 0);
     }
 }

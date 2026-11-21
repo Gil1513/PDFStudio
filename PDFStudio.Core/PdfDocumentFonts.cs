@@ -55,8 +55,8 @@ public static class PdfDocumentFonts
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
         using var doc = string.IsNullOrEmpty(password)
-            ? PdfReader.Open(path, PdfDocumentOpenMode.Import)
-            : PdfReader.Open(path, password, PdfDocumentOpenMode.Import);
+            ? PdfLoad.Open(path, PdfDocumentOpenMode.Import)
+            : PdfLoad.Open(path, password, PdfDocumentOpenMode.Import);
         var seen = new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
         foreach (var page in doc.Pages) Scan(page.Elements.GetDictionary("/Resources"), result, seen);
         return result;

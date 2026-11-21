@@ -64,7 +64,7 @@ public static class PdfFlatten
     /// <summary>Quantos comentários (sem contar links e janelinhas) e campos o PDF tem.</summary>
     public static (int Comments, int Fields) Count(string path)
     {
-        using var doc = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
+        using var doc = PdfLoad.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import);
         int c = 0, f = 0;
         foreach (var page in doc.Pages)
             for (int i = 0; i < page.Annotations.Count; i++)
