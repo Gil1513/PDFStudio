@@ -155,6 +155,12 @@ public static class PdfContentBlocks
         }
     }
 
+    // Nomes de estilo em outras línguas (hebraico, português, espanhol, alemão, francês, italiano, holandês,
+    // polonês, russo, turco, chinês e japonês). O holandês "Vet" (negrito) fica de fora: está dentro de "Helvetica".
+    private const string LocalBold = "עבה|מודגש|Negrito|Negrita|Fett|Gras|Grassetto|Pogrubiony|Полужирный|Жирный|Kalın|粗体|粗體|太字";
+    private const string LocalItalic = "נטוי|Itálico|Italico|Cursiva|Kursiv|Italique|Corsivo|Cursief|Kursywa|Курсив|İtalik|斜体|斜體";
+    private const string LocalRegular = "רגיל|Обычный";
+
     /// <summary>
     /// "ABCDEF+Calibri-BoldItalic" → ("Calibri", negrito, itálico). Tira o prefixo de subconjunto (6 letras e "+"),
     /// os sufixos de estilo e separa nomes colados ("TimesNewRomanPSMT" → "Times New Roman").
@@ -162,10 +168,17 @@ public static class PdfContentBlocks
     public static (string Family, bool Bold, bool Italic) ParseFontName(string name)
     {
         string n = Regex.Replace(name ?? "", "^[A-Z]{6}\\+", "");
-        bool bold = Regex.IsMatch(n, "Bold|Black|Heavy|Semibold|Demi", RegexOptions.IgnoreCase);
-        bool italic = Regex.IsMatch(n, "Italic|Oblique|Inclined", RegexOptions.IgnoreCase);
         int cut = n.IndexOfAny([',', '-']);
         string family = cut > 0 ? n[..cut] : n;
+        // Estilo escrito na língua do computador que fez o PDF ("Helveticaעבה" = Helvetica negrito, em hebraico).
+        // Só vale no fim do nome (ou depois do "-"), para não confundir com pedaços do nome da família.
+        var local = Regex.Match(family, $"(?:[\\s_]*(?:{LocalBold}|{LocalItalic}|{LocalRegular}))+$", RegexOptions.IgnoreCase);
+        string style = local.Value + (cut > 0 ? n[cut..] : "");
+        if (local.Success) family = family[..local.Index];
+        bool bold = Regex.IsMatch(n, "Bold|Black|Heavy|Semibold|Demi", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(style, LocalBold, RegexOptions.IgnoreCase);
+        bool italic = Regex.IsMatch(n, "Italic|Oblique|Inclined", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(style, LocalItalic, RegexOptions.IgnoreCase);
         family = Regex.Replace(family, "(PSMT|PS|MT)$", "");
         family = Regex.Replace(family, "(Bold|Italic|Oblique|Regular)+$", "", RegexOptions.IgnoreCase);
         family = Regex.Replace(family, "(?<=[a-z])(?=[A-Z])", " ").Trim(); // "TimesNewRoman" → "Times New Roman"
