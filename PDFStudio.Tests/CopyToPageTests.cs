@@ -88,6 +88,47 @@ public class CopyToPageTests
     }
 
     [Fact]
+    public void PastedRightBelow_StaysSeparate_AndDeletingItKeepsTheOriginal()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TwoPages(dir);
+        var old = Assert.Single(Texts(input, 0), b => b.Text == "Coluna esquerda");
+
+        // Logo abaixo (como a próxima linha de um parágrafo) e outra por cima, quase no mesmo lugar.
+        PdfTextEditor.CopyToPage(input, 0, [old], 0, 0, 13, input);
+        PdfTextEditor.CopyToPage(input, 0, [old], 0, 3, 2, input);
+        var all = Texts(input, 0).Where(b => b.Text.Contains("Coluna esquerda")).ToList();
+        Assert.Equal(3, all.Count);
+        Assert.All(all, b => Assert.Equal("Coluna esquerda", b.Text));
+
+        var below = Assert.Single(all, b => Math.Abs(b.Y - (old.Y + 13)) < 1);
+        var result = PdfTextEditor.Delete(input, 0, [below], input);
+        Assert.False(result.Covered);
+        var left = Texts(input, 0).Where(b => b.Text == "Coluna esquerda").ToList();
+        Assert.Equal(2, left.Count);
+        Assert.Contains(left, b => Math.Abs(b.Y - old.Y) < 1 && Math.Abs(b.X - old.X) < 1);
+    }
+
+    [Fact]
+    public void CopyOfACopy_CanBeDeletedAndMoved()
+    {
+        string dir = TestPdfs.TempDir();
+        string input = TwoPages(dir);
+        var old = Assert.Single(Texts(input, 0), b => b.Text == "Coluna direita");
+        PdfTextEditor.CopyToPage(input, 0, [old], 1, 0, 0, input);
+        var first = Assert.Single(Texts(input, 1), b => b.Text == "Coluna direita");
+        PdfTextEditor.CopyToPage(input, 1, [first], 1, 0, 100, input);
+        var second = Assert.Single(Texts(input, 1), b => b.Text == "Coluna direita" && b.Y > first.Y + 50);
+
+        PdfTextEditor.Move(input, 1, [second], 0, 50, input);
+        second = Assert.Single(Texts(input, 1), b => b.Text == "Coluna direita" && b.Y > first.Y + 50);
+        Assert.Equal(first.Y + 150, second.Y, 1.0);
+        Assert.False(PdfTextEditor.Delete(input, 1, [second], input).Covered);
+        Assert.Single(Texts(input, 1), b => b.Text == "Coluna direita");
+        Assert.Single(Texts(input, 0), b => b.Text == "Coluna direita");
+    }
+
+    [Fact]
     public void OriginalGone_RefusesAndChangesNothing()
     {
         string dir = TestPdfs.TempDir();

@@ -39,7 +39,7 @@ public static class PdfContentBlocks
     private const double Ascent = 0.88, Descent = 0.24;
 
     private sealed record Word(string Text, double X, double Y, double W, double H, double Baseline,
-        string Font, double Size, AnnotationColor Color);
+        string Font, double Size, AnnotationColor Color, int Group = 0);
 
     /// <summary>Blocos da página <paramref name="pageIndex"/> (começa em 0), de cima para baixo. PDF ilegível: lista vazia.</summary>
     public static List<ContentBlock> Detect(string path, int pageIndex)
@@ -60,6 +60,7 @@ public static class PdfContentBlocks
     internal static List<ContentBlock> Detect(Pig.Content.Page page)
     {
         double pageHeight = page.Height;
+        var groups = ItemGroups(page);
 
         var words = new List<Word>();
         foreach (var w in page.GetWords())
@@ -73,7 +74,7 @@ public static class PdfContentBlocks
             if (x2 <= x1) continue;
             double baseline = pageHeight - first.StartBaseLine.Y;
             words.Add(new Word(w.Text, x1, baseline - Ascent * size, x2 - x1, (Ascent + Descent) * size, baseline,
-                first.FontName ?? "", Math.Round(size, 1), ColorOf(first)));
+                first.FontName ?? "", Math.Round(size, 1), ColorOf(first), groups.GetValueOrDefault(LetterKey(first))));
         }
 
         var blocks = TextBlocks(words);
@@ -94,7 +95,7 @@ public static class PdfContentBlocks
         var lines = new List<List<Word>>();
         foreach (var w in words.OrderBy(w => Math.Round(w.Baseline)).ThenBy(w => w.X))
         {
-            var line = lines.LastOrDefault(l => Math.Abs(l[0].Baseline - w.Baseline) < w.Size * 0.3
+            var line = lines.LastOrDefault(l => l[0].Group == w.Group && Math.Abs(l[0].Baseline - w.Baseline) < w.Size * 0.3
                 && w.X - l[^1].X - l[^1].W < Math.Max(w.Size, l[^1].Size) * 1.5 && w.X >= l[^1].X);
             if (line is not null) line.Add(w);
             else lines.Add([w]);
@@ -112,7 +113,7 @@ public static class PdfContentBlocks
                 var s = Style(last);
                 double gap = line[0].Baseline - last[0].Baseline;
                 double gLeft = g.Min(l => l[0].X), gRight = g.Max(l => l[^1].X + l[^1].W);
-                return s.Font == style.Font && Math.Abs(s.Size - style.Size) < 0.6
+                return last[0].Group == line[0].Group && s.Font == style.Font && Math.Abs(s.Size - style.Size) < 0.6
                     && gap > 0 && gap < style.Size * 1.8
                     && left < gRight && right > gLeft;
             });
@@ -137,6 +138,37 @@ public static class PdfContentBlocks
         }
         return result;
     }
+
+    /// <summary>
+    /// Itens colados ou movidos pelo app ficam marcados no PDF ("/PSItem"): cada marca vira um grupo, e textos de
+    /// grupos diferentes nunca se juntam num bloco (mesmo encostados ou um em cima do outro).
+    /// </summary>
+    private static Dictionary<(double, double, string), int> ItemGroups(Pig.Content.Page page)
+    {
+        var groups = new Dictionary<(double, double, string), int>();
+        int next = 0;
+        void Visit(Pig.Content.MarkedContentElement e)
+        {
+            if (e.Tag == "PSItem")
+            {
+                next++;
+                foreach (var letter in AllLetters(e)) groups[LetterKey(letter)] = next;
+            }
+            foreach (var child in e.Children) Visit(child);
+        }
+        try
+        {
+            foreach (var e in page.GetMarkedContents()) Visit(e);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { /* marcas ilegíveis: lê sem grupos */ }
+        return groups;
+    }
+
+    private static IEnumerable<Pig.Content.Letter> AllLetters(Pig.Content.MarkedContentElement e) =>
+        e.Letters.Concat(e.Children.SelectMany(AllLetters));
+
+    private static (double, double, string) LetterKey(Pig.Content.Letter l) =>
+        (Math.Round(l.StartBaseLine.X, 2), Math.Round(l.StartBaseLine.Y, 2), l.Value);
 
     /// <summary>
     /// Separa um bloco de texto em um bloco por linha (mesma fonte, tamanho e cor), para mexer só em parte dele.

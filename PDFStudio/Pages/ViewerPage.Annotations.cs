@@ -774,9 +774,22 @@ public sealed partial class ViewerPage
         {
             if (_blockEditor is not null) { await FinishBlockEditorAsync(commit: true); return; } // clicar fora aplica
             surface.CapturePointer(e.Pointer); // antes de esperar: o bloco de texto pode ser arrastado
-            await BlocksOfPage(slot.Index); // a leitura pode ter começado agora há pouco (mouse chegando)
-            await ShowBlockOutlinesAsync(surface);
+            _blockPressPending = true;
+            _blockReleasedEarly = null;
+            try
+            {
+                await BlocksOfPage(slot.Index); // a leitura pode ter começado agora há pouco (mouse chegando)
+                await ShowBlockOutlinesAsync(surface);
+            }
+            finally { _blockPressPending = false; }
             await PressBlockAsync(surface, slot, point.Position);
+            // Clique rápido: o botão já foi solto enquanto a página era lida. Termina o clique agora (senão o app
+            // ficaria "arrastando" sozinho, com a moldura seguindo o mouse).
+            if (_blockReleasedEarly is { } released)
+            {
+                _blockReleasedEarly = null;
+                if (BlockGestureActive) await DropBlockAsync(surface, released);
+            }
             return;
         }
         if (_tool.Mode == DrawMode.Redact)
@@ -930,6 +943,7 @@ public sealed partial class ViewerPage
             var position = e.GetCurrentPoint(blockSurface).Position;
             _releasingBlockPointer = true; // soltar o mouse de propósito não é "perder" o mouse
             try { blockSurface.ReleasePointerCaptures(); } finally { _releasingBlockPointer = false; }
+            if (_blockPressPending) { _blockReleasedEarly = position; e.Handled = true; return; } // o aperto ainda está sendo tratado
             if (BlockGestureActive) { e.Handled = true; await DropBlockAsync(blockSurface, position); }
             return;
         }
@@ -1039,6 +1053,9 @@ public sealed partial class ViewerPage
     }
 
     private bool _releasingBlockPointer;
+    // Aperto no Editar tudo ainda lendo a página (espera) e, se o botão foi solto nesse meio-tempo, onde.
+    private bool _blockPressPending;
+    private Point? _blockReleasedEarly;
 
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {

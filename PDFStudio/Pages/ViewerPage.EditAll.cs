@@ -127,6 +127,7 @@ public sealed partial class ViewerPage
         CancelBlockDrag(_blockSurface);
         CancelMarquee();
         _blockSurface = null;
+        _blockMouse = null;
         _hoveredBlock = null;
         _selection.Clear();
     }
@@ -153,6 +154,7 @@ public sealed partial class ViewerPage
         if (SlotOf(surface) is not { } slot) return;
         // O mouse pode já estar sobre a página quando o modo é ligado (sem o evento de "entrar").
         if (!ReferenceEquals(surface, _blockSurface)) _ = ShowBlockOutlinesAsync(surface);
+        _blockMouse = p; // onde colar com Ctrl+V
         var block = BlockAt(slot, p);
         surface.SetCursor(block is null ? null
             : block.Kind == BlockKind.Text && !IsSelected(block) ? InputSystemCursorShape.IBeam : InputSystemCursorShape.SizeAll);
@@ -592,7 +594,7 @@ public sealed partial class ViewerPage
         var noun = Noun(blocks[0]);
         ShowStatus(InfoBarSeverity.Informational,
             single ? $"{noun.Name} {(noun.Female ? "copiada" : "copiado")}" : $"{blocks.Count} itens copiados",
-            "Ponha o mouse na página onde quer colar e aperte Ctrl+V. Fica no mesmo lugar e com a mesma formatação.");
+            "Ponha o mouse onde quer colar (em qualquer página) e aperte Ctrl+V: o canto de cima fica na ponta do mouse, com a mesma formatação.");
     }
 
     /// <summary>Cola o que foi copiado na página sob o mouse (ou na página atual), no mesmo lugar; na mesma página, um pouco ao lado.</summary>
@@ -610,22 +612,33 @@ public sealed partial class ViewerPage
         if (surface is null || SlotOf(surface) is not { } slot) return;
         int from = clip.Page, to = slot.Index;
         var blocks = clip.Blocks;
-        // Na mesma página, a cópia vai um pouco para baixo e para a direita (para não ficar em cima do original).
-        double shift = from == to ? 14 : 0;
+        // O canto de cima da cópia vai para a ponta do mouse (sem sair da página). Sem o mouse na página: no mesmo
+        // lugar (outra página) ou um pouco ao lado (mesma página).
+        double left = blocks.Min(b => b.X), top = blocks.Min(b => b.Y);
+        double width = blocks.Max(b => b.Right) - left, height = blocks.Max(b => b.Bottom) - top;
+        double dx = from == to ? 14 : 0, dy = dx;
+        if (ReferenceEquals(surface, _blockSurface) && _blockMouse is { } mouse)
+        {
+            double pageWidth = surface.ActualWidth / DipsPerPoint, pageHeight = surface.ActualHeight / DipsPerPoint;
+            dx = Math.Clamp(mouse.X / DipsPerPoint, 0, Math.Max(0, pageWidth - width)) - left;
+            dy = Math.Clamp(mouse.Y / DipsPerPoint, 0, Math.Max(0, pageHeight - height)) - top;
+        }
         bool single = blocks.Count == 1;
         var noun = Noun(blocks[0]);
         ToolHintText.Text = single ? $"Colando {noun.The}…" : $"Colando {blocks.Count} itens…";
-        bool done = await ApplyEditAsync((input, output) => PdfTextEditor.CopyToPage(input, from, blocks, to, shift, shift, output),
+        bool done = await ApplyEditAsync((input, output) => PdfTextEditor.CopyToPage(input, from, blocks, to, dx, dy, output),
             label: single ? $"Colar {noun.Name.ToLowerInvariant()}" : "Colar itens");
+        string what = (single ? $"{noun.Name} {(noun.Female ? "colada" : "colado")}" : $"{blocks.Count} itens colados") + $" na página {to + 1}";
         if (done)
-            ShowStatus(InfoBarSeverity.Success,
-                (single ? $"{noun.Name} {(noun.Female ? "colada" : "colado")}" : $"{blocks.Count} itens colados") + $" na página {to + 1}",
-                "Mesma formatação do original. Arraste para mudar de lugar; Desfazer (Ctrl+Z) volta.");
+            ShowStatus(InfoBarSeverity.Success, what, "Mesma formatação do original. Arraste para mudar de lugar; Desfazer (Ctrl+Z) volta.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode != DrawMode.EditAll) return;
         var now = await ShowBlockOutlinesAsync(surface, force: true);
-        if (done) SelectMatching(surface, now, blocks.Select(b => b with { X = b.X + shift, Y = b.Y + shift }));
+        if (done) SelectMatching(surface, now, blocks.Select(b => b with { X = b.X + dx, Y = b.Y + dy }));
     }
+
+    /// <summary>Última posição do mouse na página contornada (<see cref="_blockSurface"/>), para colar ali.</summary>
+    private Point? _blockMouse;
 
     /// <summary>Botão "Apagar" ao lado do que está selecionado (do último escolhido).</summary>
     private void ShowBlockActions(DrawingSurface surface)
