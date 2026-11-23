@@ -109,6 +109,14 @@ public partial class App : Application
         _window = MainWindow;
         _window.Activate();
 
+        // Se a pessoa já ligou o app ao Windows e depois mudou a pasta dele, corrige o caminho.
+        try
+        {
+            if (Environment.ProcessPath is { } exe && WindowsIntegration.IsRegistered() && !WindowsIntegration.IsRegisteredTo(exe))
+                WindowsIntegration.Register(exe);
+        }
+        catch (Exception) { /* não é motivo para não abrir o app */ }
+
         // Cópias de trabalho esquecidas (app fechado à força) não ficam ocupando espaço.
         Task.Run(() =>
         {

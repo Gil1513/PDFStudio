@@ -53,6 +53,27 @@
             </StackPanel>
 
             <StackPanel Spacing="8">
+                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Windows" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Coloca o PDF Studio no &quot;Abrir com&quot; e no botão direito dos arquivos PDF do Explorador de Arquivos. Vale só para o seu usuário e pode ser desfeito aqui."
+                    TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="RegisterButton" Click="Register_Click" Content="Adicionar ao Windows" />
+                    <Button x:Name="UnregisterButton" Click="Unregister_Click" Content="Remover do Windows" />
+                </StackPanel>
+                <TextBlock x:Name="WindowsStatusText" TextWrapping="Wrap" />
+                <Button
+                    x:Name="DefaultAppButton"
+                    Click="DefaultApp_Click"
+                    Content="Tornar o PDF Studio o leitor de PDF padrão…" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="O Windows não deixa um programa se colocar como padrão sozinho. O botão abre as Configurações do Windows: lá, em .pdf, escolha PDF Studio. Outro jeito: botão direito num PDF &gt; Abrir com &gt; Escolher outro aplicativo &gt; PDF Studio &gt; Sempre."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
                 <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Sobre" />
                 <TextBlock x:Name="VersionText" />
                 <TextBlock
