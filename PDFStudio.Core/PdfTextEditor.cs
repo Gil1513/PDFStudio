@@ -575,7 +575,10 @@ public static class PdfTextEditor
             var (x, y) = tm.Then(ctm).Origin;
             var view = geometry.PdfToView(x, y);
             double vx = view.X, vy = view.Y;
-            return texts.Any(b => vx >= b.X - 1 && vx <= b.Right + 1 && vy >= b.Y - 1 && vy <= b.Bottom + 1);
+            // Além de começar dentro do bloco, a linha precisa estar na linha de base de uma das linhas dele: a última
+            // linha do texto de cima pode começar dentro da borda de cima do bloco (encostado) e não é dele.
+            return texts.Any(b => vx >= b.X - 1 && vx <= b.Right + 1 && vy >= b.Y - 1 && vy <= b.Bottom + 1
+                && (b.Lines.Count == 0 || b.Lines.Any(l => Math.Abs(vy - l.Baseline) <= Math.Max(2, l.Height * 0.45))));
         }
         void MoveLine(double tx, double ty)
         {
