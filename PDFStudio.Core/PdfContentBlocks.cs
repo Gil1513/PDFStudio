@@ -138,6 +138,16 @@ public static class PdfContentBlocks
         return result;
     }
 
+    /// <summary>
+    /// Separa um bloco de texto em um bloco por linha (mesma fonte, tamanho e cor), para mexer só em parte dele.
+    /// Imagem, desenho ou bloco de uma linha só voltam como estão.
+    /// </summary>
+    public static List<ContentBlock> SplitLines(ContentBlock block)
+    {
+        if (block.Kind != BlockKind.Text || block.Lines.Count < 2) return [block];
+        return block.Lines.Select(l => block with { X = l.X, Y = l.Y, Width = l.Width, Height = l.Height, Lines = [l] }).ToList();
+    }
+
     /// <summary>O estilo que mais aparece na linha (fonte, tamanho, cor).</summary>
     private static (string Font, double Size, AnnotationColor Color) Style(List<Word> line) =>
         line.GroupBy(w => (w.Font, w.Size, w.Color)).OrderByDescending(g => g.Sum(w => w.Text.Length)).First().Key;

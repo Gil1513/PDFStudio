@@ -23,9 +23,46 @@ public sealed partial class ViewerPage
     {
         string path = DisplayPath!;
         if (_blockCachePath != path) { _blockCache.Clear(); _blockCachePath = path; }
+        if (_splitDocument != _path) { _splitLines.Clear(); _splitDocument = _path; }
         if (!_blockCache.TryGetValue(page, out var task))
-            _blockCache[page] = task = Task.Run(() => PdfContentBlocks.Detect(path, page).Concat(PdfTextEditor.Shapes(path, page)).ToList());
+        {
+            var split = _splitLines.TryGetValue(page, out var set) ? set.ToHashSet() : [];
+            _blockCache[page] = task = Task.Run(() => PdfContentBlocks.Detect(path, page)
+                .SelectMany(b => b.Lines.Any(l => split.Contains(LineKey(l))) ? PdfContentBlocks.SplitLines(b) : [b])
+                .Concat(PdfTextEditor.Shapes(path, page)).ToList());
+        }
         return task;
+    }
+
+    // ---------------- Separar linhas ----------------
+
+    /// <summary>
+    /// Linhas que a pessoa pediu para separar (por página; guardadas pela linha de base). Valem enquanto o mesmo
+    /// documento está aberto, também depois de editar (a página é lida de novo e os blocos voltam a se juntar).
+    /// </summary>
+    private readonly Dictionary<int, HashSet<long>> _splitLines = [];
+    private string? _splitDocument;
+
+    private static long LineKey(BlockLine line) => (long)Math.Round(line.Baseline * 2);
+
+    /// <summary>Transforma o bloco selecionado em um item por linha.</summary>
+    private async Task SplitSelectedBlockAsync()
+    {
+        if (_blockSurface is not { } surface || SlotOf(surface) is not { } slot || _selection.Count == 0) return;
+        var block = _selection[^1];
+        if (block.Kind != BlockKind.Text || block.Lines.Count < 2) return;
+        if (!_splitLines.TryGetValue(slot.Index, out var set)) _splitLines[slot.Index] = set = [];
+        foreach (var line in block.Lines) set.Add(LineKey(line));
+
+        // Troca o bloco pelas linhas na lista já lida (sem ler a página de novo).
+        var blocks = await BlocksOfPage(slot.Index);
+        var lines = PdfContentBlocks.SplitLines(block);
+        var updated = blocks.SelectMany(b => ReferenceEquals(b, block) ? lines : [b]).ToList();
+        _blockCache[slot.Index] = Task.FromResult(updated);
+        _selection.Clear();
+        await ShowBlockOutlinesAsync(surface, force: true);
+        UpdateSelectionUi(surface);
+        ToolHintText.Text = $"{lines.Count} linhas separadas. Clique numa linha; Ctrl+clique ou arraste um retângulo para escolher várias.";
     }
 
     /// <summary>Bloco sob o ponto (DIPs da superfície), se os blocos já foram lidos. Texto ganha de imagem (fica por cima).</summary>
@@ -436,6 +473,28 @@ public sealed partial class ViewerPage
             : $"Apagar {Noun(block).This} (Delete)");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(delete, "DeleteBlockButton");
         delete.Click += async (_, _) => await DeleteSelectedBlockAsync();
+        var buttons = new StackPanel { Spacing = 4, Children = { delete } };
+        if (n == 1 && block.Kind == BlockKind.Text && block.Lines.Count > 1)
+        {
+            var split = new Button
+            {
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    Children = { new FontIcon { Glyph = "", FontSize = 14 }, new TextBlock { Text = "Separar linhas" } },
+                },
+                Padding = new Thickness(10, 4, 10, 4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+            };
+            ToolTipService.SetToolTip(split, $"Transforma as {block.Lines.Count} linhas deste bloco em itens separados, para editar, mover ou apagar só algumas");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(split, "SplitBlockButton");
+            split.Click += async (_, _) => await SplitSelectedBlockAsync();
+            delete.HorizontalAlignment = HorizontalAlignment.Stretch;
+            delete.HorizontalContentAlignment = HorizontalAlignment.Left;
+            buttons.Children.Add(split);
+        }
         var bar = new Border
         {
             Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"],
@@ -443,10 +502,10 @@ public sealed partial class ViewerPage
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(2),
-            Child = delete,
+            Child = buttons,
         };
         // Ao lado direito (para não cobrir o que está em cima); sem espaço, logo abaixo.
-        const double barWidth = 130;
+        double barWidth = buttons.Children.Count > 1 ? 170 : 130;
         double left = (block.Right + 6) * DipsPerPoint, top = (block.Y - 2) * DipsPerPoint;
         if (left + barWidth > surface.ActualWidth)
         {
@@ -490,7 +549,9 @@ public sealed partial class ViewerPage
             Background = new SolidColorBrush(Microsoft.UI.Colors.White),
             Padding = new Thickness(2, 0, 2, 0),
             MinWidth = (block.Width + 8) * DipsPerPoint,
-            MinHeight = 0,
+            // Cobre o bloco inteiro: com linhas mais juntas que as da página, as últimas linhas originais
+            // apareciam de novo embaixo da caixa e pareciam um texto à parte.
+            MinHeight = (block.Height + 4) * DipsPerPoint,
         };
         editor.Text = block.Text; // só depois de AcceptsReturn (veja acima)
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(editor, "Editar texto do bloco");
