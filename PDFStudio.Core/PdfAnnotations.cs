@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.IO;
 
 namespace PDFStudio.Core;
@@ -252,9 +253,63 @@ public static partial class PdfAnnotations
         }
         using (doc)
         {
+            var before = doc.Pages.Cast<PdfPage>().Select(ContentsKey).ToList();
             edit(doc);
+            for (int i = 0; i < doc.PageCount && i < before.Count; i++)
+                if (ContentsKey(doc.Pages[i]) != before[i]) MergeContentStreams(doc.Pages[i]);
             PdfOperations.SaveSafely(doc, output);
         }
+    }
+
+    /// <summary>Quais pedaços de conteúdo a página tem (para saber se a edição mexeu nela).</summary>
+    private static string ContentsKey(PdfPage page) => page.Elements["/Contents"] switch
+    {
+        PdfArray array => string.Join(",", array.Elements.Select(e => e is PdfReference r ? r.ObjectNumber.ToString() : "d")),
+        PdfReference r => r.ObjectNumber.ToString(),
+        _ => "",
+    };
+
+    /// <summary>
+    /// Junta os pedaços do conteúdo da página num só (o desenho é exatamente o mesmo). Cada edição acrescenta pedaços
+    /// e "camadas" (q/Q) que passam de um pedaço para o outro; depois de muitas edições, o leitor de PDF do Windows
+    /// desiste e mostra a página inteira em branco. Com um pedaço só, isso não acontece.
+    /// </summary>
+    internal static void MergeContentStreams(PdfPage page)
+    {
+        var contents = page.Contents;
+        if (contents.Elements.Count < 2) return;
+        var doc = page.Owner;
+        // Marca d'água, fundo, cabeçalho… (trechos marcados pelo app) ficam num pedaço próprio: é assim que dá para
+        // removê-los depois. Os outros pedaços seguidos viram um só.
+        var pieces = new List<(byte[] Data, PdfItem? Keep)>();
+        foreach (var item in contents.Elements)
+        {
+            if ((item is PdfReference r ? r.Value : item) is not PdfDictionary { Stream: { } stream }) return;
+            if (!stream.TryUnfilter()) return; // compressão que não dá para abrir: deixa como está
+            bool artifact = Encoding.Latin1.GetString(stream.Value).Contains("/Artifact <</PDFStudio ", StringComparison.Ordinal);
+            pieces.Add((stream.Value, artifact ? item : null));
+        }
+        var merged = new List<PdfItem>();
+        using var run = new MemoryStream();
+        void Flush()
+        {
+            if (run.Length == 0) return;
+            var content = new PdfDictionary(doc);
+            content.CreateStream(run.ToArray());
+            doc.Internals.AddObject(content);
+            merged.Add(content.Reference!);
+            run.SetLength(0);
+        }
+        foreach (var (data, keep) in pieces)
+        {
+            if (keep is not null) { Flush(); merged.Add(keep); continue; }
+            run.Write(data);
+            run.WriteByte((byte)'\n');
+        }
+        Flush();
+        if (merged.Count == contents.Elements.Count) return; // nada a juntar
+        contents.Elements.Clear();
+        foreach (var item in merged) contents.Elements.Add(item);
     }
 
     /// <summary>
