@@ -83,6 +83,7 @@ public static class PdfTextEditor
     private const string CannotMoveImage = "Esta imagem está gravada de um jeito que não dá para mover.";
     private const string CannotDeleteImage = "Esta imagem está gravada de um jeito que não dá para apagar.";
     private const string CannotMoveObject = "Algum dos itens está gravado de um jeito que não dá para mover.";
+    private const string CannotMoveToRotated = "As duas páginas estão giradas de jeitos diferentes. Gire uma delas igual à outra e tente de novo.";
     private const string CannotDeleteObject = "Algum dos itens está gravado de um jeito que não dá para apagar.";
 
     // ---------------- Desenhos (linhas, traços, retângulos…) ----------------
@@ -210,6 +211,110 @@ public static class PdfTextEditor
         {
             try { File.Delete(temp); } catch { /* arquivo temporário: tanto faz */ }
         }
+    }
+
+    /// <summary>
+    /// Leva os blocos (textos, imagens e desenhos) da página <paramref name="fromPage"/> para a página
+    /// <paramref name="toPage"/>. Cada bloco vai para (X + <paramref name="dx"/>, Y + <paramref name="dy"/>) na página
+    /// de destino (pontos da tela); a distância entre eles não muda. Como no mover dentro da página, nada é escrito de
+    /// novo: os mesmos comandos passam a ser desenhados na outra página (dentro de um "formulário" do PDF).
+    /// </summary>
+    public static void MoveToPage(string input, int fromPage, IReadOnlyList<ContentBlock> blocks, int toPage, double dx, double dy, string output)
+    {
+        if (fromPage == toPage) { Move(input, fromPage, blocks, dx, dy, output); return; }
+        if (blocks.Count == 0) throw new ArgumentException("Escolha o que mover.", nameof(blocks));
+        var texts = blocks.Where(b => b.Kind == BlockKind.Text).ToList();
+        int objectCount = blocks.Count - texts.Count;
+        string temp = TempFile("move");
+        try
+        {
+            PdfAnnotations.Edit(input, temp, doc =>
+            {
+                var source = doc.Pages[PdfPageContent.CheckPage(doc, fromPage)];
+                var target = doc.Pages[PdfPageContent.CheckPage(doc, toPage)];
+                var from = PageGeometry.Of(source);
+                var to = PageGeometry.Of(target);
+                if (from.Rotation != to.Rotation) throw new InvalidOperationException(CannotMoveToRotated);
+
+                var streams = Walk(source, blocks);
+                if (streams.Any(s => s.Seq is null && !s.AppArtifact)) throw new InvalidOperationException(CannotMove);
+                var hits = streams.Where(s => s.Seq is not null && s.InBlock.Count > 0).ToList();
+                if (hits.Count == 0) throw new InvalidOperationException(CannotMove);
+                int objectHits = hits.Sum(s => s.InBlock.Count(i => s.Seq![i] is COperator { OpCode.OpCodeName: var op } && (op == OpCodeName.Do || IsPaint(op))));
+                if (objectHits < objectCount) throw new InvalidOperationException(CannotMoveObject);
+
+                // 1) Formulário com só o que foi escolhido, nas posições da página de origem.
+                var form = new StringBuilder("q\n");
+                foreach (var s in streams.Where(s => !s.AppArtifact && s.Seq is not null && s.Move is null))
+                    form.Append(OnlyChosen(s.Seq!, s.InBlock)).Append('\n');
+                form.Append("Q\n");
+                foreach (var s in hits.Where(s => s.Move is not null))
+                {
+                    var at = s.Move!.Value.At;
+                    form.Append($"q {Num(at.A)} {Num(at.B)} {Num(at.C)} {Num(at.D)} {Num(at.E)} {Num(at.F)} cm\n")
+                        .Append(OnlyChosen(s.Seq!, s.InBlock)).Append("\nQ\n");
+                }
+
+                // 2) Tira da página de origem.
+                RemoveHits(streams);
+
+                // 3) Desenha na página de destino, deslocado: um ponto da origem vai para o lugar escolhido no destino.
+                var b0 = blocks[0];
+                var a = from.ViewToPdf(b0.X, b0.Y);
+                var z = to.ViewToPdf(b0.X + dx, b0.Y + dy);
+                var xobject = new PdfDictionary(doc);
+                xobject.Elements.SetName("/Type", "/XObject");
+                xobject.Elements.SetName("/Subtype", "/Form");
+                xobject.Elements["/BBox"] = new PdfArray(doc, new PdfReal(-20000), new PdfReal(-20000), new PdfReal(20000), new PdfReal(20000));
+                if (source.Elements["/Resources"] is { } resources) xobject.Elements["/Resources"] = resources;
+                xobject.CreateStream(Encoding.Latin1.GetBytes(form.ToString()));
+                doc.Internals.AddObject(xobject);
+
+                var xobjects = target.Resources.Elements.GetDictionary("/XObject");
+                if (xobjects is null)
+                {
+                    xobjects = new PdfDictionary(doc);
+                    target.Resources.Elements["/XObject"] = xobjects;
+                }
+                string name;
+                int n = 1;
+                do name = $"/PSMove{n++}"; while (xobjects.Elements.ContainsKey(name));
+                xobjects.Elements[name] = xobject.Reference;
+                target.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q\n"));
+                target.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes($"Q\nq 1 0 0 1 {Num(z.X - a.X)} {Num(z.Y - a.Y)} cm {name} Do Q\n"));
+            });
+            // Conferência: na página de origem não pode sobrar palavra dos textos movidos.
+            if (texts.Count > 0 && PdfTextLayout.Words(temp, fromPage).Any(w =>
+                    texts.Any(t => t.Contains(w.X + w.Width / 2, w.Y + w.Height / 2))))
+                throw new InvalidOperationException(CannotMove);
+            File.Copy(temp, output, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch { /* arquivo temporário: tanto faz */ }
+        }
+    }
+
+    /// <summary>O conteúdo com só os comandos escolhidos (textos, imagens e desenhos); o resto não aparece.</summary>
+    private static string OnlyChosen(CSequence seq, List<int> chosen)
+    {
+        var keep = chosen.ToHashSet();
+        var kept = new CSequence();
+        for (int i = 0; i < seq.Count; i++)
+        {
+            if (seq[i] is not COperator op) { kept.Add(seq[i]); continue; }
+            var name = op.OpCode.OpCodeName;
+            if (name is OpCodeName.Tj or OpCodeName.TJ or OpCodeName.QuoteSingle or OpCodeName.QuoteDouble)
+            {
+                if (keep.Contains(i)) kept.Add(op);
+                else if (name is OpCodeName.QuoteSingle or OpCodeName.QuoteDouble) kept.Add(OpCodes.OperatorFromName("T*"));
+            }
+            else if (IsPaint(name)) kept.Add(keep.Contains(i) ? op : OpCodes.OperatorFromName("n"));
+            else if (name == OpCodeName.Do) { if (keep.Contains(i)) kept.Add(op); }
+            else if (name is OpCodeName.sh or OpCodeName.BI or OpCodeName.ID or OpCodeName.EI) { }
+            else kept.Add(op);
+        }
+        return Encoding.Latin1.GetString(kept.ToContent());
     }
 
     private static string TempFile(string kind)

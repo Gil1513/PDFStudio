@@ -230,15 +230,22 @@ public sealed partial class ViewerPage
     /// <summary>Blocos que podem estar sendo arrastados: onde o mouse apertou e as molduras que acompanham o mouse.</summary>
     private sealed class BlockDrag
     {
+        public required DrawingSurface Surface { get; init; }
         public required PageSlot Slot { get; init; }
         public required List<ContentBlock> Blocks { get; init; }
         public required Point Start { get; init; }
         public List<Shapes.Rectangle> Ghosts { get; } = [];
+        /// <summary>Página onde as molduras estão agora (pode ser outra: arrastar para a página de cima/baixo).</summary>
+        public DrawingSurface? GhostSurface { get; set; }
+        public PageSlot? Target { get; set; }
+        /// <summary>Última posição do mouse no visualizador (para a rolagem automática perto da borda).</summary>
+        public Point LastViewer { get; set; }
     }
 
     /// <summary>Retângulo de seleção (arrastar numa área vazia da página).</summary>
     private sealed class Marquee
     {
+        public required DrawingSurface Surface { get; init; }
         public required PageSlot Slot { get; init; }
         public required Point Start { get; init; }
         public required bool Add { get; init; }
@@ -267,10 +274,10 @@ public sealed partial class ViewerPage
                 await ClickBlockAsync(surface, slot, p, toggle: true);
                 return;
             }
-            _blockDrag = new BlockDrag { Slot = slot, Start = p, Blocks = IsSelected(block) ? [.. _selection] : [block] };
+            _blockDrag = new BlockDrag { Surface = surface, Slot = slot, Start = p, Blocks = IsSelected(block) ? [.. _selection] : [block] };
             return;
         }
-        _marquee = new Marquee { Slot = slot, Start = p, Add = ctrl };
+        _marquee = new Marquee { Surface = surface, Slot = slot, Start = p, Add = ctrl };
     }
 
     /// <summary>Quanto os blocos andam (DIPs), sem deixar nenhum sair da página.</summary>
@@ -312,6 +319,7 @@ public sealed partial class ViewerPage
         if (_blockDrag is not { } drag) return;
         if (drag.Ghosts.Count == 0)
         {
+            if (!ReferenceEquals(surface, drag.Surface)) return;
             if (Math.Abs(p.X - drag.Start.X) + Math.Abs(p.Y - drag.Start.Y) < 5) return; // ainda é um clique
             RemoveBlockActions();
             foreach (var block in drag.Blocks)
@@ -329,16 +337,86 @@ public sealed partial class ViewerPage
                 surface.Children.Add(ghost);
                 drag.Ghosts.Add(ghost);
             }
+            drag.GhostSurface = surface;
+            drag.Target = drag.Slot;
             surface.SetCursor(InputSystemCursorShape.SizeAll);
-            ToolHintText.Text = drag.Blocks.Count > 1 ? "Solte onde os itens devem ficar (Esc cancela)."
-                : $"Solte onde {Noun(drag.Blocks[0]).The} deve ficar (Esc cancela).";
         }
-        var (dx, dy) = DragOffset(surface, drag, p);
+        drag.LastViewer = surface.TransformToVisual(Scroller).TransformPoint(p);
+        PlaceGhosts(drag);
+        UpdateDragScroll(drag);
+    }
+
+    /// <summary>
+    /// Página sob um ponto do visualizador (ou a mais próxima, se o ponto cai no espaço entre páginas) e o ponto
+    /// nas medidas dela. Só páginas já desenhadas na tela.
+    /// </summary>
+    private (DrawingSurface Surface, PageSlot Slot, Point Local)? PageAt(Point viewer)
+    {
+        (DrawingSurface, PageSlot, Point)? best = null;
+        double bestDistance = double.MaxValue;
+        for (int i = 0; i < _slots.Count; i++)
+        {
+            if (PagesRepeater.TryGetElement(i) is not { } element || FindSurface(element) is not { ActualHeight: > 0 } s) continue;
+            var local = Scroller.TransformToVisual(s).TransformPoint(viewer);
+            double distance = local.Y < 0 ? -local.Y : local.Y > s.ActualHeight ? local.Y - s.ActualHeight : 0;
+            if (distance < bestDistance) { bestDistance = distance; best = (s, _slots[i], local); }
+        }
+        return best;
+    }
+
+    /// <summary>Põe as molduras na página sob o mouse (pode ser outra), sem sair dela.</summary>
+    private void PlaceGhosts(BlockDrag drag)
+    {
+        if (PageAt(drag.LastViewer) is not var (surface, slot, local)) return;
+        if (!ReferenceEquals(surface, drag.GhostSurface))
+        {
+            foreach (var ghost in drag.Ghosts)
+            {
+                drag.GhostSurface?.Children.Remove(ghost);
+                surface.Children.Add(ghost);
+            }
+            drag.GhostSurface = surface;
+        }
+        drag.Target = slot;
+        var (dx, dy) = DragOffset(surface, drag, local);
         for (int i = 0; i < drag.Blocks.Count; i++)
         {
             Canvas.SetLeft(drag.Ghosts[i], (drag.Blocks[i].X - 2) * DipsPerPoint + dx);
             Canvas.SetTop(drag.Ghosts[i], (drag.Blocks[i].Y - 2) * DipsPerPoint + dy);
         }
+        string what = drag.Blocks.Count > 1 ? "os itens" : Noun(drag.Blocks[0]).The;
+        ToolHintText.Text = slot == drag.Slot
+            ? (drag.Blocks.Count > 1 ? "Solte onde os itens devem ficar (Esc cancela)." : $"Solte onde {what} deve ficar (Esc cancela).")
+            : $"Solte para levar {what} para a página {slot.Number} (Esc cancela).";
+    }
+
+    // Rolagem automática: com o mouse perto da borda de cima/baixo, a tela anda (para chegar na outra página).
+    private DispatcherTimer? _dragScrollTimer;
+    private double _dragScrollSpeed;
+
+    private void UpdateDragScroll(BlockDrag drag)
+    {
+        const double edge = 48;
+        double y = drag.LastViewer.Y, h = Scroller.ActualHeight;
+        _dragScrollSpeed = y < edge ? -(edge - Math.Max(0, y)) : y > h - edge ? Math.Min(edge, y - (h - edge)) : 0;
+        if (_dragScrollSpeed == 0) { _dragScrollTimer?.Stop(); return; }
+        if (_dragScrollTimer is null)
+        {
+            _dragScrollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+            _dragScrollTimer.Tick += (_, _) =>
+            {
+                if (_blockDrag is not { Ghosts.Count: > 0 } d || _dragScrollSpeed == 0) { _dragScrollTimer!.Stop(); return; }
+                Scroller.ChangeView(null, Scroller.VerticalOffset + _dragScrollSpeed * 0.6, null, disableAnimation: true);
+                PlaceGhosts(d);
+            };
+        }
+        _dragScrollTimer.Start();
+    }
+
+    private void StopDragScroll()
+    {
+        _dragScrollTimer?.Stop();
+        _dragScrollSpeed = 0;
     }
 
     private static Rect MarqueeRect(DrawingSurface surface, Marquee marquee, Point p)
@@ -350,8 +428,21 @@ public sealed partial class ViewerPage
 
     private void CancelBlockDrag(DrawingSurface? surface)
     {
-        if (_blockDrag is { } drag) foreach (var ghost in drag.Ghosts) surface?.Children.Remove(ghost);
+        StopDragScroll();
+        if (_blockDrag is { } drag)
+            foreach (var ghost in drag.Ghosts)
+                if (ghost.Parent is Panel parent) parent.Children.Remove(ghost);
         _blockDrag = null;
+    }
+
+    /// <summary>A página perdeu o mouse no meio do arraste (ex.: saiu da tela): cancela, em vez de ficar preso.</summary>
+    private void BlockGestureLost(DrawingSurface surface)
+    {
+        bool mine = (_blockDrag is { } d && ReferenceEquals(d.Surface, surface)) || (_marquee is { } m && ReferenceEquals(m.Surface, surface));
+        if (!mine) return;
+        CancelBlockDrag(surface);
+        CancelMarquee();
+        if (_tool?.Mode == DrawMode.EditAll) ToolHintText.Text = CommentTools["editartudo"].Hint;
     }
 
     private void CancelMarquee()
@@ -382,26 +473,36 @@ public sealed partial class ViewerPage
         }
         if (_blockDrag is not { } drag) return;
         bool dragged = drag.Ghosts.Count > 0;
-        var (dx, dy) = DragOffset(surface, drag, p);
+        // Onde soltou: a página sob o mouse (pode ser outra).
+        var viewer = surface.TransformToVisual(Scroller).TransformPoint(p);
+        var (target, targetSlot, local) = dragged && PageAt(viewer) is { } hit ? hit : (surface, drag.Slot, p);
+        var (dx, dy) = DragOffset(target, drag, local);
         CancelBlockDrag(surface);
         double ddx = dx / DipsPerPoint, ddy = dy / DipsPerPoint;
-        if (!dragged || (Math.Abs(ddx) < 0.5 && Math.Abs(ddy) < 0.5))
+        bool otherPage = targetSlot != drag.Slot;
+        if (!dragged || (!otherPage && Math.Abs(ddx) < 0.5 && Math.Abs(ddy) < 0.5))
         {
-            await ClickBlockAsync(surface, drag.Slot, drag.Start);
+            await ClickBlockAsync(drag.Surface, drag.Slot, drag.Start);
             return;
         }
-        int page = drag.Slot.Index;
+        int page = drag.Slot.Index, toPage = targetSlot.Index;
         var blocks = drag.Blocks;
         bool single = blocks.Count == 1;
         var noun = Noun(blocks[0]);
         ToolHintText.Text = single ? $"Movendo {noun.The}…" : $"Movendo {blocks.Count} itens…";
-        bool done = await ApplyEditAsync((input, output) => PdfTextEditor.Move(input, page, blocks, ddx, ddy, output),
+        bool done = await ApplyEditAsync((input, output) =>
+            {
+                if (otherPage) PdfTextEditor.MoveToPage(input, page, blocks, toPage, ddx, ddy, output);
+                else PdfTextEditor.Move(input, page, blocks, ddx, ddy, output);
+            },
             label: single ? $"Mover {noun.Name.ToLowerInvariant()}" : "Mover itens");
         if (done)
-            ShowStatus(InfoBarSeverity.Success, single ? $"{noun.Name} {(noun.Female ? "movida" : "movido")}" : $"{blocks.Count} itens movidos",
+            ShowStatus(InfoBarSeverity.Success,
+                (single ? $"{noun.Name} {(noun.Female ? "movida" : "movido")}" : $"{blocks.Count} itens movidos") + (otherPage ? $" para a página {toPage + 1}" : ""),
                 (single ? "" : "O espaço entre eles não mudou. ") + "A formatação continua a mesma. Use Desfazer (Ctrl+Z) para voltar.");
         ToolHintText.Text = CommentTools["editartudo"].Hint;
         if (_tool?.Mode != DrawMode.EditAll) return;
+        surface = target;
         var now = await ShowBlockOutlinesAsync(surface, force: true);
         // Continua selecionado o que foi movido (para ajustar de novo, se quiser).
         if (done) SelectMatching(surface, now, blocks.Select(b => b with { X = b.X + ddx, Y = b.Y + ddy }));

@@ -927,8 +927,10 @@ public sealed partial class ViewerPage
     {
         if (_tool?.Mode == DrawMode.EditAll && sender is DrawingSurface blockSurface)
         {
-            blockSurface.ReleasePointerCaptures();
-            if (BlockGestureActive) { e.Handled = true; await DropBlockAsync(blockSurface, e.GetCurrentPoint(blockSurface).Position); }
+            var position = e.GetCurrentPoint(blockSurface).Position;
+            _releasingBlockPointer = true; // soltar o mouse de propósito não é "perder" o mouse
+            try { blockSurface.ReleasePointerCaptures(); } finally { _releasingBlockPointer = false; }
+            if (BlockGestureActive) { e.Handled = true; await DropBlockAsync(blockSurface, position); }
             return;
         }
         if (_tool?.Mode == DrawMode.MoveComment && sender is DrawingSurface moveSurface)
@@ -1036,8 +1038,11 @@ public sealed partial class ViewerPage
         }
     }
 
+    private bool _releasingBlockPointer;
+
     private void Surface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
+        if (!_releasingBlockPointer && sender is DrawingSurface blockSurface && BlockGestureActive) BlockGestureLost(blockSurface);
         if (sender is DrawingSurface moveSurface && ReferenceEquals(moveSurface, _moveSurface)) MoveCaptureLost(moveSurface);
         if (ReferenceEquals(sender, _imageDragSurface)) { CancelImageDrag(); return; }
         // No desenho livre o traço já está guardado; nas outras ferramentas, perder o mouse cancela.
