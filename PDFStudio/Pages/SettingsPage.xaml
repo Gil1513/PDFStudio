@@ -5,82 +5,393 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{ThemeResource ShellBackgroundBrush}"
     mc:Ignorable="d">
+
+    <Page.Resources>
+        <!--  Azul do PDF Studio nos botões principais e nos interruptores  -->
+        <SolidColorBrush x:Key="AccentButtonBackground" Color="#2F5BEA" />
+        <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#3D68F2" />
+        <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#2850D2" />
+        <SolidColorBrush x:Key="AccentButtonForeground" Color="White" />
+        <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="White" />
+        <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#E6EBFF" />
+        <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#2F5BEA" />
+        <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#3D68F2" />
+        <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#2850D2" />
+        <SolidColorBrush x:Key="AppBlueBrush" Color="#2F5BEA" />
+
+        <!--  Cartão de uma seção (igual aos cartões da tela inicial)  -->
+        <Style x:Key="SectionCard" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource ToolCardBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource ToolCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{StaticResource ToolCardCornerRadius}" />
+            <Setter Property="Padding" Value="20,18" />
+        </Style>
+        <!--  Quadradinho colorido com o ícone da seção  -->
+        <Style x:Key="IconTile" TargetType="Border">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+        <Style x:Key="TileGlyph" TargetType="FontIcon">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="Muted" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="ThemeTile" TargetType="Button">
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BorderBrush" Value="{ThemeResource ToolCardBorderBrush}" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style x:Key="StepNumber" TargetType="Border">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="CornerRadius" Value="11" />
+            <Setter Property="Background" Value="{StaticResource AppBlueBrush}" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+    </Page.Resources>
 
     <ScrollViewer>
         <StackPanel
-            MaxWidth="760"
-            Padding="32,16,32,32"
+            MaxWidth="900"
+            Padding="40,28,40,40"
             HorizontalAlignment="Left"
-            Spacing="24">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Configurações" />
+            Spacing="16">
 
-            <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Aparência" />
-                <RadioButtons x:Name="ThemeRadios" SelectionChanged="ThemeRadios_SelectionChanged">
-                    <x:String>Escuro</x:String>
-                    <x:String>Claro</x:String>
-                    <x:String>Igual ao Windows</x:String>
-                </RadioButtons>
-            </StackPanel>
-
-            <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Comentários" />
-                <TextBox
-                    x:Name="AuthorBox"
-                    MaxWidth="360"
-                    HorizontalAlignment="Left"
-                    Header="Nome do autor dos comentários"
-                    LostFocus="AuthorBox_LostFocus"
-                    PlaceholderText="Seu nome" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Aparece para quem abrir o PDF em outros programas, junto com a data de cada comentário."
-                    TextWrapping="Wrap" />
-            </StackPanel>
-
-            <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Arquivos recentes" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="A lista fica só neste computador. Os arquivos com estrela são mantidos quando você limpa a lista."
-                    TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Click="ClearRecent_Click" Content="Limpar recentes" />
-                    <Button Click="ClearAll_Click" Content="Limpar tudo, inclusive as estrelas" />
+            <!--  Cabeçalho  -->
+            <StackPanel Margin="0,0,0,8" Orientation="Horizontal" Spacing="14">
+                <Image
+                    Width="44"
+                    Height="44"
+                    AutomationProperties.Name="Logo do PDF Studio"
+                    Source="ms-appx:///Assets/Logo.png" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="26" FontWeight="SemiBold" Text="Configurações" />
+                    <TextBlock Style="{StaticResource Muted}" Text="Deixe o PDF Studio do seu jeito." />
                 </StackPanel>
-                <TextBlock x:Name="ClearedText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
 
-            <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Windows" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Coloca o PDF Studio no &quot;Abrir com&quot; e no botão direito dos arquivos PDF do Explorador de Arquivos. Vale só para o seu usuário e pode ser desfeito aqui."
-                    TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="RegisterButton" Click="Register_Click" Content="Adicionar ao Windows" />
-                    <Button x:Name="UnregisterButton" Click="Unregister_Click" Content="Remover do Windows" />
-                </StackPanel>
-                <TextBlock x:Name="WindowsStatusText" TextWrapping="Wrap" />
-                <Button
-                    x:Name="DefaultAppButton"
-                    Click="DefaultApp_Click"
-                    Content="Tornar o PDF Studio o leitor de PDF padrão…" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="O Windows não deixa um programa se colocar como padrão sozinho. O botão abre as Configurações do Windows: lá, em .pdf, escolha PDF Studio. Outro jeito: botão direito num PDF &gt; Abrir com &gt; Escolher outro aplicativo &gt; PDF Studio &gt; Sempre."
-                    TextWrapping="Wrap" />
-            </StackPanel>
+            <!--  Aparência  -->
+            <Border Style="{StaticResource SectionCard}">
+                <Grid ColumnSpacing="14" RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Background="#7C5CFF" Style="{StaticResource IconTile}">
+                        <FontIcon Glyph="&#xE790;" Style="{StaticResource TileGlyph}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Aparência" />
+                        <TextBlock Style="{StaticResource Muted}" Text="Cores do programa. As páginas do PDF continuam como são." />
+                    </StackPanel>
 
-            <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Sobre" />
-                <TextBlock x:Name="VersionText" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Bibliotecas: PDFsharp 6.2.4 (licença MIT), PdfPig 0.1.16 (licença Apache 2.0), Windows App SDK e o leitor de PDF do próprio Windows."
-                    TextWrapping="Wrap" />
-            </StackPanel>
+                    <Grid Grid.Row="1" Grid.Column="1" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!--  Escuro  -->
+                        <Button
+                            x:Name="ThemeTile0"
+                            AutomationProperties.Name="Tema escuro"
+                            Click="ThemeTile_Click"
+                            Style="{StaticResource ThemeTile}"
+                            Tag="0">
+                            <StackPanel Spacing="8">
+                                <Grid Height="76" Background="#232737" CornerRadius="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="30" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Background="#1A1D29" />
+                                    <StackPanel Grid.Column="1" Margin="8" Spacing="6">
+                                        <Border Width="34" Height="6" HorizontalAlignment="Left" Background="#F2F4F8" CornerRadius="3" />
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <Border Width="26" Height="20" Background="#2B3043" CornerRadius="3" />
+                                            <Border Width="26" Height="20" Background="#2B3043" CornerRadius="3" />
+                                            <Border Width="26" Height="20" Background="#2B3043" CornerRadius="3" />
+                                        </StackPanel>
+                                        <Border Height="5" Background="#363C52" CornerRadius="2" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid>
+                                    <TextBlock Text="Escuro" />
+                                    <FontIcon x:Name="ThemeCheck0" HorizontalAlignment="Right" FontSize="14" Foreground="{StaticResource AppBlueBrush}" Glyph="&#xE73E;" />
+                                </Grid>
+                            </StackPanel>
+                        </Button>
+
+                        <!--  Claro  -->
+                        <Button
+                            x:Name="ThemeTile1"
+                            Grid.Column="1"
+                            AutomationProperties.Name="Tema claro"
+                            Click="ThemeTile_Click"
+                            Style="{StaticResource ThemeTile}"
+                            Tag="1">
+                            <StackPanel Spacing="8">
+                                <Grid Height="76" Background="#F4F6FA" CornerRadius="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="30" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Background="#E8EBF2" />
+                                    <StackPanel Grid.Column="1" Margin="8" Spacing="6">
+                                        <Border Width="34" Height="6" HorizontalAlignment="Left" Background="#2F5BEA" CornerRadius="3" />
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <Border Width="26" Height="20" Background="White" BorderBrush="#DDE2EC" BorderThickness="1" CornerRadius="3" />
+                                            <Border Width="26" Height="20" Background="White" BorderBrush="#DDE2EC" BorderThickness="1" CornerRadius="3" />
+                                            <Border Width="26" Height="20" Background="White" BorderBrush="#DDE2EC" BorderThickness="1" CornerRadius="3" />
+                                        </StackPanel>
+                                        <Border Height="5" Background="#D5DAE5" CornerRadius="2" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid>
+                                    <TextBlock Text="Claro" />
+                                    <FontIcon x:Name="ThemeCheck1" HorizontalAlignment="Right" FontSize="14" Foreground="{StaticResource AppBlueBrush}" Glyph="&#xE73E;" />
+                                </Grid>
+                            </StackPanel>
+                        </Button>
+
+                        <!--  Igual ao Windows: metade escuro, metade claro  -->
+                        <Button
+                            x:Name="ThemeTile2"
+                            Grid.Column="2"
+                            AutomationProperties.Name="Tema igual ao Windows"
+                            Click="ThemeTile_Click"
+                            Style="{StaticResource ThemeTile}"
+                            Tag="2">
+                            <StackPanel Spacing="8">
+                                <Grid Height="76" CornerRadius="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Background="#232737">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="30" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Background="#1A1D29" />
+                                        <StackPanel Grid.Column="1" Margin="8,8,0,8" Spacing="6">
+                                            <Border Width="34" Height="6" HorizontalAlignment="Left" Background="#F2F4F8" CornerRadius="3" />
+                                            <Border Width="26" Height="20" HorizontalAlignment="Left" Background="#2B3043" CornerRadius="3" />
+                                            <Border Height="5" Background="#363C52" CornerRadius="2" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <StackPanel Grid.Column="1" Padding="6,8,8,8" Background="#F4F6FA" Spacing="6">
+                                        <Border Width="20" Height="6" HorizontalAlignment="Left" Background="#2F5BEA" CornerRadius="3" />
+                                        <Border Width="26" Height="20" HorizontalAlignment="Left" Background="White" BorderBrush="#DDE2EC" BorderThickness="1" CornerRadius="3" />
+                                        <Border Height="5" Background="#D5DAE5" CornerRadius="2" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid>
+                                    <TextBlock Text="Igual ao Windows" TextTrimming="CharacterEllipsis" />
+                                    <FontIcon x:Name="ThemeCheck2" HorizontalAlignment="Right" FontSize="14" Foreground="{StaticResource AppBlueBrush}" Glyph="&#xE73E;" />
+                                </Grid>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!--  Comentários  -->
+            <Border Style="{StaticResource SectionCard}">
+                <Grid ColumnSpacing="14" RowSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="#F08C2E" Style="{StaticResource IconTile}">
+                        <FontIcon Glyph="&#xE90A;" Style="{StaticResource TileGlyph}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Seu nome nos comentários" />
+                        <TextBlock Style="{StaticResource Muted}" Text="Aparece junto com a data de cada comentário, também em outros programas." />
+                    </StackPanel>
+                    <TextBox
+                        x:Name="AuthorBox"
+                        Grid.Column="2"
+                        Width="240"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Seu nome nos comentários"
+                        LostFocus="AuthorBox_LostFocus"
+                        PlaceholderText="Seu nome" />
+                </Grid>
+            </Border>
+
+            <!--  Abrir PDFs pelo computador  -->
+            <Border Style="{StaticResource SectionCard}">
+                <Grid ColumnSpacing="14" RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Background="#2F7BF5" Style="{StaticResource IconTile}">
+                        <FontIcon Glyph="&#xE8B7;" Style="{StaticResource TileGlyph}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Abrir PDFs pelas pastas do computador" />
+                        <TextBlock x:Name="WindowsStatusText" Style="{StaticResource Muted}" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        x:Name="WindowsToggle"
+                        Grid.Column="2"
+                        MinWidth="0"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Abrir PDFs pelas pastas do computador"
+                        OffContent="Desligado"
+                        OnContent="Ligado"
+                        Toggled="WindowsToggle_Toggled" />
+
+                    <Border
+                        Grid.Row="1"
+                        Grid.Column="1"
+                        Grid.ColumnSpan="2"
+                        Height="1"
+                        Background="{ThemeResource SeparatorBrush}" />
+
+                    <Grid
+                        Grid.Row="2"
+                        Grid.Column="1"
+                        Grid.ColumnSpan="2"
+                        ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="10">
+                            <TextBlock FontWeight="SemiBold" Text="Abrir todo PDF com o PDF Studio" />
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource StepNumber}">
+                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="White" Text="1" />
+                                </Border>
+                                <TextBlock Grid.Column="1" Style="{StaticResource Muted}" Text="Ligue a opção acima." />
+                            </Grid>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource StepNumber}">
+                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="White" Text="2" />
+                                </Border>
+                                <TextBlock Grid.Column="1" Style="{StaticResource Muted}" Text="Clique em &quot;Escolher no Windows&quot;." />
+                            </Grid>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource StepNumber}">
+                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="White" Text="3" />
+                                </Border>
+                                <TextBlock Grid.Column="1" Style="{StaticResource Muted}" Text="Na linha .pdf, escolha PDF Studio. Só você pode fazer essa escolha: o Windows não deixa programas se colocarem como padrão sozinhos." />
+                            </Grid>
+                        </StackPanel>
+                        <Button
+                            x:Name="DefaultAppButton"
+                            Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Click="DefaultApp_Click"
+                            Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="Escolher no Windows" />
+                                <FontIcon FontSize="12" Glyph="&#xE8A7;" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!--  Arquivos recentes  -->
+            <Border Style="{StaticResource SectionCard}">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="#14A38B" Style="{StaticResource IconTile}">
+                        <FontIcon Glyph="&#xE81C;" Style="{StaticResource TileGlyph}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Arquivos recentes" />
+                        <TextBlock x:Name="ClearedText" Style="{StaticResource Muted}" Text="A lista fica só neste computador. Os arquivos com estrela ficam quando você limpa." />
+                    </StackPanel>
+                    <StackPanel
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <Button Click="ClearRecent_Click" Content="Limpar recentes" />
+                        <Button Click="ClearAll_Click" Content="Limpar tudo" ToolTipService.ToolTip="Limpa também os arquivos com estrela" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!--  Sobre  -->
+            <Border Style="{StaticResource SectionCard}">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="#5B6B8C" Style="{StaticResource IconTile}">
+                        <FontIcon Glyph="&#xE946;" Style="{StaticResource TileGlyph}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="10">
+                        <StackPanel>
+                            <TextBlock x:Name="VersionText" Style="{StaticResource SectionTitle}" />
+                            <TextBlock Style="{StaticResource Muted}" Text="Feito com bibliotecas livres:" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Padding="10,4" Background="{ThemeResource ToolCardHoverBrush}" BorderBrush="{ThemeResource ToolCardBorderBrush}" BorderThickness="1" CornerRadius="12">
+                                <TextBlock FontSize="12" Text="PDFsharp 6.2.4 · MIT" />
+                            </Border>
+                            <Border Padding="10,4" Background="{ThemeResource ToolCardHoverBrush}" BorderBrush="{ThemeResource ToolCardBorderBrush}" BorderThickness="1" CornerRadius="12">
+                                <TextBlock FontSize="12" Text="PdfPig 0.1.16 · Apache 2.0" />
+                            </Border>
+                            <Border Padding="10,4" Background="{ThemeResource ToolCardHoverBrush}" BorderBrush="{ThemeResource ToolCardBorderBrush}" BorderThickness="1" CornerRadius="12">
+                                <TextBlock FontSize="12" Text="Windows App SDK" />
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>
