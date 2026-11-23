@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Page
     x:Class="PDFStudio.Pages.HomePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -111,6 +111,7 @@
                     <ColumnDefinition Width="200" />
                     <ColumnDefinition Width="110" />
                     <ColumnDefinition Width="44" />
+                    <ColumnDefinition Width="44" />
                 </Grid.ColumnDefinitions>
                 <FontIcon
                     FontSize="20"
@@ -136,6 +137,20 @@
                     Text="{x:Bind SizeText}" />
                 <Button
                     Grid.Column="4"
+                    Width="36"
+                    Height="32"
+                    Padding="0"
+                    AutomationProperties.Name="Mostrar no Explorador"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="ShowInExplorer_Click"
+                    Tag="{x:Bind}"
+                    ToolTipService.ToolTip="Mostrar no Explorador de Arquivos"
+                    Visibility="{x:Bind StarVisibility}">
+                    <FontIcon FontSize="16" Glyph="&#xE838;" />
+                </Button>
+                <Button
+                    Grid.Column="5"
                     Width="36"
                     Height="32"
                     Padding="0"
@@ -190,6 +205,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock
                         VerticalAlignment="Center"
@@ -197,6 +213,20 @@
                         TextTrimming="CharacterEllipsis" />
                     <Button
                         Grid.Column="1"
+                        Width="28"
+                        Height="28"
+                        Padding="0"
+                        AutomationProperties.Name="Mostrar no Explorador"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Click="ShowInExplorer_Click"
+                        Tag="{x:Bind}"
+                        ToolTipService.ToolTip="Mostrar no Explorador de Arquivos"
+                        Visibility="{x:Bind StarVisibility}">
+                        <FontIcon FontSize="14" Glyph="&#xE838;" />
+                    </Button>
+                    <Button
+                        Grid.Column="2"
                         Width="28"
                         Height="28"
                         Padding="0"
@@ -226,7 +256,7 @@
                     <FontIcon Glyph="&#xE8E5;" />
                 </MenuFlyoutItem.Icon>
             </MenuFlyoutItem>
-            <MenuFlyoutItem Click="MenuShowInFolder_Click" Text="Mostrar na pasta">
+            <MenuFlyoutItem Click="MenuShowInFolder_Click" Text="Mostrar no Explorador">
                 <MenuFlyoutItem.Icon>
                     <FontIcon Glyph="&#xE838;" />
                 </MenuFlyoutItem.Icon>
@@ -539,6 +569,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="200" />
                         <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="44" />
                         <ColumnDefinition Width="44" />
                     </Grid.ColumnDefinitions>
                     <Button

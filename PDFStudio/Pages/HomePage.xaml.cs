@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -323,7 +323,7 @@ public sealed partial class HomePage : Page
         foreach (var entry in flyout.Items.OfType<MenuFlyoutItem>())
         {
             if (entry.Text is "Abrir" or "Abrir pasta") entry.Text = _contextItem?.IsFolder == true ? "Abrir pasta" : "Abrir";
-            if (entry.Text == "Mostrar na pasta") entry.Visibility = _contextItem?.IsFolder == true ? Visibility.Collapsed : Visibility.Visible;
+            if (entry.Text == "Mostrar no Explorador") entry.Visibility = _contextItem?.IsFolder == true ? Visibility.Collapsed : Visibility.Visible;
             if (entry.Text == "Remover da lista") entry.Visibility = _contextItem?.IsFolder == true ? Visibility.Collapsed : Visibility.Visible;
         }
     }
@@ -333,10 +333,15 @@ public sealed partial class HomePage : Page
         if (_contextItem is not null) Open(_contextItem);
     }
 
-    private void MenuShowInFolder_Click(object sender, RoutedEventArgs e)
+    private void MenuShowInFolder_Click(object sender, RoutedEventArgs e) => ShowInExplorer(_contextItem);
+
+    /// <summary>Botão de pasta de cada arquivo recente: abre o Explorador com o arquivo selecionado.</summary>
+    private void ShowInExplorer_Click(object sender, RoutedEventArgs e) => ShowInExplorer((sender as FrameworkElement)?.Tag as RecentItem);
+
+    private static void ShowInExplorer(RecentItem? item)
     {
-        if (_contextItem is null) return;
-        if (!Explorer.ShowFile(_contextItem.Path)) Explorer.OpenFolder(_contextItem.Folder);
+        if (item is null) return;
+        if (!Explorer.ShowFile(item.Path)) Explorer.OpenFolder(item.Folder); // arquivo sumiu: abre ao menos a pasta
     }
 
     private void MenuCopyPath_Click(object sender, RoutedEventArgs e)
