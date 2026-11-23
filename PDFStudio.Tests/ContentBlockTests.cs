@@ -73,6 +73,9 @@ public class ContentBlockTests
     [InlineData("Arial Fett Kursiv", "Arial", true, true)]
     [InlineData("Calibriרגיל", "Calibri", false, false)]
     [InlineData("Helvetica-Gras", "Helvetica", true, false)]
+    [InlineData("Helvetica‭ ‬", "Helvetica", false, false)]
+    [InlineData("ABCDEF+Helvetica‭עבה‬", "Helvetica", true, false)]
+    [InlineData("Helvetica​-Bold", "Helvetica", true, false)]
     public void ParseFontName(string name, string family, bool bold, bool italic)
     {
         Assert.Equal((family, bold, italic), PdfContentBlocks.ParseFontName(name));

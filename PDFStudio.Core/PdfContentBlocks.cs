@@ -177,7 +177,10 @@ public static class PdfContentBlocks
     /// </summary>
     public static (string Family, bool Bold, bool Italic) ParseFontName(string name)
     {
-        string n = Regex.Replace(name ?? "", "^[A-Z]{6}\\+", "");
+        // Tira caracteres invisíveis (marcas de direção do hebraico/árabe, espaço de largura zero…): grudados no
+        // nome ("Helvetica‭ ‬"), faziam o app não achar a fonte.
+        string n = new string((name ?? "").Where(c => char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.Format).ToArray()).Trim();
+        n = Regex.Replace(n, "^[A-Z]{6}\\+", "");
         int cut = n.IndexOfAny([',', '-']);
         string family = cut > 0 ? n[..cut] : n;
         // Estilo escrito na língua do computador que fez o PDF ("Helveticaעבה" = Helvetica negrito, em hebraico).
