@@ -71,7 +71,14 @@ public sealed partial class ViewerPage
         if (Math.Abs(current.X - _copyStart.X) + Math.Abs(current.Y - _copyStart.Y) < 4) return;
         if (words.Min(w => w.DistanceTo(ax, ay)) >= 12 && words.Min(w => w.DistanceTo(bx, by)) >= 12) return;
         _copySelected = PdfTextLayout.Select(words, ax, ay, bx, by);
+        DrawCopyRects();
+    }
 
+    /// <summary>Pinta de azul as palavras de <see cref="_copySelected"/>.</summary>
+    private void DrawCopyRects()
+    {
+        if (_copyLayer is not { } layer) return;
+        layer.Children.Clear();
         var c = ((SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"]).Color;
         var fill = new SolidColorBrush(Windows.UI.Color.FromArgb(80, c.R, c.G, c.B));
         foreach (var (x, y, w, h) in PdfTextLayout.LineRects(_copySelected))
@@ -126,14 +133,25 @@ public sealed partial class ViewerPage
         CopySelectedText();
     }
 
-    /// <summary>Botão direito sobre a página com texto selecionado: menu com "Copiar".</summary>
-    private void ShowCopyMenu(DrawingSurface surface, Point p)
+    /// <summary>Seleciona (de azul) estas palavras, como se tivessem sido arrastadas.</summary>
+    private void SetCopySelection(DrawingSurface surface, PageSlot slot, List<TextWord> words)
     {
-        var copy = new MenuFlyoutItem { Text = "Copiar", Icon = new FontIcon { Glyph = "" } };
-        copy.KeyboardAccelerators.Add(new KeyboardAccelerator { Key = Windows.System.VirtualKey.C, Modifiers = Windows.System.VirtualKeyModifiers.Control, IsEnabled = false });
-        copy.Click += (_, _) => CopySelectedText();
-        var menu = new MenuFlyout { Items = { copy } };
-        menu.ShowAt(surface, p);
+        ClearCopySelection();
+        _copySurface = surface;
+        _copyPage = slot.Index;
+        _copyLayer = new Canvas { IsHitTestVisible = false };
+        surface.Children.Add(_copyLayer);
+        _copyWordsTask = WordsOfPage(slot.Index);
+        _copySelected = words;
+        DrawCopyRects();
+    }
+
+    /// <summary>O ponto (em DIPs da página) cai em cima do texto selecionado?</summary>
+    private bool IsOnCopySelection(DrawingSurface surface, Point p)
+    {
+        if (!HasCopySelection || !ReferenceEquals(surface, _copySurface)) return false;
+        double x = p.X / DipsPerPoint, y = p.Y / DipsPerPoint;
+        return PdfTextLayout.LineRects(_copySelected).Any(r => x >= r.Item1 - 2 && x <= r.Item1 + r.Item3 + 2 && y >= r.Item2 - 2 && y <= r.Item2 + r.Item4 + 2);
     }
 
     private void Accel_Copy(KeyboardAccelerator s, KeyboardAcceleratorInvokedEventArgs a)

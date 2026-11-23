@@ -730,10 +730,11 @@ public sealed partial class ViewerPage
     {
         if (sender is not DrawingSurface surface || SlotOf(surface) is not { } slot) return;
         var point = e.GetCurrentPoint(surface);
-        if (point.Properties.IsRightButtonPressed && _tool is null && HasCopySelection && ReferenceEquals(surface, _copySurface))
+        if (point.Properties.IsRightButtonPressed && _tool is null)
         {
+            // Botão direito: menu do texto (em cima de palavras) ou da página.
             e.Handled = true;
-            ShowCopyMenu(surface, point.Position);
+            await ShowContextMenuAsync(surface, slot, point.Position);
             return;
         }
         if (!point.Properties.IsLeftButtonPressed) return;
