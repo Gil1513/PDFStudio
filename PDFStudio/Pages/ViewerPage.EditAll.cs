@@ -237,6 +237,8 @@ public sealed partial class ViewerPage
         public required List<ContentBlock> Blocks { get; init; }
         public required Point Start { get; init; }
         public List<Shapes.Rectangle> Ghosts { get; } = [];
+        /// <summary>Guias de alinhamento e medidas de espaço desenhadas agora.</summary>
+        public List<UIElement> Guides { get; } = [];
         /// <summary>Página onde as molduras estão agora (pode ser outra: arrastar para a página de cima/baixo).</summary>
         public DrawingSurface? GhostSurface { get; set; }
         public PageSlot? Target { get; set; }
@@ -381,6 +383,9 @@ public sealed partial class ViewerPage
         }
         drag.Target = slot;
         var (dx, dy) = DragOffset(surface, drag, local);
+        GuideResult? guides;
+        (dx, dy, guides) = SnapDrag(slot, drag, dx, dy);
+        DrawGuides(surface, drag, guides);
         for (int i = 0; i < drag.Blocks.Count; i++)
         {
             Canvas.SetLeft(drag.Ghosts[i], (drag.Blocks[i].X - 2) * DipsPerPoint + dx);
@@ -388,8 +393,86 @@ public sealed partial class ViewerPage
         }
         string what = drag.Blocks.Count > 1 ? "os itens" : Noun(drag.Blocks[0]).The;
         ToolHintText.Text = slot == drag.Slot
-            ? (drag.Blocks.Count > 1 ? "Solte onde os itens devem ficar (Esc cancela)." : $"Solte onde {what} deve ficar (Esc cancela).")
+            ? (drag.Blocks.Count > 1 ? "Solte onde os itens devem ficar" : $"Solte onde {what} deve ficar")
+                + " · Linha rosa: alinhado · Medida rosa: mesmo espaço do vizinho · Alt: solto, sem grudar · Esc cancela."
             : $"Solte para levar {what} para a página {slot.Number} (Esc cancela).";
+    }
+
+    private static bool AltDown() =>
+        InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    /// <summary>
+    /// Ajusta o deslocamento (DIPs) para grudar no alinhamento (começo, centro, fim) e no mesmo espaço dos vizinhos,
+    /// como nos editores de design. Com Alt, não gruda (mas mostra o que já está igual).
+    /// </summary>
+    private (double Dx, double Dy, GuideResult? Guides) SnapDrag(PageSlot slot, BlockDrag drag, double dx, double dy)
+    {
+        var task = BlocksOfPage(slot.Index);
+        if (!task.IsCompletedSuccessfully) return (dx, dy, null); // a página ainda está sendo lida
+        var others = task.Result.Where(b => !drag.Blocks.Any(d => ReferenceEquals(d, b)))
+            .Select(b => new GuideBox(b.X, b.Y, b.Width, b.Height)).ToList();
+        double left = drag.Blocks.Min(b => b.X), top = drag.Blocks.Min(b => b.Y);
+        var moving = new GuideBox(left + dx / DipsPerPoint, top + dy / DipsPerPoint,
+            drag.Blocks.Max(b => b.Right) - left, drag.Blocks.Max(b => b.Bottom) - top);
+        double tolerance = AltDown() ? 0 : 6 / DipsPerPoint; // 6 pixels na tela, em qualquer zoom
+        var r = PdfBlockGuides.Snap(moving, others, tolerance);
+        return (dx + r.Dx * DipsPerPoint, dy + r.Dy * DipsPerPoint, r);
+    }
+
+    private static readonly Windows.UI.Color GuidePink = Windows.UI.Color.FromArgb(255, 236, 64, 122);
+    private static readonly Windows.UI.Color GuideGray = Windows.UI.Color.FromArgb(255, 120, 120, 130);
+
+    /// <summary>Desenha as linhas de alinhamento (rosa) e as medidas dos espaços (cinza; rosa quando igual ao vizinho).</summary>
+    private void DrawGuides(DrawingSurface surface, BlockDrag drag, GuideResult? guides)
+    {
+        ClearGuides(drag);
+        if (guides is null) return;
+        double k = DipsPerPoint;
+        void Add(UIElement e) { surface.Children.Add(e); drag.Guides.Add(e); }
+        Shapes.Line Line(double x1, double y1, double x2, double y2, Windows.UI.Color color, double thickness = 1) => new()
+        {
+            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2,
+            Stroke = new SolidColorBrush(color), StrokeThickness = thickness, IsHitTestVisible = false,
+        };
+        foreach (var l in guides.Lines)
+        {
+            var line = l.Vertical
+                ? Line(l.At * k, (l.From - 6) * k, l.At * k, (l.To + 6) * k, GuidePink)
+                : Line((l.From - 6) * k, l.At * k, (l.To + 6) * k, l.At * k, GuidePink);
+            line.StrokeDashArray = [4, 2];
+            Add(line);
+        }
+        foreach (var g in guides.Gaps)
+        {
+            var color = g.Equal ? GuidePink : GuideGray;
+            double x = g.X * k, y1 = g.Top * k, y2 = g.Bottom * k;
+            Add(Line(x, y1, x, y2, color, g.Equal ? 2 : 1));
+            Add(Line(x - 5, y1, x + 5, y1, color, g.Equal ? 2 : 1));
+            Add(Line(x - 5, y2, x + 5, y2, color, g.Equal ? 2 : 1));
+            var label = new Border
+            {
+                Background = new SolidColorBrush(color),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(4, 1, 4, 1),
+                IsHitTestVisible = false,
+                Child = new TextBlock
+                {
+                    Text = (g.Size * 25.4 / 72).ToString("0.0") + " mm" + (g.Equal && !g.Reference ? " = igual" : ""),
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                },
+            };
+            Canvas.SetLeft(label, x + 8);
+            Canvas.SetTop(label, (y1 + y2) / 2 - 9);
+            Add(label);
+        }
+    }
+
+    private static void ClearGuides(BlockDrag drag)
+    {
+        foreach (var e in drag.Guides)
+            if (e is FrameworkElement { Parent: Panel parent }) parent.Children.Remove(e);
+        drag.Guides.Clear();
     }
 
     // Rolagem automática: com o mouse perto da borda de cima/baixo, a tela anda (para chegar na outra página).
@@ -432,8 +515,11 @@ public sealed partial class ViewerPage
     {
         StopDragScroll();
         if (_blockDrag is { } drag)
+        {
             foreach (var ghost in drag.Ghosts)
                 if (ghost.Parent is Panel parent) parent.Children.Remove(ghost);
+            ClearGuides(drag);
+        }
         _blockDrag = null;
     }
 
@@ -479,6 +565,7 @@ public sealed partial class ViewerPage
         var viewer = surface.TransformToVisual(Scroller).TransformPoint(p);
         var (target, targetSlot, local) = dragged && PageAt(viewer) is { } hit ? hit : (surface, drag.Slot, p);
         var (dx, dy) = DragOffset(target, drag, local);
+        if (dragged) (dx, dy, _) = SnapDrag(targetSlot, drag, dx, dy); // solta onde as guias mostraram
         CancelBlockDrag(surface);
         double ddx = dx / DipsPerPoint, ddy = dy / DipsPerPoint;
         bool otherPage = targetSlot != drag.Slot;
