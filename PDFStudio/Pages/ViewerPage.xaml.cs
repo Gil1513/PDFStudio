@@ -81,7 +81,7 @@ public sealed partial class ViewerPage : Page
         ["ver"] =
         [
             new("\uE9A6", "Ajustar à largura", "fitwidth", NeedsFile: true), new("\uE7F4", "Página inteira", "fitpage", NeedsFile: true),
-            new("\uE8B3", "Tamanho real", "actualsize", NeedsFile: true), Sep,
+            new("\uE8B3", "Tamanho real", "actualsize", NeedsFile: true), new("\uECC6", "R\u00E9gua", "regua", NeedsFile: true), Sep,
             new("\uE8A9", "Miniaturas", "miniaturas", NeedsFile: true), new("\uE740", "Tela cheia", "telacheia"), Sep,
             new("\uE767", "Ler em voz alta", "lervoz", NeedsFile: true),
         ],
@@ -461,6 +461,7 @@ public sealed partial class ViewerPage : Page
                 if (await Dialogs.ImagesToPdfDialog.RunAsync(XamlRoot) is { } created) await OpenAsync(created);
                 break;
             case "telacheia": ToggleFullScreen(); break;
+            case "regua": ToggleRuler(); break;
             case "excluir": await DeletePagesAsync(); break;
             case "extrair": await ExtractPagesAsync(); break;
             case "inserir": await InsertPagesAsync(); break;
