@@ -198,8 +198,8 @@ public sealed partial class ViewerPage
         _ => ("Desenho", "o desenho", "este desenho", false),
     };
 
-    private const string SelectedTextHint = "Clique de novo para editar, arraste para mover, Delete apaga. Ctrl+clique junta outros.";
-    private const string SelectedImageHint = "Arraste para mover, Delete apaga. Ctrl+clique junta outros.";
+    private const string SelectedTextHint = "Clique de novo para editar, arraste para mover (até para outra página), Ctrl+C copia, Delete apaga. Ctrl+clique junta outros.";
+    private const string SelectedImageHint = "Arraste para mover (até para outra página), Ctrl+C copia, Delete apaga. Ctrl+clique junta outros.";
 
     /// <summary>Contornos, botão "Apagar" e a dica de acordo com o que está selecionado.</summary>
     private void UpdateSelectionUi(DrawingSurface surface)
@@ -210,7 +210,7 @@ public sealed partial class ViewerPage
         {
             0 => CommentTools["editartudo"].Hint,
             1 => Describe(_selection[0]) + " · " + (_selection[0].Kind == BlockKind.Text ? SelectedTextHint : SelectedImageHint),
-            int n => $"{n} itens selecionados · Arraste qualquer um para mover todos juntos (o espaço entre eles não muda); Delete apaga. Ctrl+clique junta ou tira.",
+            int n => $"{n} itens selecionados · Arraste qualquer um para mover todos juntos (o espaço entre eles não muda); Ctrl+C copia; Delete apaga. Ctrl+clique junta ou tira.",
         };
         ToolTipService.SetToolTip(ToolHintText, _selection.Count == 1 ? _selection[0].Text : null);
     }
@@ -548,9 +548,83 @@ public sealed partial class ViewerPage
             UpdateSelectionUi(surface);
             return;
         }
+        if (e.Key == Windows.System.VirtualKey.C && CtrlDown() && _selection.Count > 0)
+        {
+            e.Handled = true;
+            CopySelectedBlocks();
+            return;
+        }
+        if (e.Key == Windows.System.VirtualKey.V && CtrlDown() && _blockClip is not null)
+        {
+            e.Handled = true;
+            await PasteBlocksAsync();
+            return;
+        }
         if (e.Key is not (Windows.System.VirtualKey.Delete or Windows.System.VirtualKey.Back) || _selection.Count == 0) return;
         e.Handled = true;
         await DeleteSelectedBlockAsync();
+    }
+
+    // ---------------- Copiar e colar (com a mesma formatação) ----------------
+
+    /// <summary>O que foi copiado no Editar tudo: os blocos, a página e o documento de onde vieram.</summary>
+    private sealed record BlockClip(List<ContentBlock> Blocks, int Page, string Document);
+    private BlockClip? _blockClip;
+
+    /// <summary>Guarda o que está selecionado para colar (e o texto puro na área de transferência do Windows).</summary>
+    private void CopySelectedBlocks()
+    {
+        if (_selection.Count == 0 || _blockSurface is not { } surface || SlotOf(surface) is not { } slot || _path is null) return;
+        var blocks = _selection.ToList();
+        _blockClip = new BlockClip(blocks, slot.Index, _path);
+        string text = string.Join("\n\n", blocks.Where(b => b.Kind == BlockKind.Text).Select(b => b.Text));
+        if (text.Length > 0)
+        {
+            try
+            {
+                var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                package.SetText(text);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            }
+            catch (Exception) { /* área de transferência ocupada: colar no PDF continua funcionando */ }
+        }
+        bool single = blocks.Count == 1;
+        var noun = Noun(blocks[0]);
+        ShowStatus(InfoBarSeverity.Informational,
+            single ? $"{noun.Name} {(noun.Female ? "copiada" : "copiado")}" : $"{blocks.Count} itens copiados",
+            "Ponha o mouse na página onde quer colar e aperte Ctrl+V. Fica no mesmo lugar e com a mesma formatação.");
+    }
+
+    /// <summary>Cola o que foi copiado na página sob o mouse (ou na página atual), no mesmo lugar; na mesma página, um pouco ao lado.</summary>
+    private async Task PasteBlocksAsync()
+    {
+        if (_blockClip is not { } clip || _blockEditor is not null) return;
+        if (!string.Equals(clip.Document, _path, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Não dá para colar aqui", "O que foi copiado é de outro arquivo. Por enquanto, dá para colar só no mesmo PDF.");
+            return;
+        }
+        var surface = _blockSurface;
+        if (surface is null || SlotOf(surface) is null)
+            surface = PagesRepeater.TryGetElement(CurrentIndex) is { } element ? FindSurface(element) : null;
+        if (surface is null || SlotOf(surface) is not { } slot) return;
+        int from = clip.Page, to = slot.Index;
+        var blocks = clip.Blocks;
+        // Na mesma página, a cópia vai um pouco para baixo e para a direita (para não ficar em cima do original).
+        double shift = from == to ? 14 : 0;
+        bool single = blocks.Count == 1;
+        var noun = Noun(blocks[0]);
+        ToolHintText.Text = single ? $"Colando {noun.The}…" : $"Colando {blocks.Count} itens…";
+        bool done = await ApplyEditAsync((input, output) => PdfTextEditor.CopyToPage(input, from, blocks, to, shift, shift, output),
+            label: single ? $"Colar {noun.Name.ToLowerInvariant()}" : "Colar itens");
+        if (done)
+            ShowStatus(InfoBarSeverity.Success,
+                (single ? $"{noun.Name} {(noun.Female ? "colada" : "colado")}" : $"{blocks.Count} itens colados") + $" na página {to + 1}",
+                "Mesma formatação do original. Arraste para mudar de lugar; Desfazer (Ctrl+Z) volta.");
+        ToolHintText.Text = CommentTools["editartudo"].Hint;
+        if (_tool?.Mode != DrawMode.EditAll) return;
+        var now = await ShowBlockOutlinesAsync(surface, force: true);
+        if (done) SelectMatching(surface, now, blocks.Select(b => b with { X = b.X + shift, Y = b.Y + shift }));
     }
 
     /// <summary>Botão "Apagar" ao lado do que está selecionado (do último escolhido).</summary>
@@ -574,7 +648,24 @@ public sealed partial class ViewerPage
             : $"Apagar {Noun(block).This} (Delete)");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(delete, "DeleteBlockButton");
         delete.Click += async (_, _) => await DeleteSelectedBlockAsync();
-        var buttons = new StackPanel { Spacing = 4, Children = { delete } };
+        var copy = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { new FontIcon { Glyph = "\uE8C8", FontSize = 14 }, new TextBlock { Text = n > 1 ? $"Copiar ({n})" : "Copiar" } },
+            },
+            Padding = new Thickness(10, 4, 10, 4),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+        };
+        ToolTipService.SetToolTip(copy, "Copiar com a mesma formatação (Ctrl+C). Depois, com o mouse na página onde quer colar, aperte Ctrl+V");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(copy, "CopyBlockButton");
+        copy.Click += (_, _) => CopySelectedBlocks();
+        delete.HorizontalAlignment = HorizontalAlignment.Stretch;
+        delete.HorizontalContentAlignment = HorizontalAlignment.Left;
+        var buttons = new StackPanel { Spacing = 4, Children = { copy, delete } };
         if (n == 1 && block.Kind == BlockKind.Text && block.Lines.Count > 1)
         {
             var split = new Button
@@ -592,8 +683,6 @@ public sealed partial class ViewerPage
             ToolTipService.SetToolTip(split, $"Transforma as {block.Lines.Count} linhas deste bloco em itens separados, para editar, mover ou apagar só algumas");
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(split, "SplitBlockButton");
             split.Click += async (_, _) => await SplitSelectedBlockAsync();
-            delete.HorizontalAlignment = HorizontalAlignment.Stretch;
-            delete.HorizontalContentAlignment = HorizontalAlignment.Left;
             buttons.Children.Add(split);
         }
         var bar = new Border
@@ -606,7 +695,7 @@ public sealed partial class ViewerPage
             Child = buttons,
         };
         // Ao lado direito (para não cobrir o que está em cima); sem espaço, logo abaixo.
-        double barWidth = buttons.Children.Count > 1 ? 170 : 130;
+        double barWidth = buttons.Children.Count > 2 ? 170 : 140;
         double left = (block.Right + 6) * DipsPerPoint, top = (block.Y - 2) * DipsPerPoint;
         if (left + barWidth > surface.ActualWidth)
         {

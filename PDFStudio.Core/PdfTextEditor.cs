@@ -84,6 +84,7 @@ public static class PdfTextEditor
     private const string CannotDeleteImage = "Esta imagem está gravada de um jeito que não dá para apagar.";
     private const string CannotMoveObject = "Algum dos itens está gravado de um jeito que não dá para mover.";
     private const string CannotMoveToRotated = "As duas páginas estão giradas de jeitos diferentes. Gire uma delas igual à outra e tente de novo.";
+    private const string CannotCopy = "Não deu para copiar: o original mudou depois de copiado ou está gravado de um jeito que não dá para copiar. Copie de novo.";
     private const string CannotDeleteObject = "Algum dos itens está gravado de um jeito que não dá para apagar.";
 
     // ---------------- Desenhos (linhas, traços, retângulos…) ----------------
@@ -222,7 +223,21 @@ public static class PdfTextEditor
     public static void MoveToPage(string input, int fromPage, IReadOnlyList<ContentBlock> blocks, int toPage, double dx, double dy, string output)
     {
         if (fromPage == toPage) { Move(input, fromPage, blocks, dx, dy, output); return; }
-        if (blocks.Count == 0) throw new ArgumentException("Escolha o que mover.", nameof(blocks));
+        DrawOnPage(input, fromPage, blocks, toPage, dx, dy, output, keepOriginal: false);
+    }
+
+    /// <summary>
+    /// Copia os blocos (textos, imagens e desenhos) da página <paramref name="fromPage"/> para a página
+    /// <paramref name="toPage"/> (pode ser a mesma), em (X + <paramref name="dx"/>, Y + <paramref name="dy"/>). O original
+    /// fica onde está; a cópia usa os mesmos comandos, então tem a mesma letra, tamanho, cor e espaçamento.
+    /// </summary>
+    public static void CopyToPage(string input, int fromPage, IReadOnlyList<ContentBlock> blocks, int toPage, double dx, double dy, string output) =>
+        DrawOnPage(input, fromPage, blocks, toPage, dx, dy, output, keepOriginal: true);
+
+    private static void DrawOnPage(string input, int fromPage, IReadOnlyList<ContentBlock> blocks, int toPage, double dx, double dy, string output, bool keepOriginal)
+    {
+        if (blocks.Count == 0) throw new ArgumentException(keepOriginal ? "Escolha o que copiar." : "Escolha o que mover.", nameof(blocks));
+        string cannot = keepOriginal ? CannotCopy : CannotMove;
         var texts = blocks.Where(b => b.Kind == BlockKind.Text).ToList();
         int objectCount = blocks.Count - texts.Count;
         string temp = TempFile("move");
@@ -237,38 +252,25 @@ public static class PdfTextEditor
                 if (from.Rotation != to.Rotation) throw new InvalidOperationException(CannotMoveToRotated);
 
                 var streams = Walk(source, blocks);
-                if (streams.Any(s => s.Seq is null && !s.AppArtifact)) throw new InvalidOperationException(CannotMove);
+                if (streams.Any(s => s.Seq is null && !s.AppArtifact)) throw new InvalidOperationException(cannot);
                 var hits = streams.Where(s => s.Seq is not null && s.InBlock.Count > 0).ToList();
-                if (hits.Count == 0) throw new InvalidOperationException(CannotMove);
+                if (hits.Count == 0) throw new InvalidOperationException(cannot);
                 int objectHits = hits.Sum(s => s.InBlock.Count(i => s.Seq![i] is COperator { OpCode.OpCodeName: var op } && (op == OpCodeName.Do || IsPaint(op))));
-                if (objectHits < objectCount) throw new InvalidOperationException(CannotMoveObject);
+                if (objectHits < objectCount) throw new InvalidOperationException(keepOriginal ? CannotCopy : CannotMoveObject);
+                // Texto copiado: todas as palavras dele precisam estar entre os comandos achados.
+                if (keepOriginal && texts.Count > 0 && !hits.Any(s => s.InBlock.Any(i => s.Seq![i] is COperator { OpCode.OpCodeName: OpCodeName.Tj or OpCodeName.TJ or OpCodeName.QuoteSingle or OpCodeName.QuoteDouble })))
+                    throw new InvalidOperationException(CannotCopy);
 
                 // 1) Formulário com só o que foi escolhido, nas posições da página de origem.
-                var form = new StringBuilder("q\n");
-                foreach (var s in streams.Where(s => !s.AppArtifact && s.Seq is not null && s.Move is null))
-                    form.Append(OnlyChosen(s.Seq!, s.InBlock)).Append('\n');
-                form.Append("Q\n");
-                foreach (var s in hits.Where(s => s.Move is not null))
-                {
-                    var at = s.Move!.Value.At;
-                    form.Append($"q {Num(at.A)} {Num(at.B)} {Num(at.C)} {Num(at.D)} {Num(at.E)} {Num(at.F)} cm\n")
-                        .Append(OnlyChosen(s.Seq!, s.InBlock)).Append("\nQ\n");
-                }
+                var xobject = BuildForm(doc, source.Elements["/Resources"], streams, hits, OnlyChosen);
 
-                // 2) Tira da página de origem.
-                RemoveHits(streams);
+                // 2) Mover: tira da página de origem. Copiar: o original fica.
+                if (!keepOriginal) RemoveHits(streams);
 
                 // 3) Desenha na página de destino, deslocado: um ponto da origem vai para o lugar escolhido no destino.
                 var b0 = blocks[0];
                 var a = from.ViewToPdf(b0.X, b0.Y);
                 var z = to.ViewToPdf(b0.X + dx, b0.Y + dy);
-                var xobject = new PdfDictionary(doc);
-                xobject.Elements.SetName("/Type", "/XObject");
-                xobject.Elements.SetName("/Subtype", "/Form");
-                xobject.Elements["/BBox"] = new PdfArray(doc, new PdfReal(-20000), new PdfReal(-20000), new PdfReal(20000), new PdfReal(20000));
-                if (source.Elements["/Resources"] is { } resources) xobject.Elements["/Resources"] = resources;
-                xobject.CreateStream(Encoding.Latin1.GetBytes(form.ToString()));
-                doc.Internals.AddObject(xobject);
 
                 var xobjects = target.Resources.Elements.GetDictionary("/XObject");
                 if (xobjects is null)
@@ -283,16 +285,78 @@ public static class PdfTextEditor
                 target.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q\n"));
                 target.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes($"Q\nq 1 0 0 1 {Num(z.X - a.X)} {Num(z.Y - a.Y)} cm {name} Do Q\n"));
             });
-            // Conferência: na página de origem não pode sobrar palavra dos textos movidos.
-            if (texts.Count > 0 && PdfTextLayout.Words(temp, fromPage).Any(w =>
+            // Conferência: ao mover, na página de origem não pode sobrar palavra dos textos movidos; ao copiar, a cópia
+            // precisa ter o mesmo texto do original.
+            if (!keepOriginal && texts.Count > 0 && PdfTextLayout.Words(temp, fromPage).Any(w =>
                     texts.Any(t => t.Contains(w.X + w.Width / 2, w.Y + w.Height / 2))))
                 throw new InvalidOperationException(CannotMove);
+            if (keepOriginal && texts.Count > 0)
+            {
+                // As letras que apareceram na página de destino precisam incluir todas as letras copiadas.
+                static Dictionary<char, int> Letters(IEnumerable<string> parts) => parts.SelectMany(p => p)
+                    .Where(c => !char.IsWhiteSpace(c)).GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count());
+                var before = Letters(PdfTextLayout.Words(input, toPage).Select(w => w.Text));
+                var after = Letters(PdfTextLayout.Words(temp, toPage).Select(w => w.Text));
+                var copied = Letters(texts.Select(t => t.Text));
+                if (copied.Any(c => after.GetValueOrDefault(c.Key) - before.GetValueOrDefault(c.Key) < c.Value))
+                    throw new InvalidOperationException(CannotCopy);
+            }
             File.Copy(temp, output, overwrite: true);
         }
         finally
         {
             try { File.Delete(temp); } catch { /* arquivo temporário: tanto faz */ }
         }
+    }
+
+    /// <summary>
+    /// O formulário com só o que foi escolhido (<paramref name="only"/> filtra cada conteúdo), nas posições em que era
+    /// desenhado. O que já estava num formulário de mover/copiar vira um formulário menor com as fontes e imagens
+    /// dele (que podem ser de outra página), desenhado na mesma posição.
+    /// </summary>
+    private static PdfDictionary BuildForm(PdfDocument doc, PdfItem? pageResources, List<StreamOps> streams, List<StreamOps> hits,
+        Func<CSequence, List<int>, string> only)
+    {
+        var form = new StringBuilder("q\n");
+        foreach (var s in streams.Where(s => !s.AppArtifact && s.Seq is not null && s.Move is null))
+            form.Append(only(s.Seq!, s.InBlock)).Append('\n');
+        form.Append("Q\n");
+        var parts = new List<(string Name, PdfDictionary Form)>();
+        foreach (var s in hits.Where(s => s.Move is not null))
+        {
+            var at = s.Move!.Value.At;
+            string partName = $"/PSPart{parts.Count + 1}";
+            parts.Add((partName, NewForm(doc, s.Stream.Elements["/Resources"], only(s.Seq!, s.InBlock))));
+            form.Append($"q {Num(at.A)} {Num(at.B)} {Num(at.C)} {Num(at.D)} {Num(at.E)} {Num(at.F)} cm {partName} Do Q\n");
+        }
+        PdfItem? resources = pageResources;
+        if (parts.Count > 0)
+        {
+            // Recursos: os da página + os formulários menores.
+            var own = new PdfDictionary(doc);
+            if ((resources is PdfSharp.Pdf.Advanced.PdfReference r ? r.Value : resources) is PdfDictionary page)
+                foreach (var key in page.Elements.Keys) own.Elements[key] = page.Elements[key];
+            var x = new PdfDictionary(doc);
+            if (own.Elements.GetDictionary("/XObject") is { } oldX)
+                foreach (var key in oldX.Elements.Keys) x.Elements[key] = oldX.Elements[key];
+            foreach (var (partName, part) in parts) x.Elements[partName] = part.Reference;
+            own.Elements["/XObject"] = x;
+            resources = own;
+        }
+        return NewForm(doc, resources, form.ToString());
+    }
+
+    /// <summary>Formulário do PDF (desenho reaproveitável) com o conteúdo e os recursos (fontes, imagens) dados.</summary>
+    private static PdfDictionary NewForm(PdfDocument doc, PdfItem? resources, string content)
+    {
+        var xobject = new PdfDictionary(doc);
+        xobject.Elements.SetName("/Type", "/XObject");
+        xobject.Elements.SetName("/Subtype", "/Form");
+        xobject.Elements["/BBox"] = new PdfArray(doc, new PdfReal(-20000), new PdfReal(-20000), new PdfReal(20000), new PdfReal(20000));
+        if (resources is not null) xobject.Elements["/Resources"] = resources;
+        xobject.CreateStream(Encoding.Latin1.GetBytes(content));
+        doc.Internals.AddObject(xobject);
+        return xobject;
     }
 
     /// <summary>O conteúdo com só os comandos escolhidos (textos, imagens e desenhos); o resto não aparece.</summary>
@@ -394,29 +458,13 @@ public static class PdfTextEditor
         // 1) O "formulário" com só os textos escolhidos: o conteúdo da página inteiro (para valerem as mesmas fontes,
         // cores, posições e recortes), sem desenhos, imagens e sem os outros textos. Textos que já estavam num
         // formulário de mover entram com a posição em que eram desenhados.
-        var form = new StringBuilder("q\n");
-        foreach (var s in streams.Where(s => !s.AppArtifact && s.Seq is not null && s.Move is null))
-            form.Append(OnlyText(s.Seq!, s.InBlock)).Append('\n');
-        form.Append("Q\n");
-        foreach (var s in hits.Where(s => s.Move is not null))
-        {
-            var at = s.Move!.Value.At;
-            form.Append($"q {Num(at.A)} {Num(at.B)} {Num(at.C)} {Num(at.D)} {Num(at.E)} {Num(at.F)} cm\n")
-                .Append(OnlyText(s.Seq!, s.InBlock)).Append("\nQ\n");
-        }
+        var doc = page.Owner;
+        var xobject = BuildForm(doc, page.Elements["/Resources"], streams, hits, OnlyText);
 
         // 2) Tira os textos do lugar antigo.
         RemoveHits(streams);
 
         // 3) Desenha o formulário deslocado.
-        var doc = page.Owner;
-        var xobject = new PdfDictionary(doc);
-        xobject.Elements.SetName("/Type", "/XObject");
-        xobject.Elements.SetName("/Subtype", "/Form");
-        xobject.Elements["/BBox"] = new PdfArray(doc, new PdfReal(-20000), new PdfReal(-20000), new PdfReal(20000), new PdfReal(20000));
-        if (page.Elements["/Resources"] is { } resources) xobject.Elements["/Resources"] = resources;
-        xobject.CreateStream(Encoding.Latin1.GetBytes(form.ToString()));
-        doc.Internals.AddObject(xobject);
 
         var xobjects = page.Resources.Elements.GetDictionary("/XObject");
         if (xobjects is null)
